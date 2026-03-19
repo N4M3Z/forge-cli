@@ -1,0 +1,13 @@
+tags:
+    - one
+    - two
+    - three
+tools: Read, Write, Bash
+empty_list: []
+claude.tools:
+    - Read
+    - Write
+mixed:
+    - hello
+    - 42
+    - true

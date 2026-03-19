@@ -1,0 +1,5 @@
+user:
+    root: /custom
+    settings:
+        theme: dark
+extra: true

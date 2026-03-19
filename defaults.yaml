@@ -1,0 +1,24 @@
+# forge-cli default configuration.
+# Override: create config.yaml (gitignored) with only the fields you want to change.
+
+providers:
+    claude:
+        target: ".claude"
+
+    gemini:
+        target: ".gemini"
+        assembly:
+            - kebab-case
+            - remap-tools
+
+    codex:
+        target: ".codex"
+        assembly:
+            - agents-to-toml
+        deploy:
+            - rulesync
+
+    opencode:
+        target: ".opencode"
+        assembly:
+            - kebab-case

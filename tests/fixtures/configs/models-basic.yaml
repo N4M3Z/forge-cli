@@ -1,0 +1,9 @@
+claude:
+    - claude-opus-4-6
+    - claude-sonnet-4-6
+
+codex:
+    - o4-mini
+
+gemini:
+    - gemini-2.5-pro
