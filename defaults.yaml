@@ -4,12 +4,20 @@
 providers:
     claude:
         target: ".claude"
+        keep_fields:
+            agents: [name, description, model, allowedTools]
+            skills: [name, description, version]
+            rules: []
 
     gemini:
         target: ".gemini"
         assembly:
             - kebab-case
             - remap-tools
+        keep_fields:
+            agents: [name, description]
+            skills: [name, description, version]
+            rules: []
 
     codex:
         target: ".codex"
@@ -17,8 +25,16 @@ providers:
             - agents-to-toml
         deploy:
             - rulesync
+        keep_fields:
+            agents: [name, description]
+            skills: [name, description, version]
+            rules: []
 
     opencode:
         target: ".opencode"
         assembly:
             - kebab-case
+        keep_fields:
+            agents: [name, description]
+            skills: [name, description, version]
+            rules: []

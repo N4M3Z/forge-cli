@@ -75,18 +75,3 @@ pub fn load_tool_mappings(
         None => Ok(HashMap::new()),
     }
 }
-
-pub fn parse_keep_fields(config: &str) -> Vec<String> {
-    let parsed: serde_yaml::Value = match serde_yaml::from_str(config) {
-        Ok(value) => value,
-        Err(_) => return Vec::new(),
-    };
-
-    match parsed.get("keep_fields") {
-        Some(serde_yaml::Value::Sequence(items)) => items
-            .iter()
-            .filter_map(|item| item.as_str().map(String::from))
-            .collect(),
-        _ => Vec::new(),
-    }
-}

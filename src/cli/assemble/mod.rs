@@ -41,7 +41,6 @@ pub fn execute(path: &str) -> Result<ActionResult, Error> {
     let merged_config = config::load_merged_config(module_root)?;
     let providers = config::load_providers(&merged_config)?;
     let remap_content = config::load_remap_tools(module_root)?;
-    let keep_fields = config::parse_keep_fields(&merged_config);
     let source_files = sources::collect(module_root)?;
 
     let build_dir = module_root.join("build");
@@ -72,11 +71,18 @@ pub fn execute(path: &str) -> Result<ActionResult, Error> {
         let has_kebab_case = assembly_rules.contains(&commands::provider::AssemblyRule::KebabCase);
 
         for source in &source_files {
+            let kind_keep_fields = provider_config
+                .keep_fields
+                .as_ref()
+                .and_then(|fields_by_kind| fields_by_kind.get(&source.kind))
+                .cloned()
+                .unwrap_or_default();
+
             let assembled = pipeline::assemble_source(
                 source,
                 module_root,
                 provider_name,
-                &keep_fields,
+                &kind_keep_fields,
                 &tool_mappings,
             )?;
 
