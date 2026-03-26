@@ -34,8 +34,8 @@ enum Command {
         #[arg(long)]
         force: bool,
 
-        /// Prompt before overwriting each file
-        #[arg(long, short)]
+        /// Prompt before overwriting each file (not yet implemented, see CLI-0007)
+        #[arg(long, short, hide = true)]
         interactive: bool,
     },
 
@@ -58,8 +58,8 @@ enum Command {
         #[arg(long)]
         force: bool,
 
-        /// Prompt before overwriting each file
-        #[arg(long, short)]
+        /// Prompt before overwriting each file (not yet implemented, see CLI-0007)
+        #[arg(long, short, hide = true)]
         interactive: bool,
     },
 

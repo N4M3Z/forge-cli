@@ -48,9 +48,10 @@ forge copy path/to/module --target ~/project    # deploy from existing build/
 ## Build
 
 ```sh
-cargo build
-cargo test
-cargo clippy -- -D warnings
+make build    # cargo build --release
+make test     # cargo test + doc tests
+make lint     # cargo fmt --check + clippy + semgrep
+make install  # symlink to ~/.local/bin/forge
 ```
 
 ## Architecture

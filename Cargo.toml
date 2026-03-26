@@ -2,6 +2,8 @@
 name = "forge-cli"
 version = "0.1.0"
 edition = "2024"
+license = "EUPL-1.2"
+repository = "https://github.com/N4M3Z/forge-cli"
 description = "Forge module toolkit — assemble, validate, and deploy skills, agents, and rules across AI coding providers"
 
 [lib]
@@ -19,7 +21,6 @@ assemble = []
 validate = []
 deploy = []
 embed = ["dep:rust-embed"]
-testing = ["dep:tempfile"]
 
 [dependencies]
 # cli
@@ -40,14 +41,13 @@ chrono = "0.4"
 regex = "1"
 
 # optional
-tempfile = { version = "3", optional = true }
 rust-embed = { version = "8", optional = true }
 
 [dev-dependencies]
-forge-cli = { path = ".", features = ["testing"] }
 assert_cmd = "2"
 predicates = "3"
 proptest = "1"
+tempfile = "3"
 
 [lints.rust]
 unsafe_code = "forbid"

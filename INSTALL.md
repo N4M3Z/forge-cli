@@ -2,6 +2,8 @@
 
 > Assemble, validate, and deploy markdown content across AI coding providers.
 
+*This file follows the [install.md](https://github.com/mintlify/install-md) standard — structured instructions for AI agents to execute autonomously. Human readers: see [README.md](README.md) for conventional documentation.*
+
 I want you to install forge-cli for me. Execute all the steps below autonomously.
 
 ## OBJECTIVE

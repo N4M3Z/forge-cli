@@ -94,7 +94,9 @@ pub fn execute(path: &str) -> Result<ActionResult, Error> {
                 relative_within_kind.to_string()
             };
 
-            let output_path = provider_build_dir.join(&source.kind).join(&transformed_path);
+            let output_path = provider_build_dir
+                .join(&source.kind)
+                .join(&transformed_path);
             let manifest_key = format!("{}/{}/{}", provider_name, source.kind, transformed_path);
 
             output::write_file(&output_path, &assembled)?;

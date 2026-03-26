@@ -41,6 +41,10 @@ pub fn execute(
             None => Path::new(&provider_config.target).to_path_buf(),
         };
 
+        if let Some(dir) = target {
+            validate_target_boundary(&target_base, Path::new(dir))?;
+        }
+
         let mut new_manifest = load_deployed_manifest(&target_base);
 
         for kind in &["agents", "skills", "rules"] {
@@ -134,6 +138,28 @@ pub fn execute(
     Ok(result)
 }
 
+/// Verify the resolved target path stays within the specified base directory.
+fn validate_target_boundary(target_path: &Path, base_directory: &Path) -> Result<(), Error> {
+    let resolved_target = target_path
+        .canonicalize()
+        .unwrap_or_else(|_| target_path.to_path_buf());
+    let resolved_base = base_directory
+        .canonicalize()
+        .unwrap_or_else(|_| base_directory.to_path_buf());
+
+    if !resolved_target.starts_with(&resolved_base) {
+        return Err(Error::new(
+            ErrorKind::Config,
+            format!(
+                "target path escapes base directory: {} resolves outside {}",
+                target_path.display(),
+                resolved_base.display()
+            ),
+        ));
+    }
+    Ok(())
+}
+
 /// Load the previously deployed `.manifest` from a provider's target directory.
 fn load_deployed_manifest(target_base: &Path) -> HashMap<String, manifest::ManifestEntry> {
     let manifest_path = target_base.join(".manifest");
@@ -151,8 +177,12 @@ fn write_manifest(
     let yaml = manifest::write(entries)
         .map_err(|e| Error::new(ErrorKind::Io, format!("failed to serialize manifest: {e}")))?;
 
-    fs::create_dir_all(target_base)
-        .map_err(|e| Error::new(ErrorKind::Io, format!("cannot create {}: {e}", target_base.display())))?;
+    fs::create_dir_all(target_base).map_err(|e| {
+        Error::new(
+            ErrorKind::Io,
+            format!("cannot create {}: {e}", target_base.display()),
+        )
+    })?;
 
     let manifest_path = target_base.join(".manifest");
     fs::write(&manifest_path, &yaml)
@@ -186,17 +216,12 @@ fn copy_file(source: &Path, target: &Path) -> Result<(), Error> {
 fn collect_files_recursive(dir: &Path) -> Result<Vec<std::path::PathBuf>, Error> {
     let mut files = Vec::new();
 
-    let entries = fs::read_dir(dir).map_err(|e| {
-        Error::new(
-            ErrorKind::Io,
-            format!("cannot read {}: {e}", dir.display()),
-        )
-    })?;
+    let entries = fs::read_dir(dir)
+        .map_err(|e| Error::new(ErrorKind::Io, format!("cannot read {}: {e}", dir.display())))?;
 
     for entry in entries {
-        let entry = entry.map_err(|e| {
-            Error::new(ErrorKind::Io, format!("directory entry error: {e}"))
-        })?;
+        let entry =
+            entry.map_err(|e| Error::new(ErrorKind::Io, format!("directory entry error: {e}")))?;
 
         let path = entry.path();
         if path.is_dir() {

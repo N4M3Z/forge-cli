@@ -14,8 +14,8 @@ pub fn build_statement(manifest_key: &str, assembled: &str, source: &SourceFile)
         manifest_key,
         &output_sha256,
         &[(source.relative_path.clone(), source_sha256)],
-        "forge-cli",
-        "https://forge.example/build/v1",
+        env!("CARGO_PKG_NAME"),
+        &format!("{}/assemble/v1", env!("CARGO_PKG_REPOSITORY")),
         env!("CARGO_PKG_VERSION"),
     )
 }

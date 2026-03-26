@@ -60,8 +60,14 @@ fn statement_is_valid_yaml() {
 #[test]
 fn statement_includes_all_dependencies() {
     let inputs = vec![
-        ("rules/AgentTeams.md".to_string(), content_sha256("source a")),
-        ("rules/user/AgentTeams.md".to_string(), content_sha256("source b")),
+        (
+            "rules/AgentTeams.md".to_string(),
+            content_sha256("source a"),
+        ),
+        (
+            "rules/user/AgentTeams.md".to_string(),
+            content_sha256("source b"),
+        ),
     ];
 
     let statement = generate_statement(
@@ -193,13 +199,17 @@ fn status_new_when_no_manifest_entry() {
 
 #[test]
 fn status_new_when_target_missing() {
-    let entry = ManifestEntry { sha256: content_sha256("content") };
+    let entry = ManifestEntry {
+        sha256: content_sha256("content"),
+    };
     assert_eq!(status(None, Some(&entry), "abc"), FileStatus::New);
 }
 
 #[test]
 fn status_modified_when_target_edited() {
-    let entry = ManifestEntry { sha256: content_sha256("original") };
+    let entry = ManifestEntry {
+        sha256: content_sha256("original"),
+    };
     let build_sha256 = content_sha256("original");
     assert_eq!(
         status(Some("user edited this"), Some(&entry), &build_sha256),
@@ -210,7 +220,9 @@ fn status_modified_when_target_edited() {
 #[test]
 fn status_stale_when_source_changed() {
     let deployed_sha256 = content_sha256("old build");
-    let entry = ManifestEntry { sha256: deployed_sha256.clone() };
+    let entry = ManifestEntry {
+        sha256: deployed_sha256.clone(),
+    };
     let new_build_sha256 = content_sha256("new build");
     assert_eq!(
         status(Some("old build"), Some(&entry), &new_build_sha256),
@@ -222,7 +234,9 @@ fn status_stale_when_source_changed() {
 fn status_unchanged_when_all_match() {
     let content = "assembled output";
     let sha256 = content_sha256(content);
-    let entry = ManifestEntry { sha256: sha256.clone() };
+    let entry = ManifestEntry {
+        sha256: sha256.clone(),
+    };
     assert_eq!(
         status(Some(content), Some(&entry), &sha256),
         FileStatus::Unchanged

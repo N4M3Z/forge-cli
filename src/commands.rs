@@ -14,6 +14,3 @@ pub mod transform;
 
 #[cfg(feature = "validate")]
 pub mod validate;
-
-#[cfg(feature = "testing")]
-pub mod testing;

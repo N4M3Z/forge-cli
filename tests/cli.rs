@@ -34,7 +34,6 @@ fn install_help_shows_flags() {
         .assert()
         .success()
         .stdout(predicate::str::contains("--force"))
-        .stdout(predicate::str::contains("--interactive"))
         .stdout(predicate::str::contains("--json"));
 }
 

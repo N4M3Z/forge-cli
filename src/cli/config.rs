@@ -60,7 +60,9 @@ fn forge_cli_root() -> Option<std::path::PathBuf> {
 /// forge-cli's schema (target/assembly), falls back to forge-cli's
 /// own defaults.yaml for provider deployment config.
 pub fn load_providers(config: &str) -> Result<HashMap<String, provider::ProviderConfig>, Error> {
-    if let Ok(providers) = provider::load_providers(config) { Ok(providers) } else {
+    if let Ok(providers) = provider::load_providers(config) {
+        Ok(providers)
+    } else {
         // Module doesn't have provider deployment config — use forge-cli's own
         let cli_root = forge_cli_root().ok_or_else(|| {
             Error::new(ErrorKind::Config, "cannot locate forge-cli defaults.yaml")
@@ -74,8 +76,6 @@ pub fn load_providers(config: &str) -> Result<HashMap<String, provider::Provider
         })
     }
 }
-
-
 
 /// Load remap-tools.yaml, checking the module first then falling back to forge-cli's own.
 pub fn load_remap_tools(module_root: &Path) -> Result<Option<String>, Error> {
@@ -111,12 +111,17 @@ pub fn load_tool_mappings(
     }
 }
 
-/// Parse `keep_fields` from merged config as a comma-separated list.
 pub fn parse_keep_fields(config: &str) -> Vec<String> {
-    let raw = yaml::yaml_list(config, "keep_fields").unwrap_or_default();
-    if raw.is_empty() {
-        Vec::new()
-    } else {
-        raw.split(", ").map(String::from).collect()
+    let parsed: serde_yaml::Value = match serde_yaml::from_str(config) {
+        Ok(value) => value,
+        Err(_) => return Vec::new(),
+    };
+
+    match parsed.get("keep_fields") {
+        Some(serde_yaml::Value::Sequence(items)) => items
+            .iter()
+            .filter_map(|item| item.as_str().map(String::from))
+            .collect(),
+        _ => Vec::new(),
     }
 }
