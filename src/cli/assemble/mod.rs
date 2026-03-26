@@ -86,12 +86,18 @@ pub fn execute(path: &str) -> Result<ActionResult, Error> {
                 .cloned()
                 .unwrap_or_default();
 
+            let model_tiers = provider_config
+                .models
+                .clone()
+                .unwrap_or_default();
+
             let assembled = pipeline::assemble_source(
                 source,
                 module_root,
                 provider_name,
                 &kind_keep_fields,
                 &tool_mappings,
+                &model_tiers,
             )?;
 
             // For skills, preserve the skill directory: skills/SceneReview/SKILL.md

@@ -18,6 +18,7 @@ fn make_provider(assembly: Option<Vec<&str>>) -> ProviderConfig {
         assembly: assembly.map(|v| v.into_iter().map(String::from).collect()),
         deploy: None,
         keep_fields: None,
+        models: None,
     }
 }
 
@@ -135,6 +136,7 @@ fn unknown_rule_collected_as_error() {
             assembly: Some(vec!["nonexistent-rule".to_string()]),
             deploy: None,
             keep_fields: None,
+            models: None,
         },
     );
 

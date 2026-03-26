@@ -27,6 +27,7 @@ pub struct ProviderConfig {
     pub assembly: Option<Vec<String>>,
     pub deploy: Option<Vec<String>>,
     pub keep_fields: Option<HashMap<String, Vec<String>>>,
+    pub models: Option<HashMap<String, String>>,
 }
 
 // --- Loading ---

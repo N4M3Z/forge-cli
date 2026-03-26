@@ -8,6 +8,10 @@ providers:
             agents: [name, description, model, allowedTools]
             skills: [name, description, version]
             rules: []
+        models:
+            strong: opus
+            fast: sonnet
+            light: haiku
 
     gemini:
         target: ".gemini"
@@ -18,6 +22,10 @@ providers:
             agents: [name, description]
             skills: [name, description, version]
             rules: []
+        models:
+            strong: gemini-2.5-pro
+            fast: gemini-2.5-flash
+            light: gemini-2.0-flash
 
     codex:
         target: ".codex"
@@ -29,6 +37,10 @@ providers:
             agents: [name, description]
             skills: [name, description, version]
             rules: []
+        models:
+            strong: o3
+            fast: o4-mini
+            light: o4-mini
 
     opencode:
         target: ".opencode"
@@ -38,3 +50,7 @@ providers:
             agents: [name, description]
             skills: [name, description, version]
             rules: []
+        models:
+            strong: claude-opus-4-6
+            fast: claude-sonnet-4-6
+            light: claude-sonnet-4-6
