@@ -7,10 +7,12 @@ use std::path::Path;
 
 /// Embedded at compile time so the binary works when symlinked away from
 /// its source tree (e.g. ~/.local/bin/forge).
-const EMBEDDED_DEFAULTS: &str =
-    include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/defaults.yaml"));
-const EMBEDDED_REMAP_TOOLS: &str =
-    include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/config/remap-tools.yaml"));
+const EMBEDDED_DEFAULTS: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/defaults.yaml"));
+const EMBEDDED_REMAP_TOOLS: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/config/remap-tools.yaml"
+));
+const EMBEDDED_MODELS: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/models.yaml"));
 
 /// Read a file to string with consistent error handling.
 pub fn read_file(path: &Path) -> Result<String, Error> {
@@ -73,5 +75,23 @@ pub fn load_tool_mappings(
             )
         }),
         None => Ok(HashMap::new()),
+    }
+}
+
+/// Load model definitions from models.yaml, falling back to embedded defaults.
+///
+/// Returns an empty map if neither the module file nor the embedded file
+/// can be parsed (all model-tier qualifiers become unresolvable).
+pub fn load_models(module_root: &Path) -> HashMap<String, Vec<String>> {
+    let models_path = module_root.join("models.yaml");
+    let content = if models_path.is_file() {
+        read_file(&models_path).ok()
+    } else {
+        Some(EMBEDDED_MODELS.to_string())
+    };
+
+    match content {
+        Some(yaml) => provider::load_models(&yaml).unwrap_or_default(),
+        None => HashMap::new(),
     }
 }

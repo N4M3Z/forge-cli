@@ -41,7 +41,10 @@ pub fn execute(path: &str) -> Result<ActionResult, Error> {
     let merged_config = config::load_merged_config(module_root)?;
     let providers = config::load_providers(&merged_config)?;
     let remap_content = config::load_remap_tools(module_root)?;
-    let source_files = sources::collect(module_root)?;
+    let models = config::load_models(module_root);
+    let provider_names: Vec<String> = providers.keys().cloned().collect();
+    let valid_qualifiers = sources::build_valid_qualifiers(&provider_names, &models);
+    let source_files = sources::collect(module_root, &valid_qualifiers)?;
 
     let build_dir = module_root.join("build");
 
@@ -71,6 +74,11 @@ pub fn execute(path: &str) -> Result<ActionResult, Error> {
         let has_kebab_case = assembly_rules.contains(&commands::provider::AssemblyRule::KebabCase);
 
         for source in &source_files {
+            if source.qualifier.as_ref().is_some_and(|qualifier| {
+                !qualifier_matches_provider(qualifier, provider_name, &models)
+            }) {
+                continue;
+            }
             let kind_keep_fields = provider_config
                 .keep_fields
                 .as_ref()
@@ -88,10 +96,19 @@ pub fn execute(path: &str) -> Result<ActionResult, Error> {
 
             // For skills, preserve the skill directory: skills/SceneReview/SKILL.md
             // For agents/rules, use just the filename: agents/GameMaster.md
-            let relative_within_kind = source
+            // For qualifier-only files, strip the qualifier directory too:
+            //   rules/sonnet/ReviewDiscipline.md → ReviewDiscipline.md
+            let stripped_kind = source
                 .relative_path
                 .strip_prefix(&format!("{}/", source.kind))
                 .unwrap_or(&source.relative_path);
+            let relative_within_kind = if source.qualifier.is_some() {
+                stripped_kind
+                    .split_once('/')
+                    .map_or(stripped_kind, |(_, filename)| filename)
+            } else {
+                stripped_kind
+            };
 
             // Apply filename transforms (kebab-case for gemini/opencode)
             let transformed_path = if has_kebab_case {
@@ -139,4 +156,85 @@ fn apply_kebab_case_to_path(path: &str) -> String {
     }
 
     result.join("/")
+}
+
+/// Check whether a qualifier directory matches a given provider.
+///
+/// A qualifier matches if it is either the provider name itself, or if
+/// any model ID for that provider contains the qualifier as a substring.
+fn qualifier_matches_provider(
+    qualifier: &str,
+    provider_name: &str,
+    models: &std::collections::HashMap<String, Vec<String>>,
+) -> bool {
+    if qualifier == provider_name {
+        return true;
+    }
+    if let Some(model_ids) = models.get(provider_name) {
+        return model_ids.iter().any(|id| id.contains(qualifier));
+    }
+    false
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashMap;
+
+    fn make_models() -> HashMap<String, Vec<String>> {
+        let mut models = HashMap::new();
+        models.insert(
+            "claude".to_string(),
+            vec![
+                "claude-opus-4-6".to_string(),
+                "claude-sonnet-4-6".to_string(),
+            ],
+        );
+        models.insert("codex".to_string(), vec!["o4-mini".to_string()]);
+        models.insert(
+            "opencode".to_string(),
+            vec!["claude-sonnet-4-6".to_string()],
+        );
+        models
+    }
+
+    #[test]
+    fn direct_provider_name_matches() {
+        let models = make_models();
+        assert!(qualifier_matches_provider("claude", "claude", &models));
+        assert!(qualifier_matches_provider("codex", "codex", &models));
+    }
+
+    #[test]
+    fn model_tier_matches_provider_with_that_model() {
+        let models = make_models();
+        assert!(qualifier_matches_provider("sonnet", "claude", &models));
+        assert!(qualifier_matches_provider("opus", "claude", &models));
+    }
+
+    #[test]
+    fn model_tier_matches_across_providers() {
+        let models = make_models();
+        assert!(qualifier_matches_provider("sonnet", "opencode", &models));
+    }
+
+    #[test]
+    fn model_tier_does_not_match_unrelated_provider() {
+        let models = make_models();
+        assert!(!qualifier_matches_provider("sonnet", "codex", &models));
+        assert!(!qualifier_matches_provider("opus", "codex", &models));
+    }
+
+    #[test]
+    fn unknown_qualifier_does_not_match() {
+        let models = make_models();
+        assert!(!qualifier_matches_provider("gpt5", "claude", &models));
+    }
+
+    #[test]
+    fn provider_not_in_models_only_matches_by_name() {
+        let models = make_models();
+        assert!(qualifier_matches_provider("gemini", "gemini", &models));
+        assert!(!qualifier_matches_provider("sonnet", "gemini", &models));
+    }
 }

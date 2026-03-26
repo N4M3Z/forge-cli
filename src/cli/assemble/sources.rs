@@ -1,4 +1,5 @@
 use commands::error::{Error, ErrorKind};
+use std::collections::HashSet;
 use std::fs;
 use std::path::Path;
 
@@ -13,6 +14,7 @@ use crate::cli::config::read_file;
 ///     content: "---\nname: MyRule\n---\n...",
 ///     kind: "rules",
 ///     passthrough: false,
+///     qualifier: None,
 /// }
 /// ```
 pub struct SourceFile {
@@ -26,6 +28,8 @@ pub struct SourceFile {
     pub kind: String,
     /// Whether this file is a passthrough (non-SKILL.md file inside a skill dir).
     pub passthrough: bool,
+    /// Qualifier directory name (e.g., "sonnet", "codex"), or None for base files.
+    pub qualifier: Option<String>,
 }
 
 /// Walk agents/, skills/, rules/ and collect all .md source files.
@@ -36,6 +40,8 @@ pub struct SourceFile {
 /// module/
 ///   agents/SecurityArchitect.md
 ///   rules/MyRule.md
+///   rules/sonnet/ReviewDiscipline.md   (qualifier-only)
+///   rules/codex/AgentTeams.md          (variant override)
 ///   skills/Explain/SKILL.md
 ///   skills/Explain/examples.md
 /// ```
@@ -43,7 +49,15 @@ pub struct SourceFile {
 /// Returns `SourceFiles` for each .md file. For skills, SKILL.md files
 /// are marked `passthrough: false` (assembled), other .md files in
 /// skill directories are `passthrough: true` (copied verbatim).
-pub fn collect(module_root: &Path) -> Result<Vec<SourceFile>, Error> {
+///
+/// For rules and agents, subdirectories matching valid qualifier names
+/// are walked for qualifier-only files (files with no base counterpart).
+/// The `user/` directory is skipped here (handled by variant resolution).
+/// Skills do not support qualifier directories.
+pub fn collect(
+    module_root: &Path,
+    valid_qualifiers: &HashSet<String>,
+) -> Result<Vec<SourceFile>, Error> {
     let mut sources = Vec::new();
 
     for kind in &["agents", "skills", "rules"] {
@@ -52,21 +66,33 @@ pub fn collect(module_root: &Path) -> Result<Vec<SourceFile>, Error> {
             continue;
         }
 
-        walk_content_dir(&dir, kind, module_root, &mut sources)?;
+        if *kind == "skills" {
+            walk_content_dir(&dir, kind, module_root, &mut sources, &HashSet::new())?;
+        } else {
+            walk_content_dir(&dir, kind, module_root, &mut sources, valid_qualifiers)?;
+        }
     }
 
     Ok(sources)
 }
 
-/// Walk a flat content directory (agents/ or rules/), collecting .md files.
+/// Walk a content directory (agents/, rules/, or skills/), collecting .md files.
+///
+/// For rules and agents, subdirectories matching valid qualifier names are
+/// walked for qualifier-only files. Base filenames are collected first, then
+/// qualifier directories are scanned for files that have no base counterpart.
 fn walk_content_dir(
     dir: &Path,
     kind: &str,
     module_root: &Path,
     sources: &mut Vec<SourceFile>,
+    valid_qualifiers: &HashSet<String>,
 ) -> Result<(), Error> {
     let entries = fs::read_dir(dir)
         .map_err(|e| Error::new(ErrorKind::Io, format!("cannot read {}: {e}", dir.display())))?;
+
+    let mut base_filenames: HashSet<String> = HashSet::new();
+    let mut qualifier_directories: Vec<(String, std::path::PathBuf)> = Vec::new();
 
     for entry in entries {
         let entry =
@@ -77,6 +103,17 @@ fn walk_content_dir(
         if path.is_dir() {
             if kind == "skills" {
                 walk_skill_dir(&path, kind, module_root, sources)?;
+                continue;
+            }
+
+            let dirname = path
+                .file_name()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .to_string();
+
+            if dirname != "user" && valid_qualifiers.contains(&dirname) {
+                qualifier_directories.push((dirname, path));
             }
             continue;
         }
@@ -84,6 +121,14 @@ fn walk_content_dir(
         if path.extension().unwrap_or_default() != "md" {
             continue;
         }
+
+        let filename = path
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .to_string();
+
+        base_filenames.insert(filename);
 
         let relative = path
             .strip_prefix(module_root)
@@ -99,6 +144,68 @@ fn walk_content_dir(
             content,
             kind: kind.to_string(),
             passthrough: false,
+            qualifier: None,
+        });
+    }
+
+    for (qualifier_name, qualifier_path) in qualifier_directories {
+        walk_qualifier_dir(
+            &qualifier_path,
+            &qualifier_name,
+            kind,
+            module_root,
+            sources,
+            &base_filenames,
+        )?;
+    }
+
+    Ok(())
+}
+
+/// Walk a qualifier subdirectory, collecting only qualifier-only files.
+///
+/// Files that share a name with a base file are variant overrides, handled
+/// by `variants::resolve` during assembly of the base file. Only files
+/// with no base counterpart are collected as qualifier-only sources.
+fn walk_qualifier_dir(
+    dir: &Path,
+    qualifier_name: &str,
+    kind: &str,
+    module_root: &Path,
+    sources: &mut Vec<SourceFile>,
+    base_filenames: &HashSet<String>,
+) -> Result<(), Error> {
+    let entries = fs::read_dir(dir)
+        .map_err(|e| Error::new(ErrorKind::Io, format!("cannot read {}: {e}", dir.display())))?;
+
+    for entry in entries {
+        let entry =
+            entry.map_err(|e| Error::new(ErrorKind::Io, format!("directory entry error: {e}")))?;
+        let path = entry.path();
+        if path.is_dir() || path.extension().unwrap_or_default() != "md" {
+            continue;
+        }
+        let filename = path
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .to_string();
+        if base_filenames.contains(&filename) {
+            continue;
+        }
+        let relative = path
+            .strip_prefix(module_root)
+            .unwrap_or(&path)
+            .to_string_lossy()
+            .to_string();
+        let content = read_file(&path)?;
+        sources.push(SourceFile {
+            relative_path: relative,
+            full_path: path.to_string_lossy().to_string(),
+            content,
+            kind: kind.to_string(),
+            passthrough: false,
+            qualifier: Some(qualifier_name.to_string()),
         });
     }
 
@@ -154,8 +261,211 @@ fn walk_skill_dir(
             content,
             kind: kind.to_string(),
             passthrough: !is_skill_file,
+            qualifier: None,
         });
     }
 
     Ok(())
+}
+
+/// Build the set of valid qualifier names from provider names and model IDs.
+///
+/// A qualifier is valid if it matches either a provider name (e.g., "claude")
+/// or a segment of any model ID (e.g., "sonnet" from "claude-sonnet-4-6").
+pub fn build_valid_qualifiers(
+    provider_names: &[String],
+    models: &std::collections::HashMap<String, Vec<String>>,
+) -> HashSet<String> {
+    let mut qualifiers = HashSet::new();
+    for name in provider_names {
+        qualifiers.insert(name.clone());
+    }
+    for model_ids in models.values() {
+        for model_id in model_ids {
+            for segment in model_id.split('-') {
+                if !segment.is_empty() {
+                    qualifiers.insert(segment.to_string());
+                }
+            }
+        }
+    }
+    qualifiers
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashMap;
+
+    macro_rules! fixture {
+        ($name:expr) => {
+            include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/tests/fixtures/input/",
+                $name
+            ))
+        };
+    }
+
+    const BASE_RULE: &str = fixture!("qualifier-base-rule.md");
+    const QUALIFIER_ONLY: &str = fixture!("qualifier-only-rule.md");
+    const VARIANT_OVERRIDE: &str = fixture!("qualifier-variant-override.md");
+
+    fn make_models() -> HashMap<String, Vec<String>> {
+        let mut models = HashMap::new();
+        models.insert(
+            "claude".to_string(),
+            vec![
+                "claude-opus-4-6".to_string(),
+                "claude-sonnet-4-6".to_string(),
+            ],
+        );
+        models.insert("codex".to_string(), vec!["o4-mini".to_string()]);
+        models.insert(
+            "opencode".to_string(),
+            vec!["claude-sonnet-4-6".to_string()],
+        );
+        models
+    }
+
+    fn scaffold_kind(root: &std::path::Path, kind: &str) -> std::path::PathBuf {
+        let dir = root.join(kind);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn build_qualifiers_includes_provider_names() {
+        let providers = vec!["claude".to_string(), "codex".to_string()];
+        let qualifiers = build_valid_qualifiers(&providers, &make_models());
+        assert!(qualifiers.contains("claude"));
+        assert!(qualifiers.contains("codex"));
+    }
+
+    #[test]
+    fn build_qualifiers_includes_model_tier_segments() {
+        let providers = vec!["claude".to_string()];
+        let qualifiers = build_valid_qualifiers(&providers, &make_models());
+        assert!(qualifiers.contains("sonnet"));
+        assert!(qualifiers.contains("opus"));
+    }
+
+    #[test]
+    fn qualifier_only_files_have_qualifier_set() {
+        let dir = tempfile::tempdir().unwrap();
+        let rules = scaffold_kind(dir.path(), "rules");
+        std::fs::write(rules.join("BaseRule.md"), BASE_RULE).unwrap();
+        let sonnet = rules.join("sonnet");
+        std::fs::create_dir(&sonnet).unwrap();
+        std::fs::write(sonnet.join("QualifierOnly.md"), QUALIFIER_ONLY).unwrap();
+
+        let valid = HashSet::from(["sonnet".to_string()]);
+        let sources = collect(dir.path(), &valid).unwrap();
+
+        let base = sources
+            .iter()
+            .find(|s| s.relative_path.contains("BaseRule"))
+            .unwrap();
+        assert!(base.qualifier.is_none());
+        let qualified = sources
+            .iter()
+            .find(|s| s.relative_path.contains("QualifierOnly"))
+            .unwrap();
+        assert_eq!(qualified.qualifier, Some("sonnet".to_string()));
+    }
+
+    #[test]
+    fn skips_variant_overrides_in_qualifier_dirs() {
+        let dir = tempfile::tempdir().unwrap();
+        let rules = scaffold_kind(dir.path(), "rules");
+        std::fs::write(rules.join("BaseRule.md"), BASE_RULE).unwrap();
+        let codex = rules.join("codex");
+        std::fs::create_dir(&codex).unwrap();
+        std::fs::write(codex.join("BaseRule.md"), VARIANT_OVERRIDE).unwrap();
+
+        let valid = HashSet::from(["codex".to_string()]);
+        let sources = collect(dir.path(), &valid).unwrap();
+
+        let matching: Vec<_> = sources
+            .iter()
+            .filter(|s| s.relative_path.contains("BaseRule"))
+            .collect();
+        assert_eq!(matching.len(), 1);
+        assert!(matching[0].qualifier.is_none());
+    }
+
+    #[test]
+    fn skips_user_directory() {
+        let dir = tempfile::tempdir().unwrap();
+        let rules = scaffold_kind(dir.path(), "rules");
+        std::fs::write(rules.join("BaseRule.md"), BASE_RULE).unwrap();
+        let user = rules.join("user");
+        std::fs::create_dir(&user).unwrap();
+        std::fs::write(user.join("UserOnly.md"), QUALIFIER_ONLY).unwrap();
+
+        let valid = HashSet::from(["user".to_string()]);
+        let sources = collect(dir.path(), &valid).unwrap();
+        assert!(
+            sources
+                .iter()
+                .all(|s| !s.relative_path.contains("UserOnly"))
+        );
+    }
+
+    #[test]
+    fn skips_unknown_subdirectories() {
+        let dir = tempfile::tempdir().unwrap();
+        let rules = scaffold_kind(dir.path(), "rules");
+        std::fs::write(rules.join("BaseRule.md"), BASE_RULE).unwrap();
+        let unknown = rules.join("unknown-tier");
+        std::fs::create_dir(&unknown).unwrap();
+        std::fs::write(unknown.join("SomeRule.md"), QUALIFIER_ONLY).unwrap();
+
+        let valid = HashSet::from(["sonnet".to_string()]);
+        let sources = collect(dir.path(), &valid).unwrap();
+        assert!(
+            sources
+                .iter()
+                .all(|s| !s.relative_path.contains("SomeRule"))
+        );
+    }
+
+    #[test]
+    fn skills_ignore_qualifier_directories() {
+        let dir = tempfile::tempdir().unwrap();
+        let skills = scaffold_kind(dir.path(), "skills");
+        let sonnet_skill = skills.join("sonnet");
+        std::fs::create_dir(&sonnet_skill).unwrap();
+        std::fs::write(sonnet_skill.join("SKILL.md"), QUALIFIER_ONLY).unwrap();
+
+        let valid = HashSet::from(["sonnet".to_string()]);
+        let sources = collect(dir.path(), &valid).unwrap();
+
+        let skill = sources
+            .iter()
+            .find(|s| s.relative_path.contains("SKILL"))
+            .unwrap();
+        assert!(skill.qualifier.is_none());
+        assert_eq!(skill.kind, "skills");
+    }
+
+    #[test]
+    fn agents_qualifier_directory() {
+        let dir = tempfile::tempdir().unwrap();
+        let agents = scaffold_kind(dir.path(), "agents");
+        std::fs::write(agents.join("BaseAgent.md"), BASE_RULE).unwrap();
+        let codex = agents.join("codex");
+        std::fs::create_dir(&codex).unwrap();
+        std::fs::write(codex.join("CodexOnly.md"), QUALIFIER_ONLY).unwrap();
+
+        let valid = HashSet::from(["codex".to_string()]);
+        let sources = collect(dir.path(), &valid).unwrap();
+
+        let codex_only = sources
+            .iter()
+            .find(|s| s.relative_path.contains("CodexOnly"))
+            .unwrap();
+        assert_eq!(codex_only.qualifier, Some("codex".to_string()));
+        assert_eq!(codex_only.kind, "agents");
+    }
 }
