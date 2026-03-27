@@ -1,235 +1,93 @@
 use commands::error::{Error, ErrorKind};
-use commands::manifest;
-use commands::result::{ActionResult, DeployedFile, SkipReason, SkippedFile};
-use std::collections::HashMap;
+use commands::result::{ActionResult, DeployedFile};
 use std::fs;
 use std::path::Path;
 
-use crate::cli::config;
-
-/// Copy assembled files from build/ to provider target directories.
+/// Copy source files directly to a target directory.
 ///
-/// Reads `.manifest` from each provider's target to detect user modifications.
-/// After copying, writes an updated `.manifest` recording what was deployed.
-///
-/// ```text
-/// New       → copy
-/// Unchanged → skip
-/// Stale     → copy (source changed since last build)
-/// Modified  → skip (unless --force)
-/// ```
-pub fn execute(
-    path: &str,
-    target: Option<&str>,
-    force: bool,
-    _interactive: bool,
-) -> Result<ActionResult, Error> {
+/// No assembly, no transforms, no manifest tracking.
+/// Copies agents/, skills/, rules/ as-is from module root to target.
+pub fn execute(path: &str, target: &str) -> Result<ActionResult, Error> {
     let module_root = Path::new(path);
+    let target_root = Path::new(target);
     let mut result = ActionResult::new();
 
-    let merged_config = config::load_merged_config(module_root)?;
-    let providers = config::load_providers(&merged_config)?;
-
-    for (provider_name, provider_config) in &providers {
-        let build_provider_dir = module_root.join("build").join(provider_name);
-        if !build_provider_dir.is_dir() {
+    for kind in &["agents", "skills", "rules"] {
+        let source_directory = module_root.join(kind);
+        if !source_directory.is_dir() {
             continue;
         }
 
-        let target_base = match target {
-            Some(dir) => Path::new(dir).join(&provider_config.target),
-            None => Path::new(&provider_config.target).to_path_buf(),
-        };
+        let target_directory = target_root.join(kind);
 
-        if let Some(dir) = target {
-            validate_target_boundary(&target_base, Path::new(dir))?;
-        }
-
-        let mut new_manifest = load_deployed_manifest(&target_base);
-
-        for kind in &["agents", "skills", "rules"] {
-            let kind_dir = build_provider_dir.join(kind);
-            if !kind_dir.is_dir() {
-                continue;
-            }
-
-            let files = collect_files_recursive(&kind_dir)?;
-
-            for build_path in files {
-                if build_path.extension().unwrap_or_default() == "yaml" {
-                    continue;
-                }
-
-                let relative = build_path
-                    .strip_prefix(&kind_dir)
-                    .unwrap_or(&build_path)
-                    .to_string_lossy()
-                    .to_string();
-                let manifest_key = format!("{kind}/{relative}");
-                let target_path = target_base.join(kind).join(&relative);
-
-                let build_content = config::read_file(&build_path)?;
-                let build_sha256 = manifest::content_sha256(&build_content);
-
-                let target_content = fs::read_to_string(&target_path).ok();
-                let status = manifest::status(
-                    target_content.as_deref(),
-                    new_manifest.get(&manifest_key),
-                    &build_sha256,
-                );
-
-                match status {
-                    manifest::FileStatus::New | manifest::FileStatus::Stale => {
-                        copy_file(&build_path, &target_path)?;
-                        new_manifest.insert(
-                            manifest_key,
-                            manifest::ManifestEntry {
-                                sha256: build_sha256,
-                            },
-                        );
-                        result.installed.push(DeployedFile {
-                            source: build_path.to_string_lossy().to_string(),
-                            target: target_path.to_string_lossy().to_string(),
-                            provider: provider_name.clone(),
-                        });
-                    }
-                    manifest::FileStatus::Unchanged => {
-                        new_manifest.insert(
-                            manifest_key,
-                            manifest::ManifestEntry {
-                                sha256: build_sha256,
-                            },
-                        );
-                        result.skipped.push(SkippedFile {
-                            target: target_path.to_string_lossy().to_string(),
-                            provider: provider_name.clone(),
-                            reason: SkipReason::Unchanged,
-                        });
-                    }
-                    manifest::FileStatus::Modified => {
-                        if force {
-                            copy_file(&build_path, &target_path)?;
-                            new_manifest.insert(
-                                manifest_key,
-                                manifest::ManifestEntry {
-                                    sha256: build_sha256,
-                                },
-                            );
-                            result.installed.push(DeployedFile {
-                                source: build_path.to_string_lossy().to_string(),
-                                target: target_path.to_string_lossy().to_string(),
-                                provider: provider_name.clone(),
-                            });
-                        } else {
-                            result.skipped.push(SkippedFile {
-                                target: target_path.to_string_lossy().to_string(),
-                                provider: provider_name.clone(),
-                                reason: SkipReason::UserModified,
-                            });
-                        }
-                    }
-                }
-            }
-        }
-
-        write_manifest(&target_base, &new_manifest)?;
+        copy_directory_recursive(&source_directory, &target_directory, kind, &mut result)?;
     }
 
     Ok(result)
 }
 
-/// Verify the resolved target path stays within the specified base directory.
-fn validate_target_boundary(target_path: &Path, base_directory: &Path) -> Result<(), Error> {
-    let resolved_target = target_path
-        .canonicalize()
-        .unwrap_or_else(|_| target_path.to_path_buf());
-    let resolved_base = base_directory
-        .canonicalize()
-        .unwrap_or_else(|_| base_directory.to_path_buf());
-
-    if !resolved_target.starts_with(&resolved_base) {
-        return Err(Error::new(
-            ErrorKind::Config,
-            format!(
-                "target path escapes base directory: {} resolves outside {}",
-                target_path.display(),
-                resolved_base.display()
-            ),
-        ));
-    }
-    Ok(())
-}
-
-/// Load the previously deployed `.manifest` from a provider's target directory.
-fn load_deployed_manifest(target_base: &Path) -> HashMap<String, manifest::ManifestEntry> {
-    let manifest_path = target_base.join(".manifest");
-    let Ok(content) = fs::read_to_string(&manifest_path) else {
-        return HashMap::new();
-    };
-    manifest::read(&content).unwrap_or_default()
-}
-
-/// Write `.manifest` to the provider's target directory after deployment.
-fn write_manifest(
-    target_base: &Path,
-    entries: &HashMap<String, manifest::ManifestEntry>,
+fn copy_directory_recursive(
+    source_directory: &Path,
+    target_directory: &Path,
+    kind: &str,
+    result: &mut ActionResult,
 ) -> Result<(), Error> {
-    let yaml = manifest::write(entries)
-        .map_err(|e| Error::new(ErrorKind::Io, format!("failed to serialize manifest: {e}")))?;
-
-    fs::create_dir_all(target_base).map_err(|e| {
+    let entries = fs::read_dir(source_directory).map_err(|error| {
         Error::new(
             ErrorKind::Io,
-            format!("cannot create {}: {e}", target_base.display()),
+            format!("cannot read {}: {error}", source_directory.display()),
         )
     })?;
-
-    let manifest_path = target_base.join(".manifest");
-    fs::write(&manifest_path, &yaml)
-        .map_err(|e| Error::new(ErrorKind::Io, format!("cannot write .manifest: {e}")))
-}
-
-/// Copy a file, creating parent directories as needed.
-fn copy_file(source: &Path, target: &Path) -> Result<(), Error> {
-    if let Some(parent) = target.parent() {
-        fs::create_dir_all(parent).map_err(|e| {
-            Error::new(
-                ErrorKind::Io,
-                format!("cannot create {}: {e}", parent.display()),
-            )
-        })?;
-    }
-    fs::copy(source, target).map_err(|e| {
-        Error::new(
-            ErrorKind::Io,
-            format!(
-                "cannot copy {} -> {}: {e}",
-                source.display(),
-                target.display()
-            ),
-        )
-    })?;
-    Ok(())
-}
-
-/// Recursively collect all files in a directory.
-fn collect_files_recursive(dir: &Path) -> Result<Vec<std::path::PathBuf>, Error> {
-    let mut files = Vec::new();
-
-    let entries = fs::read_dir(dir)
-        .map_err(|e| Error::new(ErrorKind::Io, format!("cannot read {}: {e}", dir.display())))?;
 
     for entry in entries {
-        let entry =
-            entry.map_err(|e| Error::new(ErrorKind::Io, format!("directory entry error: {e}")))?;
+        let entry = entry.map_err(|error| {
+            Error::new(ErrorKind::Io, format!("directory entry error: {error}"))
+        })?;
 
-        let path = entry.path();
-        if path.is_dir() {
-            files.extend(collect_files_recursive(&path)?);
-        } else {
-            files.push(path);
+        let source_path = entry.path();
+        let filename = source_path
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .to_string();
+
+        let target_path = target_directory.join(&filename);
+
+        if source_path.is_dir() {
+            copy_directory_recursive(&source_path, &target_path, kind, result)?;
+            continue;
         }
+
+        if source_path.extension().unwrap_or_default() != "md" {
+            continue;
+        }
+
+        if let Some(parent) = target_path.parent() {
+            fs::create_dir_all(parent).map_err(|error| {
+                Error::new(
+                    ErrorKind::Io,
+                    format!("cannot create {}: {error}", parent.display()),
+                )
+            })?;
+        }
+
+        fs::copy(&source_path, &target_path).map_err(|error| {
+            Error::new(
+                ErrorKind::Io,
+                format!(
+                    "cannot copy {} -> {}: {error}",
+                    source_path.display(),
+                    target_path.display()
+                ),
+            )
+        })?;
+
+        result.installed.push(DeployedFile {
+            source: source_path.to_string_lossy().to_string(),
+            target: target_path.to_string_lossy().to_string(),
+            provider: kind.to_string(),
+        });
     }
 
-    Ok(files)
+    Ok(())
 }
