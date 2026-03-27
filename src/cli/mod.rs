@@ -3,11 +3,11 @@ mod config;
 mod copy;
 mod deploy;
 mod install;
+mod output;
 mod release;
 mod validate;
 
 use clap::{Parser, Subcommand};
-use commands::result::ActionResult;
 
 #[derive(Parser)]
 #[command(name = "forge", about = "Forge module toolkit", version)]
@@ -124,49 +124,12 @@ pub fn run() -> i32 {
 
     match result {
         Ok(action_result) => {
-            print(&action_result, args.json, verb);
+            output::print(&action_result, args.json, verb);
             i32::from(action_result.has_errors())
         }
         Err(error) => {
             eprintln!("fatal: {error}");
             2
         }
-    }
-}
-
-/// Print an `ActionResult` as human-readable text or JSON.
-fn print(result: &ActionResult, json_output: bool, verb: &str) {
-    if json_output {
-        match serde_json::to_string_pretty(result) {
-            Ok(json) => println!("{json}"),
-            Err(err) => eprintln!("failed to serialize result: {err}"),
-        }
-        return;
-    }
-
-    for entry in &result.installed {
-        println!(
-            "  {verb}: {} -> {} ({})",
-            entry.source, entry.target, entry.provider
-        );
-    }
-
-    for skipped in &result.skipped {
-        println!(
-            "  skipped: {} ({}, {:?})",
-            skipped.target, skipped.provider, skipped.reason
-        );
-    }
-
-    for error in &result.errors {
-        eprintln!("  error: {error}");
-    }
-
-    let action_count = result.installed.len();
-    let skipped_count = result.skipped.len();
-    let error_count = result.errors.len();
-
-    if action_count > 0 || skipped_count > 0 || error_count > 0 {
-        println!("  {action_count} {verb}, {skipped_count} skipped, {error_count} errors");
     }
 }
