@@ -39,19 +39,29 @@ pub fn load_merged_config(module_root: &Path) -> Result<String, Error> {
     }
 }
 
-/// Load provider configurations from merged config YAML.
-/// Falls back to embedded defaults when the module lacks a providers: section.
+/// Load provider configurations, merging module config with embedded defaults.
+///
+/// The embedded defaults provide the base (target, assembly rules, keep_fields,
+/// models). The module's providers: section overrides specific fields per provider.
+/// If the module has no providers: section, embedded defaults are used entirely.
 pub fn load_providers(config: &str) -> Result<HashMap<String, provider::ProviderConfig>, Error> {
-    if let Ok(providers) = provider::load_providers(config) {
-        Ok(providers)
-    } else {
-        provider::load_providers(EMBEDDED_DEFAULTS).map_err(|e| {
-            Error::new(
-                ErrorKind::Config,
-                format!("failed to load embedded provider config: {e}"),
-            )
-        })
-    }
+    let embedded_providers = provider::load_providers(EMBEDDED_DEFAULTS).map_err(|error| {
+        Error::new(
+            ErrorKind::Config,
+            format!("failed to load embedded provider config: {error}"),
+        )
+    })?;
+
+    let Ok(module_config) = yaml::deep_merge(EMBEDDED_DEFAULTS, config) else {
+        return Ok(embedded_providers);
+    };
+
+    provider::load_providers(&module_config).map_err(|error| {
+        Error::new(
+            ErrorKind::Config,
+            format!("failed to load merged provider config: {error}"),
+        )
+    })
 }
 
 /// Load remap-tools.yaml from the module, falling back to embedded defaults.
