@@ -20,6 +20,7 @@ pub fn assemble(
     source_content: &str,
     variant_content: Option<&str>,
     keep_fields: &[&str],
+    strip_links: bool,
 ) -> String {
     let merged = match variant_content {
         Some(vc) => {
@@ -31,7 +32,11 @@ pub fn assemble(
     };
 
     let stripped = strip_frontmatter(&merged, keep_fields);
-    strip(&stripped)
+    if strip_links {
+        strip(&stripped)
+    } else {
+        stripped
+    }
 }
 
 #[cfg(test)]

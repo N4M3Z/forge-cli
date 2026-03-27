@@ -72,6 +72,8 @@ pub fn execute(path: &str) -> Result<ActionResult, Error> {
             .collect();
 
         let has_kebab_case = assembly_rules.contains(&commands::provider::AssemblyRule::KebabCase);
+        let has_strip_links =
+            assembly_rules.contains(&commands::provider::AssemblyRule::StripLinks);
 
         for source in &source_files {
             if source.qualifier.as_ref().is_some_and(|qualifier| {
@@ -98,6 +100,7 @@ pub fn execute(path: &str) -> Result<ActionResult, Error> {
                 &kind_keep_fields,
                 &tool_mappings,
                 &model_tiers,
+                has_strip_links,
             )?;
 
             // For skills, preserve the skill directory: skills/SceneReview/SKILL.md

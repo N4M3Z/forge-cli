@@ -18,6 +18,7 @@ providers:
         assembly:
             - kebab-case
             - remap-tools
+            - strip-links
         keep_fields:
             agents: [name, description]
             skills: [name, description, version]
@@ -31,6 +32,7 @@ providers:
         target: ".codex"
         assembly:
             - agents-to-toml
+            - strip-links
         deploy:
             - rulesync
         keep_fields:
@@ -46,6 +48,7 @@ providers:
         target: ".opencode"
         assembly:
             - kebab-case
+            - strip-links
         keep_fields:
             agents: [name, description]
             skills: [name, description, version]

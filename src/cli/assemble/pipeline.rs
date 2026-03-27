@@ -29,6 +29,7 @@ pub fn assemble_source(
     keep_fields: &[String],
     tool_mappings: &HashMap<String, String>,
     model_tiers: &HashMap<String, String>,
+    strip_links: bool,
 ) -> Result<String, Error> {
     if source.passthrough {
         return Ok(source.content.clone());
@@ -46,7 +47,8 @@ pub fn assemble_source(
 
     let keep_refs: Vec<&str> = keep_fields.iter().map(String::as_str).collect();
 
-    let mut output = assemble::assemble(&source.content, variant_content.as_deref(), &keep_refs);
+    let mut output =
+        assemble::assemble(&source.content, variant_content.as_deref(), &keep_refs, strip_links);
 
     if !tool_mappings.is_empty() {
         for (from, to) in tool_mappings {

@@ -49,7 +49,8 @@ pub fn assemble_file(
     let assembled = if source.passthrough {
         source.content.to_string()
     } else {
-        super::assemble(source.content, source.variant_content, keep_fields)
+        let has_strip_links = rules.contains(&AssemblyRule::StripLinks);
+        super::assemble(source.content, source.variant_content, keep_fields, has_strip_links)
     };
 
     // Step 2: apply provider rules
