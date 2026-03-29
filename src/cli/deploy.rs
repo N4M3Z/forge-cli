@@ -102,8 +102,8 @@ fn deploy_provider_files(
     provider_name: &str,
     force: bool,
 ) -> Result<(), Error> {
-    for kind in &["agents", "skills", "rules"] {
-        let kind_dir = build_provider_dir.join(kind);
+    for kind in commands::provider::ContentKind::ALL {
+        let kind_dir = build_provider_dir.join(kind.as_str());
         if !kind_dir.is_dir() {
             continue;
         }
@@ -122,7 +122,7 @@ fn deploy_provider_files(
                 .to_string();
             let manifest_key = format!("{kind}/{relative}");
             deployed_keys.insert(manifest_key.clone());
-            let target_path = target_base.join(kind).join(&relative);
+            let target_path = target_base.join(kind.as_str()).join(&relative);
 
             let build_content = config::read_file(&build_path)?;
             let build_sha256 = manifest::content_sha256(&build_content);
@@ -192,12 +192,25 @@ fn deploy_provider_files(
 
 /// Verify the resolved target path stays within the specified base directory.
 fn validate_target_boundary(target_path: &Path, base_directory: &Path) -> Result<(), Error> {
-    let resolved_target = target_path
-        .canonicalize()
-        .unwrap_or_else(|_| target_path.to_path_buf());
-    let resolved_base = base_directory
-        .canonicalize()
-        .unwrap_or_else(|_| base_directory.to_path_buf());
+    fs::create_dir_all(target_path).map_err(|error| {
+        Error::new(
+            ErrorKind::Io,
+            format!("cannot create {}: {error}", target_path.display()),
+        )
+    })?;
+
+    let resolved_target = target_path.canonicalize().map_err(|error| {
+        Error::new(
+            ErrorKind::Io,
+            format!("cannot resolve {}: {error}", target_path.display()),
+        )
+    })?;
+    let resolved_base = base_directory.canonicalize().map_err(|error| {
+        Error::new(
+            ErrorKind::Io,
+            format!("cannot resolve {}: {error}", base_directory.display()),
+        )
+    })?;
 
     if !resolved_target.starts_with(&resolved_base) {
         return Err(Error::new(
@@ -218,7 +231,16 @@ fn load_deployed_manifest(target_base: &Path) -> HashMap<String, manifest::Manif
     let Ok(content) = fs::read_to_string(&manifest_path) else {
         return HashMap::new();
     };
-    manifest::read(&content).unwrap_or_default()
+    match manifest::read(&content) {
+        Ok(entries) => entries,
+        Err(error) => {
+            eprintln!(
+                "warning: corrupt .manifest at {}: {error}",
+                manifest_path.display()
+            );
+            HashMap::new()
+        }
+    }
 }
 
 /// Write `.manifest` to the provider's target directory after deployment.
