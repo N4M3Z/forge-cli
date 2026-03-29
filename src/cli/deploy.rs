@@ -1,7 +1,7 @@
 use commands::error::{Error, ErrorKind};
 use commands::manifest;
-use commands::result::{ActionResult, DeployedFile, SkipReason, SkippedFile};
-use std::collections::HashMap;
+use commands::result::{ActionResult, DeployedFile, PrunedFile, SkipReason, SkippedFile};
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::Path;
 
@@ -22,6 +22,7 @@ pub fn execute(
     path: &str,
     target: Option<&str>,
     force: bool,
+    prune: bool,
     _interactive: bool,
 ) -> Result<ActionResult, Error> {
     let module_root = Path::new(path);
@@ -45,41 +46,124 @@ pub fn execute(
             validate_target_boundary(&target_base, Path::new(dir))?;
         }
 
-        let mut new_manifest = load_deployed_manifest(&target_base);
+        let mut existing_manifest = load_deployed_manifest(&target_base);
+        let mut deployed_keys: HashSet<String> = HashSet::new();
 
-        for kind in &["agents", "skills", "rules"] {
-            let kind_dir = build_provider_dir.join(kind);
-            if !kind_dir.is_dir() {
+        deploy_provider_files(
+            &build_provider_dir,
+            &target_base,
+            &mut existing_manifest,
+            &mut deployed_keys,
+            &mut result,
+            provider_name,
+            force,
+        )?;
+
+        // Stale detection only with --prune (shared manifests across
+        // modules make automatic detection unreliable without module ownership)
+        if prune {
+            let stale_keys: Vec<String> = existing_manifest
+                .keys()
+                .filter(|key| !deployed_keys.contains(*key))
+                .filter(|key| {
+                    ["agents/", "skills/", "rules/"]
+                        .iter()
+                        .any(|prefix| key.starts_with(prefix))
+                })
+                .cloned()
+                .collect();
+
+            for stale_key in &stale_keys {
+                let stale_path = target_base.join(stale_key);
+                if stale_path.is_file() {
+                    let _ = fs::remove_file(&stale_path);
+                }
+                existing_manifest.remove(stale_key);
+                result.pruned.push(PrunedFile {
+                    target: stale_path.to_string_lossy().to_string(),
+                    provider: provider_name.to_owned(),
+                });
+            }
+        }
+
+        write_manifest(&target_base, &existing_manifest)?;
+    }
+
+    Ok(result)
+}
+
+/// Deploy all content kinds (agents, skills, rules) for a single provider.
+fn deploy_provider_files(
+    build_provider_dir: &Path,
+    target_base: &Path,
+    new_manifest: &mut HashMap<String, manifest::ManifestEntry>,
+    deployed_keys: &mut HashSet<String>,
+    result: &mut ActionResult,
+    provider_name: &str,
+    force: bool,
+) -> Result<(), Error> {
+    for kind in &["agents", "skills", "rules"] {
+        let kind_dir = build_provider_dir.join(kind);
+        if !kind_dir.is_dir() {
+            continue;
+        }
+
+        let files = collect_files_recursive(&kind_dir)?;
+
+        for build_path in files {
+            if build_path.extension().unwrap_or_default() == "yaml" {
                 continue;
             }
 
-            let files = collect_files_recursive(&kind_dir)?;
+            let relative = build_path
+                .strip_prefix(&kind_dir)
+                .unwrap_or(&build_path)
+                .to_string_lossy()
+                .to_string();
+            let manifest_key = format!("{kind}/{relative}");
+            deployed_keys.insert(manifest_key.clone());
+            let target_path = target_base.join(kind).join(&relative);
 
-            for build_path in files {
-                if build_path.extension().unwrap_or_default() == "yaml" {
-                    continue;
+            let build_content = config::read_file(&build_path)?;
+            let build_sha256 = manifest::content_sha256(&build_content);
+
+            let target_content = fs::read_to_string(&target_path).ok();
+            let status = manifest::status(
+                target_content.as_deref(),
+                new_manifest.get(&manifest_key),
+                &build_sha256,
+            );
+
+            match status {
+                manifest::FileStatus::New | manifest::FileStatus::Stale => {
+                    copy_file(&build_path, &target_path)?;
+                    new_manifest.insert(
+                        manifest_key,
+                        manifest::ManifestEntry {
+                            sha256: build_sha256,
+                        },
+                    );
+                    result.installed.push(DeployedFile {
+                        source: build_path.to_string_lossy().to_string(),
+                        target: target_path.to_string_lossy().to_string(),
+                        provider: provider_name.to_owned(),
+                    });
                 }
-
-                let relative = build_path
-                    .strip_prefix(&kind_dir)
-                    .unwrap_or(&build_path)
-                    .to_string_lossy()
-                    .to_string();
-                let manifest_key = format!("{kind}/{relative}");
-                let target_path = target_base.join(kind).join(&relative);
-
-                let build_content = config::read_file(&build_path)?;
-                let build_sha256 = manifest::content_sha256(&build_content);
-
-                let target_content = fs::read_to_string(&target_path).ok();
-                let status = manifest::status(
-                    target_content.as_deref(),
-                    new_manifest.get(&manifest_key),
-                    &build_sha256,
-                );
-
-                match status {
-                    manifest::FileStatus::New | manifest::FileStatus::Stale => {
+                manifest::FileStatus::Unchanged => {
+                    new_manifest.insert(
+                        manifest_key,
+                        manifest::ManifestEntry {
+                            sha256: build_sha256,
+                        },
+                    );
+                    result.skipped.push(SkippedFile {
+                        target: target_path.to_string_lossy().to_string(),
+                        provider: provider_name.to_owned(),
+                        reason: SkipReason::Unchanged,
+                    });
+                }
+                manifest::FileStatus::Modified => {
+                    if force {
                         copy_file(&build_path, &target_path)?;
                         new_manifest.insert(
                             manifest_key,
@@ -90,52 +174,20 @@ pub fn execute(
                         result.installed.push(DeployedFile {
                             source: build_path.to_string_lossy().to_string(),
                             target: target_path.to_string_lossy().to_string(),
-                            provider: provider_name.clone(),
+                            provider: provider_name.to_owned(),
                         });
-                    }
-                    manifest::FileStatus::Unchanged => {
-                        new_manifest.insert(
-                            manifest_key,
-                            manifest::ManifestEntry {
-                                sha256: build_sha256,
-                            },
-                        );
+                    } else {
                         result.skipped.push(SkippedFile {
                             target: target_path.to_string_lossy().to_string(),
-                            provider: provider_name.clone(),
-                            reason: SkipReason::Unchanged,
+                            provider: provider_name.to_owned(),
+                            reason: SkipReason::UserModified,
                         });
-                    }
-                    manifest::FileStatus::Modified => {
-                        if force {
-                            copy_file(&build_path, &target_path)?;
-                            new_manifest.insert(
-                                manifest_key,
-                                manifest::ManifestEntry {
-                                    sha256: build_sha256,
-                                },
-                            );
-                            result.installed.push(DeployedFile {
-                                source: build_path.to_string_lossy().to_string(),
-                                target: target_path.to_string_lossy().to_string(),
-                                provider: provider_name.clone(),
-                            });
-                        } else {
-                            result.skipped.push(SkippedFile {
-                                target: target_path.to_string_lossy().to_string(),
-                                provider: provider_name.clone(),
-                                reason: SkipReason::UserModified,
-                            });
-                        }
                     }
                 }
             }
         }
-
-        write_manifest(&target_base, &new_manifest)?;
     }
-
-    Ok(result)
+    Ok(())
 }
 
 /// Verify the resolved target path stays within the specified base directory.

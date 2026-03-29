@@ -1,4 +1,4 @@
-use commands::result::{ActionResult, SkipReason, SkippedFile};
+use commands::result::{ActionResult, PrunedFile, SkipReason, SkippedFile};
 use console::Style;
 use std::collections::BTreeMap;
 
@@ -23,6 +23,7 @@ pub fn print(result: &ActionResult, json_output: bool, verb: &str) {
 struct ProviderGroup<'a> {
     kinds: BTreeMap<&'a str, usize>,
     skips: Vec<&'a SkippedFile>,
+    pruned: Vec<&'a PrunedFile>,
 }
 
 fn group_by_provider(result: &ActionResult) -> BTreeMap<&str, ProviderGroup<'_>> {
@@ -35,6 +36,7 @@ fn group_by_provider(result: &ActionResult) -> BTreeMap<&str, ProviderGroup<'_>>
             .or_insert_with(|| ProviderGroup {
                 kinds: BTreeMap::new(),
                 skips: Vec::new(),
+                pruned: Vec::new(),
             })
             .kinds
             .entry(kind)
@@ -47,9 +49,22 @@ fn group_by_provider(result: &ActionResult) -> BTreeMap<&str, ProviderGroup<'_>>
             .or_insert_with(|| ProviderGroup {
                 kinds: BTreeMap::new(),
                 skips: Vec::new(),
+                pruned: Vec::new(),
             })
             .skips
             .push(skipped);
+    }
+
+    for pruned_file in &result.pruned {
+        groups
+            .entry(&pruned_file.provider)
+            .or_insert_with(|| ProviderGroup {
+                kinds: BTreeMap::new(),
+                skips: Vec::new(),
+                pruned: Vec::new(),
+            })
+            .pruned
+            .push(pruned_file);
     }
 
     groups
@@ -100,6 +115,11 @@ fn print_providers(groups: &BTreeMap<&str, ProviderGroup<'_>>, result: &ActionRe
                 yellow.apply_to(reason)
             );
         }
+
+        for pruned_file in &group.pruned {
+            let relative = extract_relative_path(&pruned_file.target);
+            println!("   {} {}", red.apply_to("✂"), dim.apply_to(relative));
+        }
     }
 }
 
@@ -114,12 +134,14 @@ fn print_summary(result: &ActionResult, verb: &str) {
     let green = Style::new().green();
     let yellow = Style::new().yellow();
     let red = Style::new().red();
+    let dim = Style::new().dim();
 
     let action_count = result.installed.len();
     let skipped_count = result.skipped.len();
+    let pruned_count = result.pruned.len();
     let error_count = result.errors.len();
 
-    if action_count == 0 && skipped_count == 0 && error_count == 0 {
+    if action_count == 0 && skipped_count == 0 && pruned_count == 0 && error_count == 0 {
         return;
     }
 
@@ -135,6 +157,9 @@ fn print_summary(result: &ActionResult, verb: &str) {
             skipped_count
         ));
     }
+    if pruned_count > 0 {
+        parts.push(format!("{} {} pruned", red.apply_to("✂"), pruned_count));
+    }
     if error_count > 0 {
         parts.push(format!(
             "{} {} {}",
@@ -144,6 +169,20 @@ fn print_summary(result: &ActionResult, verb: &str) {
         ));
     }
     println!(" {}", parts.join("  "));
+
+    if pruned_count > 0 {
+        let stale_not_deleted = result
+            .pruned
+            .iter()
+            .any(|pruned_file| std::path::Path::new(&pruned_file.target).exists());
+        if stale_not_deleted {
+            println!(
+                " {} {}",
+                yellow.apply_to("⚠"),
+                dim.apply_to("use --prune to remove stale files")
+            );
+        }
+    }
 }
 
 fn extract_content_kind(path: &str) -> &str {
@@ -157,8 +196,12 @@ fn extract_content_kind(path: &str) -> &str {
 
 fn extract_relative_path(path: &str) -> &str {
     let segments: Vec<&str> = path.rsplit('/').take(3).collect();
-    let start =
-        path.len() - segments.iter().map(|string| string.len() + 1).sum::<usize>() + 1;
+    let start = path.len()
+        - segments
+            .iter()
+            .map(|string| string.len() + 1)
+            .sum::<usize>()
+        + 1;
     if start < path.len() {
         &path[start..]
     } else {
