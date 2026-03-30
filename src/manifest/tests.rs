@@ -42,6 +42,7 @@ fn statement_is_valid_yaml() {
         "forge-cli",
         "https://github.com/N4M3Z/forge-cli/assemble/v1",
         env!("CARGO_PKG_VERSION"),
+        "https://github.com/N4M3Z/forge-core",
     );
 
     let parsed: serde_yaml::Value = serde_yaml::from_str(&statement).expect("should be valid YAML");
@@ -77,6 +78,7 @@ fn statement_includes_all_dependencies() {
         "forge-cli",
         "https://github.com/N4M3Z/forge-cli/assemble/v1",
         env!("CARGO_PKG_VERSION"),
+        "https://github.com/N4M3Z/forge-core",
     );
 
     let parsed: serde_yaml::Value = serde_yaml::from_str(&statement).unwrap();
@@ -102,6 +104,7 @@ fn statement_carries_builder_metadata() {
         "test-builder",
         "https://example.com/build/v1",
         "1.2.3",
+        "https://github.com/N4M3Z/forge-core",
     );
 
     let parsed: serde_yaml::Value = serde_yaml::from_str(&statement).unwrap();

@@ -8,6 +8,7 @@ pub fn generate_statement(
     builder_id: &str,
     build_type: &str,
     builder_version: &str,
+    source_uri: &str,
 ) -> String {
     let timestamp = chrono::Utc::now().to_rfc3339();
 
@@ -26,5 +27,6 @@ pub fn generate_statement(
         .replace("{build_type}", build_type)
         .replace("{builder_id}", builder_id)
         .replace("{builder_version}", builder_version)
+        .replace("{source_uri}", source_uri)
         .replace("{timestamp}", &timestamp)
 }
