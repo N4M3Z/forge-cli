@@ -1,2 +1,2 @@
 bad.md:
-    not_sha256: aaa
+    not_fingerprint: aaa

@@ -125,13 +125,20 @@ fn deploy_provider_files(
             let target_path = target_base.join(kind.as_str()).join(&relative);
 
             let build_content = config::read_file(&build_path)?;
-            let build_sha256 = manifest::content_sha256(&build_content);
+            let build_fingerprint = manifest::content_sha256(&build_content);
+            let provenance_relative = manifest::provenance_path(&manifest_key);
+            let sidecar_source = manifest::sidecar_path(&build_path);
+
+            if sidecar_source.is_file() {
+                let provenance_target = target_base.join(&provenance_relative);
+                let _ = copy_file(&sidecar_source, &provenance_target);
+            }
 
             let target_content = fs::read_to_string(&target_path).ok();
             let status = manifest::status(
                 target_content.as_deref(),
                 new_manifest.get(&manifest_key),
-                &build_sha256,
+                &build_fingerprint,
             );
 
             match status {
@@ -140,7 +147,8 @@ fn deploy_provider_files(
                     new_manifest.insert(
                         manifest_key,
                         manifest::ManifestEntry {
-                            sha256: build_sha256,
+                            fingerprint: build_fingerprint.clone(),
+                                provenance: Some(provenance_relative.clone()),
                         },
                     );
                     result.installed.push(DeployedFile {
@@ -153,7 +161,8 @@ fn deploy_provider_files(
                     new_manifest.insert(
                         manifest_key,
                         manifest::ManifestEntry {
-                            sha256: build_sha256,
+                            fingerprint: build_fingerprint.clone(),
+                                provenance: Some(provenance_relative.clone()),
                         },
                     );
                     result.skipped.push(SkippedFile {
@@ -168,7 +177,8 @@ fn deploy_provider_files(
                         new_manifest.insert(
                             manifest_key,
                             manifest::ManifestEntry {
-                                sha256: build_sha256,
+                                fingerprint: build_fingerprint.clone(),
+                                provenance: Some(provenance_relative.clone()),
                             },
                         );
                         result.installed.push(DeployedFile {
