@@ -1,4 +1,5 @@
 pub(crate) mod extract;
+pub mod provenance;
 mod read;
 mod staleness;
 mod statement;
