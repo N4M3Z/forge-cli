@@ -56,12 +56,13 @@ pub fn load_providers(config: &str) -> Result<HashMap<String, provider::Provider
         return Ok(embedded_providers);
     };
 
-    provider::load_providers(&module_config).map_err(|error| {
-        Error::new(
-            ErrorKind::Config,
-            format!("failed to load merged provider config: {error}"),
-        )
-    })
+    match provider::load_providers(&module_config) {
+        Ok(providers) => Ok(providers),
+        Err(error) => {
+            eprintln!("warning: module config incompatible with provider schema ({error}), using embedded defaults");
+            Ok(embedded_providers)
+        }
+    }
 }
 
 /// Load remap-tools.yaml from the module, falling back to embedded defaults.
