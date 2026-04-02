@@ -63,12 +63,40 @@ repository/
         user/MyAgent.md                             user override
     skills/
         MySkill/SKILL.md                            base
-        MySkill/claude/SKILL.md                     claude-specific
-        MySkill/gemini/SKILL.md                     gemini-specific
-        MySkill/user/SKILL.md                       user override
+        MySkill/Reference.md                        companion (passthrough)
+        MySkill/claude/SKILL.md                     claude-specific variant
+        MySkill/gemini/SKILL.md                     gemini-specific variant
+        MySkill/user/SKILL.md                       user override of SKILL.md
+        MySkill/user/ForgeADR.md                    user-only companion (flattened)
 ```
 
 Resolution precedence (highest first): `user/` > `provider/model/` > `provider/` > base.
+
+This applies uniformly to all content kinds including skill companions. Subdirectories are flattened at assembly — the prefix is stripped from the output path:
+
+```
+SOURCE                               ASSEMBLED (build/claude/)           DEPLOYED (.claude/)
+────────────────────────────         ────────────────────────────        ────────────────────────────
+skills/ArchitectureDecision/         skills/ArchitectureDecision/        skills/ArchitectureDecision/
+├── SKILL.md                    ──→  ├── SKILL.md (pipeline)        ──→  ├── SKILL.md
+├── TemplateReference.md        ──→  ├── TemplateReference.md       ──→  ├── TemplateReference.md
+├── SchemaValidation.md         ──→  ├── SchemaValidation.md        ──→  ├── SchemaValidation.md
+└── user/                            ├── ForgeADR.md  ← flattened   ──→  ├── ForgeADR.md
+    ├── ForgeADR.md             ──→  └── ContextKeeper.md           ──→  └── ContextKeeper.md
+    └── ContextKeeper.md        ──→
+```
+
+When a file exists both at the root and in `user/`, the `user/` version wins (override):
+
+```
+SOURCE                               ASSEMBLED (build/claude/)
+────────────────────────────         ────────────────────────────
+skills/MySkill/                      skills/MySkill/
+├── SKILL.md                    ──→  ├── SKILL.md (pipeline)
+├── Reference.md                ─╳   ├── Reference.md ← user/ wins
+└── user/                            └──
+    └── Reference.md            ──→
+```
 
 Assembled output (variants resolved, frontmatter stripped, ready to deploy):
 
