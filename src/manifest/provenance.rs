@@ -103,8 +103,7 @@ pub struct Metadata {
 
 /// Parse a provenance sidecar from YAML content.
 pub fn parse(content: &str) -> Result<ProvenanceSidecar, String> {
-    serde_yaml::from_str(content)
-        .map_err(|error| format!("invalid provenance YAML: {error}"))
+    serde_yaml::from_str(content).map_err(|error| format!("invalid provenance YAML: {error}"))
 }
 
 /// Read and parse a provenance sidecar from a file path.

@@ -40,10 +40,7 @@ pub const PROVENANCE_DIRECTORY: &str = ".provenance";
 pub fn provenance_path(manifest_key: &str) -> String {
     let path = std::path::Path::new(manifest_key);
     let parent = path.parent().unwrap_or(std::path::Path::new(""));
-    let stem = path
-        .file_stem()
-        .unwrap_or_default()
-        .to_string_lossy();
+    let stem = path.file_stem().unwrap_or_default().to_string_lossy();
 
     let provenance_dir = parent.join(PROVENANCE_DIRECTORY);
     provenance_dir
