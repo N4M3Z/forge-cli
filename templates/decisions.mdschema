@@ -1,0 +1,76 @@
+frontmatter:
+    fields:
+        - name: title
+          type: string
+        - name: description
+          type: string
+        - name: type
+          type: string
+        - name: category
+          type: string
+        - name: tags
+          type: array
+        - name: status
+          type: string
+        - name: created
+          format: date
+        - name: updated
+          format: date
+        - name: author
+          type: string
+        - name: project
+          type: string
+        - name: related
+          type: array
+          optional: true
+        - name: responsible
+          type: array
+        - name: accountable
+          type: array
+        - name: consulted
+          type: array
+          optional: true
+        - name: informed
+          type: array
+          optional: true
+        - name: upstream
+          type: array
+
+heading_rules:
+    no_skip_levels: true
+    max_depth: 3
+
+structure:
+    - heading:
+          pattern: "^# .+"
+          regex: true
+      allow_additional: true
+      children:
+          - heading:
+                pattern: "## Context and Problem Statement"
+            allow_additional: true
+            word_count:
+                min: 20
+          - heading:
+                pattern: "## Decision Drivers"
+            optional: true
+            allow_additional: true
+            lists:
+                - min: 1
+          - heading:
+                pattern: "## Considered Options"
+            allow_additional: true
+            lists:
+                - min: 1
+          - heading:
+                pattern: "## Decision Outcome"
+            allow_additional: true
+            children:
+                - heading:
+                      pattern: "### Consequences"
+                  optional: true
+                  lists:
+                      - min: 1
+          - heading:
+                pattern: "## More Information"
+            optional: true
