@@ -13,3 +13,5 @@ gemini:
     Run: run_shell_command
     WebSearch: google_web_search
     WebFetch: web_fetch
+
+# TODO add codex and copilot, no?
