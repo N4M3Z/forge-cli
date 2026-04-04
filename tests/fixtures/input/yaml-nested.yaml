@@ -1,0 +1,5 @@
+user:
+    root: /Users/alice
+    settings:
+        theme: dark
+        lang: en

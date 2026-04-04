@@ -1,0 +1,4 @@
+---
+mode: replace
+---
+Replacement body.

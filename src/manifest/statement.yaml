@@ -1,0 +1,19 @@
+provenance:
+    _type: https://in-toto.io/Statement/v1
+    subject:
+        - name: {subject_name}
+          digest:
+              sha256: {subject_digest}
+    predicateType: https://slsa.dev/provenance/v1
+    predicate:
+        buildDefinition:
+            buildType: {build_type}
+            resolvedDependencies:
+{resolved_dependencies}
+        runDetails:
+            builder:
+                id: {builder_id}
+                version:
+                    forge: {builder_version}
+            metadata:
+                startedOn: "{timestamp}"

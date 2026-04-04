@@ -1,0 +1,21 @@
+providers:
+    claude:
+        target: ".claude"
+
+    gemini:
+        target: ".gemini"
+        assembly:
+            - kebab-case
+            - remap-tools
+
+    codex:
+        target: ".codex"
+        assembly:
+            - agents-to-toml
+        deploy:
+            - rulesync
+
+    opencode:
+        target: ".opencode"
+        assembly:
+            - kebab-case
