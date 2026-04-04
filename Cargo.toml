@@ -18,7 +18,7 @@ path = "src/main.rs"
 default = ["full"]
 full = ["assemble", "validate", "deploy"]
 assemble = []
-validate = []
+validate = ["dep:rust-embed"]
 deploy = []
 embed = ["dep:rust-embed"]
 

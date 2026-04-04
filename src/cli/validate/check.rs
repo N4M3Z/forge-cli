@@ -19,10 +19,11 @@ use crate::cli::config::read_file;
 pub fn flat_directory(
     dir: &Path,
     module_root: &Path,
+    kind: &str,
     result: &mut ActionResult,
 ) -> Result<(), Error> {
     let schema_content = schema::load_schema(dir);
-    let mdschema_content = schema::load_mdschema(dir);
+    let mdschema_content = schema::load_mdschema_or_scaffold(dir, kind);
 
     let entries = fs::read_dir(dir)
         .map_err(|e| Error::new(ErrorKind::Io, format!("cannot read {}: {e}", dir.display())))?;
@@ -72,30 +73,16 @@ pub fn flat_directory(
 ///     .mdschema         ← structural constraints for this skill
 /// ```
 pub fn skill_directory(dir: &Path, result: &mut ActionResult) -> Result<(), Error> {
-    let mdschema_content = schema::load_mdschema(dir);
+    let mdschema_content = schema::load_mdschema_or_scaffold(dir, "skills");
 
-    let entries = fs::read_dir(dir)
-        .map_err(|e| Error::new(ErrorKind::Io, format!("cannot read {}: {e}", dir.display())))?;
+    // Only validate SKILL.md against the schema — companions are reference
+    // docs without skill frontmatter (name, description, version).
+    let skill_file = dir.join("SKILL.md");
+    if skill_file.is_file() {
+        let content = read_file(&skill_file)?;
+        let display_path = skill_file.to_string_lossy().to_string();
 
-    for entry in entries {
-        let entry =
-            entry.map_err(|e| Error::new(ErrorKind::Io, format!("directory entry error: {e}")))?;
-
-        let path = entry.path();
-        if path.is_dir() || path.extension().unwrap_or_default() != "md" {
-            continue;
-        }
-
-        let content = read_file(&path)?;
-        let display_path = path.to_string_lossy().to_string();
-
-        collect_diagnostics(
-            &content,
-            &display_path,
-            None,
-            mdschema_content.as_ref(),
-            result,
-        );
+        collect_diagnostics(&content, &display_path, None, mdschema_content.as_ref(), result);
     }
 
     Ok(())
