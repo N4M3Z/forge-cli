@@ -11,21 +11,25 @@ permissions:
     contents: write
 
 jobs:
-    release:
+    test:
         runs-on: ubuntu-latest
         steps:
             - uses: actions/checkout@v6
               with:
                   ref: ${{ inputs.tag }}
 
-            - name: Create release
-              env:
-                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-                  TAG: ${{ inputs.tag }}
-              run: gh release create "$TAG" --title "$TAG" --generate-notes
+            - uses: dtolnay/rust-toolchain@stable
+              with:
+                  components: rustfmt, clippy
+
+            - name: Lint
+              run: bash scripts/validate.sh
+
+            - name: Test
+              run: cargo test
 
     build:
-        needs: release
+        needs: test
         strategy:
             matrix:
                 include:
@@ -59,9 +63,28 @@ jobs:
                   TARGET: ${{ matrix.target }}
               run: tar czf "$ARCHIVE" -C "target/$TARGET/release" forge
 
-            - name: Upload
+            - name: Upload artifact
+              uses: actions/upload-artifact@v4
+              with:
+                  name: ${{ matrix.archive }}
+                  path: ${{ matrix.archive }}
+
+    release:
+        needs: build
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v6
+              with:
+                  ref: ${{ inputs.tag }}
+
+            - name: Download artifacts
+              uses: actions/download-artifact@v4
+
+            - name: Create release
               env:
                   GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-                  ARCHIVE: ${{ matrix.archive }}
                   TAG: ${{ inputs.tag }}
-              run: gh release upload "$TAG" "$ARCHIVE"
+              run: |
+                  gh release create "$TAG" --title "$TAG" --generate-notes \
+                      forge-cli-linux-x86_64.tar.gz/forge-cli-linux-x86_64.tar.gz \
+                      forge-cli-macos-aarch64.tar.gz/forge-cli-macos-aarch64.tar.gz

@@ -73,13 +73,13 @@ check_yaml_validity() {
 import sys
 try:
     import yaml
-    yaml.safe_load(open('$file'))
+    yaml.safe_load(open(sys.argv[1]))
 except ImportError:
     pass
 except Exception as e:
-    print(f'  INVALID $file: {e}')
+    print(f'  INVALID {sys.argv[1]}: {e}')
     sys.exit(1)
-" 2>/dev/null; then
+" "$file" 2>/dev/null; then
                 :
             else
                 ERRORS=$((ERRORS + 1))

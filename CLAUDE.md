@@ -40,7 +40,7 @@ source files → assemble (strip frontmatter, resolve variants, apply transforms
 | `validate`      | `src/validate/`     | Module structure, `.mdschema` compliance, agent frontmatter  |
 | `manifest`      | `src/manifest/`     | `.manifest` read/write, SLSA provenance sidecars, staleness  |
 | `provider`      | `src/provider/`     | Provider config from `defaults.yaml` (targets, assembly rules) |
-| `parse`         | `src/parse/`        | YAML frontmatter extraction from markdown                    |
+| `parse`         | `src/parse/`        | YAML frontmatter extraction (flat keys only, no nested YAML) |
 | `target`        | `src/target/`       | Deploy target resolution (scope, platform paths)             |
 | `module`        | `src/module.rs`     | `module.yaml` deserialization                                |
 | `error`         | `src/error.rs`      | `ErrorKind` enum + `Error` struct                            |

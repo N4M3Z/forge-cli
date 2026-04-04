@@ -35,13 +35,14 @@ pub fn markdown_to_toml(source_name: &str, content: &str) -> Result<String, Stri
     let body = crate::parse::frontmatter_body(content);
 
     let mut output = String::new();
-    let _ = writeln!(output, "# source: {source_name}");
-    let _ = writeln!(
+    writeln!(output, "# source: {source_name}").expect("writing to String");
+    writeln!(
         output,
         "description = \"{}\"",
         escape_toml_string(&description)
-    );
-    let _ = write!(output, "instructions = \"\"\"\n{}\"\"\"\n", body.trim());
+    )
+    .expect("writing to String");
+    write!(output, "instructions = \"\"\"\n{}\"\"\"\n", body.trim()).expect("writing to String");
 
     Ok(output)
 }
