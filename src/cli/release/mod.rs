@@ -105,3 +105,6 @@ fn create_tarball(
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests;

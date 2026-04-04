@@ -517,3 +517,6 @@ fn print_drift_summary(result: &DriftResult) {
     }
     println!();
 }
+
+#[cfg(test)]
+mod tests;

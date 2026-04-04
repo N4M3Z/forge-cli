@@ -195,8 +195,9 @@ All commands support `--json` for machine-readable output.
 ```sh
 make build    # cargo build --release
 make test     # cargo test + doc tests
-make lint     # cargo fmt --check + clippy + semgrep
-make install  # symlink to ~/.local/bin/forge
+make lint     # cargo fmt --check + clippy + semgrep OWASP
+make check    # verify module structure files exist
+make install  # build + symlink to ~/.local/bin/forge + configure pre-commit hook
 ```
 
 ## Pipeline Artifacts
@@ -211,6 +212,6 @@ See `docs/decisions/` for architectural decision records.
 
 ## License
 
-EUPL-1.2
+[EUPL-1.2](LICENSE)
 
 [6]: https://in-toto.io/

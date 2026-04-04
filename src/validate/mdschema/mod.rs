@@ -65,3 +65,6 @@ pub fn check(file_content: &str, file_path: &str, schema_content: &str) -> Vec<D
 
     diagnostics
 }
+
+#[cfg(test)]
+mod tests;

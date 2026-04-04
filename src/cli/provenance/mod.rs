@@ -120,3 +120,6 @@ pub(crate) fn resolve_sidecar_path(file_path: &Path) -> std::path::PathBuf {
         .join(manifest::PROVENANCE_DIRECTORY)
         .join(format!("{stem}.{}", manifest::SIDECAR_EXTENSION))
 }
+
+#[cfg(test)]
+mod tests;
