@@ -80,13 +80,26 @@ fn check_gitleaks(module_root: &Path, result: &mut ActionResult) {
         return;
     }
 
-    println!("  gitleaks");
-    if !run_command(
-        "gitleaks",
-        &["detect", "--no-banner", "--no-git", "-s", "."],
-        module_root,
-    ) {
-        result.errors.push("gitleaks found secrets".to_string());
+    let has_staged_changes = Command::new("git")
+        .args(["diff", "--cached", "--quiet"])
+        .current_dir(module_root)
+        .status()
+        .is_ok_and(|status| !status.success());
+
+    if has_staged_changes {
+        println!("  gitleaks protect --staged");
+        if !run_command("gitleaks", &["protect", "--staged", "--no-banner"], module_root) {
+            result.errors.push("gitleaks found secrets in staged changes".to_string());
+        }
+    } else {
+        println!("  gitleaks detect");
+        if !run_command(
+            "gitleaks",
+            &["detect", "--no-banner", "--no-git", "-s", "."],
+            module_root,
+        ) {
+            result.errors.push("gitleaks found secrets".to_string());
+        }
     }
 }
 
