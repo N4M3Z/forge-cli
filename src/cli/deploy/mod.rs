@@ -361,3 +361,6 @@ fn is_owned_by_module(
         .source;
     source_uri == module || source_uri.ends_with(&format!("/{module}"))
 }
+
+#[cfg(test)]
+mod tests;

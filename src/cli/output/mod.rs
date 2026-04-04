@@ -196,15 +196,10 @@ fn extract_content_kind(path: &str) -> &str {
 
 fn extract_relative_path(path: &str) -> &str {
     let segments: Vec<&str> = path.rsplit('/').take(3).collect();
-    let start = path.len()
-        - segments
-            .iter()
-            .map(|string| string.len() + 1)
-            .sum::<usize>()
-        + 1;
-    if start < path.len() {
-        &path[start..]
-    } else {
-        path
-    }
+    let segment_length: usize = segments.iter().map(|string| string.len() + 1).sum();
+    let start = path.len().saturating_sub(segment_length);
+    if start > 0 { &path[start + 1..] } else { path }
 }
+
+#[cfg(test)]
+mod tests;

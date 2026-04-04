@@ -118,3 +118,6 @@ fn check_module_yaml(module_root: &Path, result: &mut ActionResult) {
         ));
     }
 }
+
+#[cfg(test)]
+mod tests;

@@ -97,3 +97,6 @@ fn copy_directory_recursive(
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests;

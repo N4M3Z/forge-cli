@@ -22,3 +22,6 @@ pub fn execute(
     assemble::execute(path)?;
     deploy::execute(path, target, force, prune, interactive)
 }
+
+#[cfg(test)]
+mod tests;
