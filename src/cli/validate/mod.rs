@@ -6,31 +6,19 @@ use commands::result::ActionResult;
 use std::fs;
 use std::path::Path;
 
-/// Validate module files against their schemas.
+use crate::cli::config;
+
+/// Validate module structure and content files against schemas.
 ///
-/// Walks source directories and checks:
-///   - agents/, rules/ — frontmatter validation against `.schema.yaml`,
-///     structure validation against `.mdschema`
+/// Checks:
+///   - Required/optional files from validation config
+///   - agents/, rules/ — frontmatter against `.schema.yaml`, structure against `.mdschema`
 ///   - skills/ — recurses into subdirectories, checks `.mdschema`
-///
-/// ```text
-/// module/
-///   agents/
-///     .schema.yaml               ← frontmatter constraints
-///     SecurityArchitect.md       ← validated
-///   rules/
-///     .mdschema                  ← heading/structure constraints
-///     MyRule.md                  ← validated
-///   skills/
-///     Explain/
-///       .mdschema                ← per-skill constraints
-///       SKILL.md                 ← validated
-/// ```
-///
-/// All findings are collected into `ActionResult.errors`.
 pub fn execute(path: &str) -> Result<ActionResult, Error> {
     let module_root = Path::new(path);
     let mut result = ActionResult::new();
+
+    check_module_structure(module_root, &mut result);
 
     for kind in &["agents", "rules"] {
         let dir = module_root.join(kind);
@@ -61,4 +49,28 @@ pub fn execute(path: &str) -> Result<ActionResult, Error> {
     }
 
     Ok(result)
+}
+
+/// Check module structure against validation config from defaults.yaml.
+fn check_module_structure(module_root: &Path, result: &mut ActionResult) {
+    let validation_config = config::load_validation_config(module_root);
+
+    for filename in &validation_config.required {
+        if module_root.join(filename).is_file() {
+            println!("  ok {filename}");
+        } else {
+            result
+                .errors
+                .push(format!("missing required file: {filename}"));
+            println!("  MISSING {filename}");
+        }
+    }
+
+    for filename in &validation_config.optional {
+        if module_root.join(filename).is_file() {
+            println!("  ok {filename}");
+        } else {
+            println!("  MISSING {filename} (optional)");
+        }
+    }
 }
