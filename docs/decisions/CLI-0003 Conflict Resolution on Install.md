@@ -1,11 +1,24 @@
 ---
-status: Accepted
-date: 2026-03-20
+title: "Conflict Resolution on Install"
+description: "Manifest-based detection of user-modified files with skip/prompt/force modes"
+type: adr
+category: cli
+tags:
+    - cli
+    - deployment
+    - ux
+status: accepted
+created: 2026-03-20
+updated: 2026-03-20
+author: "@N4M3Z"
+project: forge-cli
+related:
+    - "ASSEMBLY-0003 Manifest-Based Deployment Tracking"
 responsible: ["@N4M3Z"]
 accountable: ["@N4M3Z"]
 consulted: []
 informed: []
-tags: [cli, deployment, ux]
+upstream: []
 ---
 
 # Conflict Resolution on Install
@@ -20,6 +33,12 @@ When `forge install` deploys assembled content to provider directories, a previo
 - Stale deployed files must not silently persist
 - Non-interactive mode (CI, scripts) must have a deterministic default
 - Interactive mode should offer choices
+
+## Considered Options
+
+1. **Always overwrite** — simple but destroys user modifications without warning.
+2. **Always skip modified** — safe but leaves stale content with no way to force update.
+3. **Detect and choose** — manifest comparison detects modifications, user picks action per mode.
 
 ## Decision Outcome
 

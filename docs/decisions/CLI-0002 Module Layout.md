@@ -1,11 +1,25 @@
 ---
-status: Accepted
-date: 2026-03-19
+title: "Module Layout"
+description: "Six pure library modules plus CLI handlers with separated test files"
+type: adr
+category: cli
+tags:
+    - rust
+    - architecture
+status: accepted
+created: 2026-03-19
+updated: 2026-03-19
+author: "@N4M3Z"
+project: forge-cli
+related:
+    - "RUST-0012 Separated Test Files"
+    - "RUST-0004 Test Infrastructure"
+    - "ASSEMBLY-0006 Validation via YAML Schema"
 responsible: ["@N4M3Z"]
 accountable: ["@N4M3Z"]
 consulted: ["DeveloperCouncil"]
 informed: []
-tags: [rust, architecture]
+upstream: []
 ---
 
 # Module Layout
@@ -20,6 +34,11 @@ forge-cli assembles, validates, and deploys markdown content for AI coding tools
 - No module exceeds ~300 lines of production code
 - Every module uses directory form with sibling `tests.rs` (per RUST-0012)
 - Library modules are pure (no I/O) — CLI handlers own the I/O boundary
+
+## Considered Options
+
+1. **Single module** — everything in one file. Simple for small projects but unreadable as it grows.
+2. **Module-per-concern** — parse, assemble, manifest, provider, validate, target, cli. Each testable in isolation.
 
 ## Decision Outcome
 

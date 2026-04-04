@@ -2,6 +2,7 @@ mod assemble;
 mod config;
 mod copy;
 mod deploy;
+mod drift;
 mod install;
 mod output;
 mod provenance;
@@ -95,6 +96,20 @@ enum Command {
         path: String,
     },
 
+    /// Compare module content against an upstream reference
+    Drift {
+        /// Path to the module root
+        path: String,
+
+        /// Path to the upstream reference module
+        #[arg(long)]
+        upstream: String,
+
+        /// Comma-separated keys to ignore (use "body" to ignore body drift)
+        #[arg(long, value_delimiter = ',')]
+        ignore: Vec<String>,
+    },
+
     /// Assemble and package module as release tarballs
     Release {
         /// Path to the module root
@@ -138,6 +153,15 @@ pub fn run() -> i32 {
         Command::Validate { path } => (validate::execute(&path), "validated"),
         Command::Provenance { path } => {
             return match provenance::execute(&path, None, args.json) {
+                Ok(code) => code,
+                Err(error) => {
+                    eprintln!("fatal: {error}");
+                    2
+                }
+            };
+        }
+        Command::Drift { path, upstream, ignore } => {
+            return match drift::execute(&path, &upstream, &ignore, args.json) {
                 Ok(code) => code,
                 Err(error) => {
                     eprintln!("fatal: {error}");

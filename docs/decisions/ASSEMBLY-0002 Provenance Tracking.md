@@ -1,11 +1,24 @@
 ---
-status: Accepted
-date: 2026-03-23
+title: "Provenance Tracking"
+description: "in-toto/SLSA provenance sidecars for tracking assembly source-to-output chain"
+type: adr
+category: assembly
+tags:
+    - assembly
+    - provenance
+    - tracking
+status: accepted
+created: 2026-03-23
+updated: 2026-03-23
+author: "@N4M3Z"
+project: forge-cli
+related:
+    - "ASSEMBLY-0003 Manifest-Based Deployment Tracking"
 responsible: ["@N4M3Z"]
 accountable: ["@N4M3Z"]
 consulted: ["DeveloperCouncil", "WebResearcher"]
 informed: []
-tags: [assembly, provenance, tracking]
+upstream: []
 ---
 
 # Provenance Tracking

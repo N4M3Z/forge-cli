@@ -1,11 +1,26 @@
 ---
-status: Accepted
-date: 2026-03-19
+title: "Feature Flags"
+description: "Layered Cargo feature hierarchy for compile-time capability selection"
+type: adr
+category: rust
+tags:
+    - rust
+    - cargo
+    - features
+status: accepted
+created: 2026-03-19
+updated: 2026-03-19
+author: "@N4M3Z"
+project: forge-cli
+related:
+    - "RUST-0005 Deny Unexpected Cfgs"
+    - "RUST-0004 Test Infrastructure"
+    - "CLI-0005 Embedded Assets via rust-embed"
 responsible: ["@N4M3Z"]
 accountable: ["@N4M3Z"]
 consulted: ["DeveloperCouncil"]
 informed: []
-tags: [rust, cargo, features]
+upstream: []
 ---
 
 # Feature Flags
@@ -13,6 +28,11 @@ tags: [rust, cargo, features]
 ## Context and Problem Statement
 
 Optional functionality should be compile-time selectable. Cargo features control which code compiles, which dependencies are pulled, and what capabilities the binary ships with. A disciplined feature hierarchy prevents dependency bloat and enables minimal builds.
+
+## Considered Options
+
+1. **No features** — everything always compiled. Simple but no way to reduce binary size or dependencies.
+2. **Layered feature hierarchy** — atomic, composable features with dep: prefix convention.
 
 ## Decision Outcome
 

@@ -50,9 +50,7 @@ fn create_nested_rule(root: &Path, subdirectory: &str, name: &str) {
     fs::create_dir_all(&rules_dir).unwrap();
     fs::write(
         rules_dir.join(format!("{name}.md")),
-        format!(
-            "---\nname: {name}\ndescription: nested rule\n---\n\nNested rule content.\n"
-        ),
+        format!("---\nname: {name}\ndescription: nested rule\n---\n\nNested rule content.\n"),
     )
     .unwrap();
 }
@@ -99,22 +97,30 @@ fn install_deploys_agent_to_all_providers() {
         .assert()
         .success();
 
-    assert!(target_directory
-        .path()
-        .join(".claude/agents/TestAgent.md")
-        .is_file());
-    assert!(target_directory
-        .path()
-        .join(".gemini/agents/test-agent.md")
-        .is_file());
-    assert!(target_directory
-        .path()
-        .join(".codex/agents/TestAgent.md")
-        .is_file());
-    assert!(target_directory
-        .path()
-        .join(".opencode/agents/test-agent.md")
-        .is_file());
+    assert!(
+        target_directory
+            .path()
+            .join(".claude/agents/TestAgent.md")
+            .is_file()
+    );
+    assert!(
+        target_directory
+            .path()
+            .join(".gemini/agents/test-agent.md")
+            .is_file()
+    );
+    assert!(
+        target_directory
+            .path()
+            .join(".codex/agents/TestAgent.md")
+            .is_file()
+    );
+    assert!(
+        target_directory
+            .path()
+            .join(".opencode/agents/test-agent.md")
+            .is_file()
+    );
 }
 
 #[test]
@@ -216,10 +222,12 @@ fn install_deploys_nested_rules() {
         .assert()
         .success();
 
-    assert!(target_directory
-        .path()
-        .join(".claude/rules/sub/NestedRule.md")
-        .is_file());
+    assert!(
+        target_directory
+            .path()
+            .join(".claude/rules/sub/NestedRule.md")
+            .is_file()
+    );
 }
 
 #[test]
@@ -240,14 +248,18 @@ fn install_deploys_skill_with_companion() {
         .assert()
         .success();
 
-    assert!(target_directory
-        .path()
-        .join(".claude/skills/TestSkill/SKILL.md")
-        .is_file());
-    assert!(target_directory
-        .path()
-        .join(".claude/skills/TestSkill/Reference.md")
-        .is_file());
+    assert!(
+        target_directory
+            .path()
+            .join(".claude/skills/TestSkill/SKILL.md")
+            .is_file()
+    );
+    assert!(
+        target_directory
+            .path()
+            .join(".claude/skills/TestSkill/Reference.md")
+            .is_file()
+    );
 }
 
 // --- Manifest tests ---
@@ -271,8 +283,7 @@ fn install_creates_nested_manifest() {
         .assert()
         .success();
 
-    let manifest =
-        fs::read_to_string(target_directory.path().join(".claude/.manifest")).unwrap();
+    let manifest = fs::read_to_string(target_directory.path().join(".claude/.manifest")).unwrap();
 
     assert!(manifest.contains("agents:"));
     assert!(manifest.contains("  Agent.md:"));
@@ -331,10 +342,12 @@ fn install_deploys_nested_provenance() {
         .assert()
         .success();
 
-    assert!(target_directory
-        .path()
-        .join(".claude/rules/deep/.provenance/DeepRule.yaml")
-        .is_file());
+    assert!(
+        target_directory
+            .path()
+            .join(".claude/rules/deep/.provenance/DeepRule.yaml")
+            .is_file()
+    );
 }
 
 // --- Idempotency tests ---
@@ -452,10 +465,7 @@ fn copy_preserves_frontmatter() {
         .assert()
         .success();
 
-    let copied = fs::read_to_string(
-        target_directory.path().join("agents/RawAgent.md"),
-    )
-    .unwrap();
+    let copied = fs::read_to_string(target_directory.path().join("agents/RawAgent.md")).unwrap();
 
     assert!(copied.contains("---"));
     assert!(copied.contains("model: strong"));

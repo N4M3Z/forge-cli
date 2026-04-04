@@ -1,11 +1,22 @@
 ---
-status: Accepted
-date: 2026-03-19
+title: "Type-State Builder Pattern"
+description: "Compile-time enforcement of required builder steps via generic type parameters"
+type: adr
+category: rust
+tags:
+    - rust
+    - patterns
+status: accepted
+created: 2026-03-19
+updated: 2026-03-19
+author: "@N4M3Z"
+project: forge-cli
+related: []
 responsible: ["@N4M3Z"]
 accountable: ["@N4M3Z"]
 consulted: ["DeveloperCouncil"]
 informed: []
-tags: [rust, patterns]
+upstream: []
 ---
 
 # Type-State Builder Pattern
@@ -19,6 +30,11 @@ Complex objects with required configuration steps are typically built with the b
 - Required configuration must be enforced by the compiler, not runtime checks
 - No `Option<T>` fields for required parameters
 - Each builder step should be discoverable via autocomplete
+
+## Considered Options
+
+1. **Traditional builder with Option fields** — runtime validation in `build()`. Simple but errors only at runtime.
+2. **Type-state generics** — compile-time enforcement via generic parameters. Errors at compile time.
 
 ## Decision Outcome
 

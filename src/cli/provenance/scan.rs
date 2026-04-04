@@ -32,7 +32,12 @@ pub fn print_summary(directory: &Path) -> i32 {
         } else {
             red.apply_to(format!("✗ {verified_count}/{total_count} verified"))
         };
-        println!(" {} {} {}", bold.apply_to(source_uri), dim.apply_to("→"), status);
+        println!(
+            " {} {} {}",
+            bold.apply_to(source_uri),
+            dim.apply_to("→"),
+            status
+        );
     }
     println!();
     0

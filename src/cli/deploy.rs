@@ -85,15 +85,10 @@ pub fn execute(
             for stale_key in &stale_keys {
                 let stale_path = target_base.join(stale_key);
                 if stale_path.is_file() && fs::remove_file(&stale_path).is_err() {
-                    eprintln!(
-                        "warning: cannot remove {}",
-                        stale_path.display()
-                    );
+                    eprintln!("warning: cannot remove {}", stale_path.display());
                 }
                 // Also remove provenance sidecar
-                let provenance_path = target_base.join(
-                    manifest::provenance_path(stale_key),
-                );
+                let provenance_path = target_base.join(manifest::provenance_path(stale_key));
                 let _ = fs::remove_file(&provenance_path);
 
                 existing_manifest.remove(stale_key);
@@ -166,7 +161,7 @@ fn deploy_provider_files(
                         manifest_key,
                         manifest::ManifestEntry {
                             fingerprint: build_fingerprint.clone(),
-                                provenance: Some(provenance_relative.clone()),
+                            provenance: Some(provenance_relative.clone()),
                         },
                     );
                     result.installed.push(DeployedFile {
@@ -180,7 +175,7 @@ fn deploy_provider_files(
                         manifest_key,
                         manifest::ManifestEntry {
                             fingerprint: build_fingerprint.clone(),
-                                provenance: Some(provenance_relative.clone()),
+                            provenance: Some(provenance_relative.clone()),
                         },
                     );
                     result.skipped.push(SkippedFile {
@@ -358,6 +353,11 @@ fn is_owned_by_module(
         return true;
     };
 
-    let source_uri = &sidecar.provenance.predicate.build_definition.external_parameters.source;
+    let source_uri = &sidecar
+        .provenance
+        .predicate
+        .build_definition
+        .external_parameters
+        .source;
     source_uri == module || source_uri.ends_with(&format!("/{module}"))
 }
