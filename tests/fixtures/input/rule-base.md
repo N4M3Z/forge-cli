@@ -1,0 +1,4 @@
+---
+name: Base
+---
+Base body.

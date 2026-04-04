@@ -1,0 +1,15 @@
+# Tool name mappings for providers that use different tool identifiers.
+# Referenced by the remap-tools assembly rule.
+
+gemini:
+    Read: read_file
+    Write: write_file
+    Edit: replace
+    Replace: replace
+    Grep: grep_search
+    Glob: glob
+    Bash: run_shell_command
+    Shell: run_shell_command
+    Run: run_shell_command
+    WebSearch: google_web_search
+    WebFetch: web_fetch

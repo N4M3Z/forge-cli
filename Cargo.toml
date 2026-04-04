@@ -1,0 +1,71 @@
+[package]
+name = "forge-cli"
+version = "0.1.0"
+edition = "2024"
+license = "EUPL-1.2"
+repository = "https://github.com/N4M3Z/forge-cli"
+description = "Forge module toolkit — assemble, validate, and deploy skills, agents, and rules across AI coding providers"
+
+[lib]
+name = "commands"
+path = "src/commands.rs"
+
+[[bin]]
+name = "forge"
+path = "src/main.rs"
+
+[features]
+default = ["full"]
+full = ["assemble", "validate", "deploy"]
+assemble = []
+validate = []
+deploy = []
+embed = ["dep:rust-embed"]
+
+[dependencies]
+# cli
+clap = { version = "4", features = ["derive"] }
+
+# serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde_yaml = "0.9"
+
+# crypto
+sha2 = "0.10"
+
+# time
+chrono = "0.4"
+
+# utils
+regex = "1"
+console = "0.15"
+
+# optional
+rust-embed = { version = "8", optional = true }
+
+[dev-dependencies]
+assert_cmd = "2"
+predicates = "3"
+proptest = "1"
+tempfile = "3"
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.rust.unexpected_cfgs]
+level = "deny"
+check-cfg = ["cfg(ci)"]
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+module_name_repetitions = "allow"
+must_use_candidate = "allow"
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+implicit_hasher = "allow"
+
+[profile.release]
+strip = true
+lto = true

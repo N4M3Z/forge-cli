@@ -1,0 +1,9 @@
+user:
+    root: /default
+    settings:
+        theme: light
+        font_size: 14
+debug: false
+tags:
+    - one
+    - two
