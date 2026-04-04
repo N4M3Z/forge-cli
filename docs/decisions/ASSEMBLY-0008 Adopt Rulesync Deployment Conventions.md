@@ -7,9 +7,9 @@ tags:
     - assembly
     - deployment
     - rulesync
-status: proposed
+status: accepted
 created: 2026-03-19
-updated: 2026-03-19
+updated: 2026-04-04
 author: "@N4M3Z"
 project: forge-cli
 related:
