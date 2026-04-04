@@ -12,3 +12,7 @@ else
     echo "warning: forge not installed and scripts/validate.sh not found, skipping validation"
     echo "  install forge-cli: https://github.com/N4M3Z/forge-cli"
 fi
+
+if command -v gitleaks >/dev/null 2>&1; then
+    gitleaks protect --staged --no-banner
+fi

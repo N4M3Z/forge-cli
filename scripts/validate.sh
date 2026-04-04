@@ -194,16 +194,55 @@ check_typescript() {
     fi
 }
 
+# --- mdschema ---
+
+check_mdschema() {
+    if ! command -v forge >/dev/null 2>&1; then
+        return
+    fi
+
+    local found=false
+    while IFS= read -r schema; do
+        found=true
+        local directory
+        directory=$(dirname "$schema")
+        for md_file in "$directory"/*.md; do
+            if [ -f "$md_file" ]; then
+                forge validate "$md_file" 2>/dev/null || ERRORS=$((ERRORS + 1))
+            fi
+        done
+    done < <(find . -name '.mdschema' -not -path '*/build/*' -not -path '*/target/*' 2>/dev/null || true)
+
+    if [ "$found" = true ]; then
+        echo "  mdschema"
+    fi
+}
+
+# --- Secret scanning ---
+
+check_secrets() {
+    if ! command -v gitleaks >/dev/null 2>&1; then
+        return
+    fi
+
+    echo "  gitleaks"
+    if ! gitleaks detect --no-banner --no-git -s . 2>/dev/null; then
+        ERRORS=$((ERRORS + 1))
+    fi
+}
+
 # --- Run all checks ---
 
 check_drift
 check_required_files
 check_yaml_validity
 check_adr_frontmatter
+check_mdschema
 check_shell_lint
 check_rust
 check_python
 check_typescript
+check_secrets
 
 if [ "$ERRORS" -gt 0 ]; then
     echo ""
