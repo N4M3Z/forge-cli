@@ -354,22 +354,10 @@ fn is_owned_by_module(
     };
 
     let provenance_path = target_base.join(provenance_relative);
-    let Ok(content) = fs::read_to_string(&provenance_path) else {
+    let Ok(sidecar) = manifest::provenance::read(&provenance_path) else {
         return true;
     };
 
-    let Ok(parsed): Result<serde_yaml::Value, _> = serde_yaml::from_str(&content) else {
-        return true;
-    };
-
-    let source_uri = parsed
-        .get("provenance")
-        .and_then(|provenance| provenance.get("predicate"))
-        .and_then(|predicate| predicate.get("buildDefinition"))
-        .and_then(|definition| definition.get("externalParameters"))
-        .and_then(|parameters| parameters.get("source"))
-        .and_then(serde_yaml::Value::as_str)
-        .unwrap_or("");
-
+    let source_uri = &sidecar.provenance.predicate.build_definition.external_parameters.source;
     source_uri == module || source_uri.ends_with(&format!("/{module}"))
 }
