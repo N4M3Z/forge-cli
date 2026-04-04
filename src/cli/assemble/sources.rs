@@ -112,8 +112,14 @@ fn walk_content_dir(
                 .to_string_lossy()
                 .to_string();
 
-            if dirname != "user" && valid_qualifiers.contains(&dirname) {
+            if dirname == "user" {
+                continue;
+            }
+
+            if valid_qualifiers.contains(&dirname) {
                 qualifier_directories.push((dirname, path));
+            } else {
+                walk_content_dir(&path, kind, module_root, sources, valid_qualifiers)?;
             }
             continue;
         }
@@ -413,20 +419,21 @@ mod tests {
     }
 
     #[test]
-    fn skips_unknown_subdirectories() {
+    fn walks_non_qualifier_subdirectories_as_content() {
         let dir = tempfile::tempdir().unwrap();
         let rules = scaffold_kind(dir.path(), "rules");
         std::fs::write(rules.join("BaseRule.md"), BASE_RULE).unwrap();
-        let unknown = rules.join("unknown-tier");
-        std::fs::create_dir(&unknown).unwrap();
-        std::fs::write(unknown.join("SomeRule.md"), QUALIFIER_ONLY).unwrap();
+        let subdir = rules.join("category");
+        std::fs::create_dir(&subdir).unwrap();
+        std::fs::write(subdir.join("SubRule.md"), QUALIFIER_ONLY).unwrap();
 
         let valid = HashSet::from(["sonnet".to_string()]);
         let sources = collect(dir.path(), &valid).unwrap();
         assert!(
             sources
                 .iter()
-                .all(|s| !s.relative_path.contains("SomeRule"))
+                .any(|source| source.relative_path.contains("SubRule")
+                    && source.qualifier.is_none())
         );
     }
 

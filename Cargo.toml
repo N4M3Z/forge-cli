@@ -39,6 +39,7 @@ chrono = "0.4"
 
 # utils
 regex = "1"
+console = "0.15"
 
 # optional
 rust-embed = { version = "8", optional = true }
