@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::Path;
 
-pub fn print_summary(directory: &Path) -> i32 {
+pub fn print_summary(directory: &Path, source_filter: Option<&str>) -> i32 {
     let mut by_source: BTreeMap<String, (usize, usize)> = BTreeMap::new();
 
     for kind in commands::provider::ContentKind::ALL {
@@ -13,6 +13,10 @@ pub fn print_summary(directory: &Path) -> i32 {
         if kind_directory.is_dir() {
             collect_recursive(&kind_directory, &mut by_source);
         }
+    }
+
+    if let Some(filter) = source_filter {
+        by_source.retain(|source, _| source.contains(filter));
     }
 
     let green = Style::new().green();

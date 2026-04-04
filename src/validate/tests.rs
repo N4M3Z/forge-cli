@@ -237,12 +237,11 @@ fn mdschema_invalid_schema_yaml() {
 
 #[test]
 fn adr_mdschema_catches_missing_section() {
-    // ASSEMBLY-0006 is missing "## Considered Options" — the schema should catch it.
     let adr = include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/docs/decisions/ASSEMBLY-0006 Validation via YAML Schema.md"
+        "/tests/fixtures/input/adr-missing-section.md"
     ));
-    let diagnostics = mdschema::check(adr, "ASSEMBLY-0006.md", ADR_MDSCHEMA);
+    let diagnostics = mdschema::check(adr, "adr-missing-section.md", ADR_MDSCHEMA);
 
     let missing_section = diagnostics
         .iter()
