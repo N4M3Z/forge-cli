@@ -42,6 +42,7 @@ pub fn execute(path: &str) -> Result<ActionResult, Error> {
     let providers = config::load_providers(&merged_config)?;
     let remap_content = config::load_remap_tools(module_root)?;
     let models = config::load_models(module_root);
+    let source_uri = config::load_source_uri(module_root);
     let provider_names: Vec<String> = providers.keys().cloned().collect();
     let valid_qualifiers = sources::build_valid_qualifiers(&provider_names, &models);
     let source_files = sources::collect(module_root, &valid_qualifiers)?;
@@ -130,7 +131,8 @@ pub fn execute(path: &str) -> Result<ActionResult, Error> {
 
             output::write_file(&output_path, &assembled)?;
 
-            let statement = provenance::build_statement(&manifest_key, &assembled, source);
+            let statement =
+                provenance::build_statement(&manifest_key, &assembled, source, &source_uri);
             provenance::write_sidecar(&output_path, &statement)?;
 
             result.installed.push(DeployedFile {

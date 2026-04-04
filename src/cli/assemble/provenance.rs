@@ -6,7 +6,12 @@ use std::path::Path;
 use super::sources::SourceFile;
 
 /// Build an in-toto/SLSA provenance statement for a single assembled file.
-pub fn build_statement(manifest_key: &str, assembled: &str, source: &SourceFile) -> String {
+pub fn build_statement(
+    manifest_key: &str,
+    assembled: &str,
+    source: &SourceFile,
+    source_uri: &str,
+) -> String {
     let output_sha256 = manifest::content_sha256(assembled);
     let source_sha256 = manifest::content_sha256(&source.content);
 
@@ -17,6 +22,7 @@ pub fn build_statement(manifest_key: &str, assembled: &str, source: &SourceFile)
         env!("CARGO_PKG_NAME"),
         &format!("{}/assemble/v1", env!("CARGO_PKG_REPOSITORY")),
         env!("CARGO_PKG_VERSION"),
+        source_uri,
     )
 }
 

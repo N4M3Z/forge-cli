@@ -37,11 +37,12 @@ fn statement_is_valid_yaml() {
 
     let statement = generate_statement(
         "rules/AgentTeams.md",
-        &entry.sha256,
+        &entry.fingerprint,
         &[("rules/AgentTeams.md".into(), content_sha256("source"))],
         "forge-cli",
         "https://github.com/N4M3Z/forge-cli/assemble/v1",
         env!("CARGO_PKG_VERSION"),
+        "https://github.com/N4M3Z/forge-core",
     );
 
     let parsed: serde_yaml::Value = serde_yaml::from_str(&statement).expect("should be valid YAML");
@@ -77,6 +78,7 @@ fn statement_includes_all_dependencies() {
         "forge-cli",
         "https://github.com/N4M3Z/forge-cli/assemble/v1",
         env!("CARGO_PKG_VERSION"),
+        "https://github.com/N4M3Z/forge-core",
     );
 
     let parsed: serde_yaml::Value = serde_yaml::from_str(&statement).unwrap();
@@ -102,6 +104,7 @@ fn statement_carries_builder_metadata() {
         "test-builder",
         "https://example.com/build/v1",
         "1.2.3",
+        "https://github.com/N4M3Z/forge-core",
     );
 
     let parsed: serde_yaml::Value = serde_yaml::from_str(&statement).unwrap();
@@ -129,8 +132,9 @@ fn read_parses_all_entries() {
 }
 
 #[test]
-fn read_rejects_missing_sha256() {
-    assert!(read(MANIFEST_INVALID).is_err());
+fn read_ignores_entries_without_fingerprint() {
+    let entries = read(MANIFEST_INVALID).unwrap();
+    assert!(entries.is_empty());
 }
 
 // --- write ---
@@ -141,7 +145,8 @@ fn write_roundtrips() {
     entries.insert(
         "agents/Helper.md".to_string(),
         ManifestEntry {
-            sha256: content_sha256("output content"),
+            fingerprint: content_sha256("output content"),
+            provenance: None,
         },
     );
 
@@ -150,8 +155,8 @@ fn write_roundtrips() {
 
     assert!(roundtrip.contains_key("agents/Helper.md"));
     assert_eq!(
-        roundtrip["agents/Helper.md"].sha256,
-        entries["agents/Helper.md"].sha256
+        roundtrip["agents/Helper.md"].fingerprint,
+        entries["agents/Helper.md"].fingerprint
     );
 }
 
@@ -200,7 +205,8 @@ fn status_new_when_no_manifest_entry() {
 #[test]
 fn status_new_when_target_missing() {
     let entry = ManifestEntry {
-        sha256: content_sha256("content"),
+        fingerprint: content_sha256("content"),
+        provenance: None,
     };
     assert_eq!(status(None, Some(&entry), "abc"), FileStatus::New);
 }
@@ -208,7 +214,8 @@ fn status_new_when_target_missing() {
 #[test]
 fn status_modified_when_target_edited() {
     let entry = ManifestEntry {
-        sha256: content_sha256("original"),
+        fingerprint: content_sha256("original"),
+        provenance: None,
     };
     let build_sha256 = content_sha256("original");
     assert_eq!(
@@ -221,7 +228,8 @@ fn status_modified_when_target_edited() {
 fn status_stale_when_source_changed() {
     let deployed_sha256 = content_sha256("old build");
     let entry = ManifestEntry {
-        sha256: deployed_sha256.clone(),
+        fingerprint: deployed_sha256.clone(),
+        provenance: None,
     };
     let new_build_sha256 = content_sha256("new build");
     assert_eq!(
@@ -233,12 +241,13 @@ fn status_stale_when_source_changed() {
 #[test]
 fn status_unchanged_when_all_match() {
     let content = "assembled output";
-    let sha256 = content_sha256(content);
+    let fingerprint_value = content_sha256(content);
     let entry = ManifestEntry {
-        sha256: sha256.clone(),
+        fingerprint: fingerprint_value.clone(),
+        provenance: None,
     };
     assert_eq!(
-        status(Some(content), Some(&entry), &sha256),
+        status(Some(content), Some(&entry), &fingerprint_value),
         FileStatus::Unchanged
     );
 }

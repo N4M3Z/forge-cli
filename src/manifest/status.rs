@@ -22,11 +22,11 @@ pub fn status(
 
     let target_sha256 = content_sha256(content);
 
-    if target_sha256 != entry.sha256 {
+    if target_sha256 != entry.fingerprint {
         return FileStatus::Modified;
     }
 
-    if entry.sha256 == build_sha256 {
+    if entry.fingerprint == build_sha256 {
         return FileStatus::Unchanged;
     }
 

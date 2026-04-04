@@ -105,3 +105,27 @@ pub fn load_models(module_root: &Path) -> HashMap<String, Vec<String>> {
         None => HashMap::new(),
     }
 }
+
+/// Load the source URI for provenance from module.yaml.
+///
+/// Checks for a `repository` field first (full URL), then falls back
+/// to the `name` field as a plain identifier.
+pub fn load_source_uri(module_root: &Path) -> String {
+    let module_yaml = module_root.join("module.yaml");
+    let Ok(content) = std::fs::read_to_string(&module_yaml) else {
+        return String::new();
+    };
+    let Ok(parsed): Result<serde_yaml::Value, _> = serde_yaml::from_str(&content) else {
+        return String::new();
+    };
+
+    if let Some(repository) = parsed.get("repository").and_then(serde_yaml::Value::as_str) {
+        return repository.to_string();
+    }
+
+    parsed
+        .get("name")
+        .and_then(serde_yaml::Value::as_str)
+        .unwrap_or("")
+        .to_string()
+}
