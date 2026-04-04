@@ -1,0 +1,90 @@
+name: Release
+
+on:
+    workflow_dispatch:
+        inputs:
+            tag:
+                description: "Tag to release (e.g., v0.2.0)"
+                required: true
+
+permissions:
+    contents: write
+
+jobs:
+    test:
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v6
+              with:
+                  ref: ${{ inputs.tag }}
+
+            - uses: dtolnay/rust-toolchain@stable
+              with:
+                  components: rustfmt, clippy
+
+            - name: Lint
+              run: bash scripts/validate.sh
+
+            - name: Test
+              run: cargo test
+
+    build:
+        needs: test
+        strategy:
+            matrix:
+                include:
+                    - target: x86_64-unknown-linux-musl
+                      runner: ubuntu-latest
+                      archive: forge-cli-linux-x86_64.tar.gz
+                    - target: aarch64-apple-darwin
+                      runner: macos-latest
+                      archive: forge-cli-macos-aarch64.tar.gz
+
+        runs-on: ${{ matrix.runner }}
+        steps:
+            - uses: actions/checkout@v6
+              with:
+                  ref: ${{ inputs.tag }}
+
+            - uses: dtolnay/rust-toolchain@stable
+              with:
+                  targets: ${{ matrix.target }}
+
+            - name: Install musl tools
+              if: contains(matrix.target, 'musl')
+              run: sudo apt-get install -y musl-tools
+
+            - name: Build
+              run: cargo build --release --target ${{ matrix.target }}
+
+            - name: Package
+              env:
+                  ARCHIVE: ${{ matrix.archive }}
+                  TARGET: ${{ matrix.target }}
+              run: tar czf "$ARCHIVE" -C "target/$TARGET/release" forge
+
+            - name: Upload artifact
+              uses: actions/upload-artifact@v4
+              with:
+                  name: ${{ matrix.archive }}
+                  path: ${{ matrix.archive }}
+
+    release:
+        needs: build
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v6
+              with:
+                  ref: ${{ inputs.tag }}
+
+            - name: Download artifacts
+              uses: actions/download-artifact@v4
+
+            - name: Create release
+              env:
+                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  TAG: ${{ inputs.tag }}
+              run: |
+                  gh release create "$TAG" --title "$TAG" --generate-notes \
+                      forge-cli-linux-x86_64.tar.gz/forge-cli-linux-x86_64.tar.gz \
+                      forge-cli-macos-aarch64.tar.gz/forge-cli-macos-aarch64.tar.gz

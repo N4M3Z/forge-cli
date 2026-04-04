@@ -1,6 +1,6 @@
 [package]
 name = "forge-cli"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 license = "EUPL-1.2"
 repository = "https://github.com/N4M3Z/forge-cli"
@@ -47,7 +47,6 @@ rust-embed = { version = "8", optional = true }
 [dev-dependencies]
 assert_cmd = "2"
 predicates = "3"
-proptest = "1"
 tempfile = "3"
 
 [lints.rust]

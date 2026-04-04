@@ -39,7 +39,8 @@ pub fn apply_rules(
             }
             AssemblyRule::AgentsToToml => {
                 current_content = markdown_to_toml(&current_filename, &current_content)?;
-                current_filename = current_filename.replace(".md", ".toml");
+                let (stem, _) = split_extension(&current_filename);
+                current_filename = format!("{stem}.toml");
             }
             AssemblyRule::StripLinks => {}
         }

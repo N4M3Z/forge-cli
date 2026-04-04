@@ -73,13 +73,13 @@ check_yaml_validity() {
 import sys
 try:
     import yaml
-    yaml.safe_load(open('$file'))
+    yaml.safe_load(open(sys.argv[1]))
 except ImportError:
     pass
 except Exception as e:
-    print(f'  INVALID $file: {e}')
+    print(f'  INVALID {sys.argv[1]}: {e}')
     sys.exit(1)
-" 2>/dev/null; then
+" "$file" 2>/dev/null; then
                 :
             else
                 ERRORS=$((ERRORS + 1))
@@ -91,7 +91,11 @@ except Exception as e:
 # --- ADR frontmatter ---
 
 check_adr_frontmatter() {
-    if [ ! -d docs/decisions ] || [ ! -f bin/validate-adr.py ]; then
+    local validator=""
+    for candidate in skills/ArchitectureDecision/validate-adr.py bin/validate-adr.py; do
+        if [ -f "$candidate" ]; then validator="$candidate"; break; fi
+    done
+    if [ ! -d docs/decisions ] || [ -z "$validator" ]; then
         return
     fi
 
@@ -109,7 +113,7 @@ check_adr_frontmatter() {
 
     if command -v python3 >/dev/null 2>&1; then
         echo "  ADR frontmatter validation"
-        if ! python3 bin/validate-adr.py "$schema" docs/decisions/; then
+        if ! python3 "$validator" "$schema" docs/decisions/; then
             ERRORS=$((ERRORS + 1))
         fi
     fi
@@ -119,7 +123,7 @@ check_adr_frontmatter() {
 
 check_shell_lint() {
     local shell_files
-    shell_files=$(find . -name '*.sh' -not -path '*/build/*' -not -path '*/target/*' -not -path '*/node_modules/*' 2>/dev/null || true)
+    shell_files=$(git ls-files '*.sh' 2>/dev/null || true)
 
     if [ -z "$shell_files" ]; then
         return
@@ -160,7 +164,7 @@ check_rust() {
 
 check_python() {
     local python_files
-    python_files=$(find . -name '*.py' -not -path '*/build/*' -not -path '*/target/*' -not -path '*/.venv/*' 2>/dev/null || true)
+    python_files=$(git ls-files '*.py' 2>/dev/null || true)
 
     if [ -z "$python_files" ]; then
         return
@@ -180,7 +184,7 @@ check_python() {
 
 check_typescript() {
     local typescript_files
-    typescript_files=$(find . -name '*.ts' -o -name '*.tsx' 2>/dev/null | head -1 || true)
+    typescript_files=$(git ls-files '*.ts' '*.tsx' 2>/dev/null | head -1 || true)
 
     if [ -z "$typescript_files" ]; then
         return
@@ -197,7 +201,8 @@ check_typescript() {
 # --- mdschema ---
 
 check_mdschema() {
-    if ! command -v forge >/dev/null 2>&1; then
+    if ! command -v mdschema >/dev/null 2>&1; then
+        echo "  SKIP mdschema (not installed)"
         return
     fi
 
@@ -206,12 +211,21 @@ check_mdschema() {
         found=true
         local directory
         directory=$(dirname "$schema")
-        for md_file in "$directory"/*.md; do
-            if [ -f "$md_file" ]; then
-                forge validate "$md_file" 2>/dev/null || ERRORS=$((ERRORS + 1))
+
+        if [ "$directory" = "skills" ]; then
+            if ! mdschema check "skills/*/SKILL.md" --schema "$schema" 2>/dev/null; then
+                ERRORS=$((ERRORS + 1))
             fi
-        done
-    done < <(find . -name '.mdschema' -not -path '*/build/*' -not -path '*/target/*' 2>/dev/null || true)
+        elif [ "$directory" = "." ]; then
+            if ! mdschema check "*.md" --schema "$schema" 2>/dev/null; then
+                ERRORS=$((ERRORS + 1))
+            fi
+        else
+            if ! mdschema check "$directory/*.md" --schema "$schema" 2>/dev/null; then
+                ERRORS=$((ERRORS + 1))
+            fi
+        fi
+    done < <(git ls-files '.mdschema' '*/.mdschema' 2>/dev/null || true)
 
     if [ "$found" = true ]; then
         echo "  mdschema"

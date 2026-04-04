@@ -3,6 +3,33 @@ use std::path::Path;
 
 use super::templates;
 
+const AGENT_SCHEMA: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/schemas/agent.schema.yaml"
+));
+const SKILL_SCHEMA: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/schemas/skill.schema.yaml"
+));
+const RULE_SCHEMA: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/schemas/rule.schema.yaml"
+));
+const MODULE_SCHEMA: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/schemas/module.schema.yaml"
+));
+
+pub fn embedded_schema(kind: &str) -> Option<&'static str> {
+    match kind {
+        "agents" => Some(AGENT_SCHEMA),
+        "skills" => Some(SKILL_SCHEMA),
+        "rules" => Some(RULE_SCHEMA),
+        "module" => Some(MODULE_SCHEMA),
+        _ => None,
+    }
+}
+
 /// Load `.schema.yaml` from a directory if present.
 ///
 /// Provider-specific schema files define required frontmatter fields
@@ -45,17 +72,13 @@ pub fn load_mdschema(dir: &Path) -> Option<String> {
     fs::read_to_string(&mdschema_path).ok()
 }
 
-/// Load `.mdschema` from a directory, scaffolding from embedded template
-/// if missing.
+/// Load `.mdschema` from a directory, falling back to the embedded template.
 ///
-/// When no `.mdschema` exists and a matching template is available for
-/// the content kind (skills, agents, rules, decisions), writes the
-/// template to the directory and returns its content.
-///
-/// Returns `None` when no schema exists and no template is available.
-pub fn load_mdschema_or_scaffold(dir: &Path, kind: &str) -> Option<String> {
-    if let Some(content) = load_mdschema(dir) {
+/// Checks for a local `.mdschema` first. If missing, returns the
+/// embedded template for the content kind without writing to disk.
+pub fn load_mdschema_or_fallback(directory: &Path, kind: &str) -> Option<String> {
+    if let Some(content) = load_mdschema(directory) {
         return Some(content);
     }
-    templates::scaffold_if_missing(dir, kind)
+    templates::embedded_mdschema(kind)
 }

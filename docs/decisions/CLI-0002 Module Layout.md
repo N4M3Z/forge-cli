@@ -1,6 +1,6 @@
 ---
 title: "Module Layout"
-description: "Six pure library modules plus CLI handlers with separated test files"
+description: "Library modules plus CLI handlers with separated test files"
 type: adr
 category: cli
 tags:
@@ -8,7 +8,7 @@ tags:
     - architecture
 status: accepted
 created: 2026-03-19
-updated: 2026-03-19
+updated: 2026-04-04
 author: "@N4M3Z"
 project: forge-cli
 related:
@@ -42,44 +42,37 @@ forge-cli assembles, validates, and deploys markdown content for AI coding tools
 
 ## Decision Outcome
 
-Six library modules, one CLI module, one entry point:
+Library modules plus CLI handlers:
 
 ```
 src/
-    lib.rs
-    main.rs
+    commands.rs         lib crate root (re-exports all library modules)
+    main.rs             binary entry point
 
     parse/              extract frontmatter values from markdown
-        mod.rs
-        tests.rs
-
-    assemble/           transform source → deployable content
-        mod.rs
-        tests.rs
-
-    manifest/           SLSA/in-toto tracking of inputs → outputs
-        mod.rs
-        tests.rs
-
-    provider/           provider conventions + config loading
-        mod.rs
-        tests.rs
-
-    validate/           check files against .mdschema + YAML schemas
-        mod.rs
-        tests.rs
-
+    assemble/           transform source → deployable content (feature-gated)
+    manifest/           SLSA/in-toto tracking, manifest read/write, provenance
+    provider/           provider conventions, content kinds, config loading
+    validate/           check files against .mdschema + YAML schemas (feature-gated)
     target/             resolve where to deploy (scope × provider × path)
-        mod.rs
-        tests.rs
+    transform/          kebab-case, tool remapping, TOML conversion
+    yaml/               YAML value extraction and deep merge
+    module.rs           typed module.yaml deserialization
+    result.rs           ActionResult, DeployedFile, SkippedFile types
+    error.rs            ErrorKind + Error types
 
     cli/                CLI command handlers (binary-only, owns I/O)
         mod.rs          clap definitions, dispatch
-        install.rs      assemble + copy (daily workflow)
-        assemble.rs     assemble only → build/
-        copy.rs         build/ → provider dirs (or delegate to rulesync)
-        validate.rs     check files against schemas
-        release.rs      assemble + package tarballs (+ optional --embed)
+        install.rs      assemble + deploy
+        assemble/       assembly orchestration (sources, pipeline, provenance, output)
+        deploy.rs       build/ → provider dirs with manifest tracking
+        copy.rs         raw source → target (no assembly)
+        validate/       structure + mdschema + external tools
+        drift.rs        upstream comparison with frontmatter key diffing
+        provenance/     provenance chain display and directory scanning
+        release.rs      assemble + package tarballs
+        config.rs       module config loading and merging
+        output.rs       turbo-style CLI output formatting
 
 tests/
     fixtures/
@@ -90,15 +83,18 @@ tests/
 
 ### What each module does
 
-| Module     | Input                      | Output                         | Pure |
-| ---------- | -------------------------- | ------------------------------ | ---- |
-| `parse`    | markdown string            | frontmatter key-value pairs    | yes  |
-| `assemble` | source + variants + config | stripped, merged, formatted body | yes |
-| `manifest` | file paths + digests       | SLSA statement (YAML)          | yes  |
-| `provider` | defaults.yaml              | provider conventions + config  | yes  |
-| `validate` | file + .mdschema/YAML schema | pass/fail with diagnostics   | yes  |
-| `target`   | scope + provider + kind    | resolved filesystem paths      | yes  |
-| `cli`      | user args                  | I/O, exit codes, output        | no   |
+| Module      | Input                        | Output                          |
+| ----------- | ---------------------------- | ------------------------------- |
+| `parse`     | markdown string              | frontmatter key-value pairs     |
+| `assemble`  | source + variants + config   | stripped, merged, formatted body |
+| `manifest`  | file paths + digests         | SLSA statement, manifest entries |
+| `provider`  | defaults.yaml                | provider conventions + config   |
+| `validate`  | file + .mdschema/YAML schema | pass/fail with diagnostics      |
+| `target`    | scope + provider + kind      | resolved filesystem paths       |
+| `transform` | content + rules              | kebab-case, tool remap, TOML    |
+| `yaml`      | YAML string + key path       | extracted values, merged config |
+| `module`    | module.yaml path             | typed ModuleManifest            |
+| `cli`       | user args                    | I/O, exit codes, output         |
 
 ### Assembly details
 
@@ -116,15 +112,16 @@ tests/
 
 ### CLI commands
 
-| Command          | What it does                                             |
-| ---------------- | -------------------------------------------------------- |
-| `forge install`  | assemble + copy (daily workflow, all-in-one)             |
-| `forge assemble` | source → `build/` (assembly only, inspect before deploy) |
-| `forge copy`     | `build/` → provider dirs (or delegate to rulesync)       |
-| `forge validate` | check files against schemas                              |
-| `forge release`  | assemble + package as tarballs (+ optional `--embed`)    |
-
-`forge copy` checks for rulesync on PATH. If present, delegates deployment. If not, copies files directly using provider config from `defaults.yaml`.
+| Command             | What it does                                                          |
+| ------------------- | --------------------------------------------------------------------- |
+| `forge install`     | assemble + deploy (daily workflow, all-in-one)                        |
+| `forge assemble`    | source → `build/` (assembly only, inspect before deploy)              |
+| `forge deploy`      | `build/` → provider dirs with manifest tracking and provenance        |
+| `forge validate`    | structure + mdschema + external tools (shellcheck, cargo, tsc, gitleaks) |
+| `forge drift`       | compare module against upstream, report frontmatter/body differences  |
+| `forge provenance`  | show source chain for a deployed file or scan a directory             |
+| `forge copy`        | raw source → target directory (no assembly, no transforms)            |
+| `forge release`     | assemble + package as tarballs (+ optional `--embed`)                 |
 
 ## More Information
 
@@ -162,7 +159,7 @@ Each internal file is focused — one concern, one file. The module boundary doe
 
 ### Consequences
 
-- [+] Five modules — fits in one mental model
+- [+] Focused modules — each has one job
 - [+] Each module testable with external fixtures
-- [+] Pure library — CLI handlers own all I/O
+- [+] Library modules minimize I/O — CLI handlers own the boundary
 - [+] No module does two things

@@ -57,6 +57,23 @@ pub struct ProviderConfig {
     pub deploy: Option<Vec<String>>,
     pub keep_fields: Option<HashMap<String, Vec<String>>>,
     pub models: Option<HashMap<String, String>>,
+    pub aliases: Option<Vec<String>>,
+}
+
+impl ProviderConfig {
+    pub fn matches_target(&self, target_name: &str, provider_key: &str) -> bool {
+        if target_name == provider_key {
+            return true;
+        }
+
+        if target_name == self.target || target_name == self.target.trim_start_matches('.') {
+            return true;
+        }
+
+        self.aliases
+            .as_ref()
+            .is_some_and(|aliases| aliases.iter().any(|alias| alias == target_name))
+    }
 }
 
 // --- Loading ---

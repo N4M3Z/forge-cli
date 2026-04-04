@@ -19,6 +19,7 @@ fn make_provider(assembly: Option<Vec<&str>>) -> ProviderConfig {
         deploy: None,
         keep_fields: None,
         models: None,
+        aliases: None,
     }
 }
 
@@ -137,6 +138,7 @@ fn unknown_rule_collected_as_error() {
             deploy: None,
             keep_fields: None,
             models: None,
+            aliases: None,
         },
     );
 

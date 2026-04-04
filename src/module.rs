@@ -25,8 +25,7 @@ pub fn load(module_root: &Path) -> Result<ModuleManifest, String> {
     let content = std::fs::read_to_string(&module_yaml)
         .map_err(|error| format!("cannot read {}: {error}", module_yaml.display()))?;
 
-    serde_yaml::from_str(&content)
-        .map_err(|error| format!("invalid module.yaml: {error}"))
+    serde_yaml::from_str(&content).map_err(|error| format!("invalid module.yaml: {error}"))
 }
 
 #[cfg(test)]

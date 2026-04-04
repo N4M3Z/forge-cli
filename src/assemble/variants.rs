@@ -29,7 +29,7 @@ impl Mode {
 ///
 /// Returns the path to the first matching file, or `None`.
 pub fn resolve(source_directory: &Path, filename: &str, qualifiers: &[String]) -> Option<PathBuf> {
-    if qualifiers.contains(&"user".to_string()) {
+    if qualifiers.iter().any(|q| q == "user") {
         let user_path = source_directory.join("user").join(filename);
         if user_path.is_file() {
             return Some(user_path);
