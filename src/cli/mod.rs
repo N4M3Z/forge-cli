@@ -4,6 +4,7 @@ mod copy;
 mod deploy;
 mod install;
 mod output;
+mod provenance;
 mod release;
 mod validate;
 
@@ -88,6 +89,12 @@ enum Command {
         path: String,
     },
 
+    /// Show provenance information for a deployed file
+    Provenance {
+        /// Path to a deployed file
+        path: String,
+    },
+
     /// Assemble and package module as release tarballs
     Release {
         /// Path to the module root
@@ -129,6 +136,15 @@ pub fn run() -> i32 {
         ),
         Command::Copy { path, target } => (copy::execute(&path, &target), "copied"),
         Command::Validate { path } => (validate::execute(&path), "validated"),
+        Command::Provenance { path } => {
+            return match provenance::execute(&path, None, args.json) {
+                Ok(code) => code,
+                Err(error) => {
+                    eprintln!("fatal: {error}");
+                    2
+                }
+            };
+        }
         Command::Release { path, embed } => (release::execute(&path, embed), "released"),
     };
 
