@@ -246,20 +246,20 @@ fn resolve_provider_model_takes_precedence_over_provider() {
 
 #[test]
 fn assemble_strips_frontmatter_and_refs() {
-    let result = assemble(RULE_WITH_REFS, None, &[]);
+    let result = assemble(RULE_WITH_REFS, None, &[], true);
     assert_eq!(result.trim(), EXPECTED_STRIPPED.trim());
 }
 
 #[test]
 fn assemble_with_append_variant() {
-    let result = assemble(RULE_WITH_REFS, Some(VARIANT_APPEND), &[]);
+    let result = assemble(RULE_WITH_REFS, Some(VARIANT_APPEND), &[], true);
     assert!(result.contains("First paragraph with a reference."));
     assert!(result.contains("This content is appended"));
 }
 
 #[test]
 fn assemble_with_prepend_variant() {
-    let result = assemble(RULE_WITH_REFS, Some(VARIANT_PREPEND), &[]);
+    let result = assemble(RULE_WITH_REFS, Some(VARIANT_PREPEND), &[], true);
     assert!(result.contains("First paragraph with a reference."));
     assert!(result.contains("This content is prepended"));
     let prepend_pos = result.find("This content is prepended").unwrap();
@@ -269,7 +269,7 @@ fn assemble_with_prepend_variant() {
 
 #[test]
 fn assemble_keeps_specified_frontmatter_fields() {
-    let result = assemble(AGENT_BASIC, None, &["name"]);
+    let result = assemble(AGENT_BASIC, None, &["name"], true);
     assert!(result.contains("---"));
     assert!(result.contains("name: TestAgent"));
     assert!(!result.contains("version:"));
@@ -277,7 +277,7 @@ fn assemble_keeps_specified_frontmatter_fields() {
 
 #[test]
 fn assemble_no_variant_no_keep_strips_everything() {
-    let result = assemble(AGENT_BASIC, None, &[]);
+    let result = assemble(AGENT_BASIC, None, &[], true);
     assert!(!result.contains("---"));
     assert!(!result.contains("# TestAgent"));
     assert!(result.contains("This is a test agent"));

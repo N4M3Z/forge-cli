@@ -8,6 +8,7 @@ pub enum AssemblyRule {
     KebabCase,
     RemapTools,
     AgentsToToml,
+    StripLinks,
 }
 
 impl AssemblyRule {
@@ -16,6 +17,7 @@ impl AssemblyRule {
             "kebab-case" => Ok(Self::KebabCase),
             "remap-tools" => Ok(Self::RemapTools),
             "agents-to-toml" => Ok(Self::AgentsToToml),
+            "strip-links" => Ok(Self::StripLinks),
             other => Err(format!("unknown assembly rule: '{other}'")),
         }
     }
