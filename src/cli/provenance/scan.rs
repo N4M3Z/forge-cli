@@ -59,8 +59,10 @@ pub fn print_summary(directory: &Path, source_filter: Option<&str>, show_orphans
 
     println!();
 
-    let has_problems =
-        !orphans.is_empty() || by_source.values().any(|(verified, total)| verified != total);
+    let has_problems = !orphans.is_empty()
+        || by_source
+            .values()
+            .any(|(verified, total)| verified != total);
     i32::from(show_orphans && has_problems)
 }
 

@@ -330,10 +330,7 @@ fn collect_markdown_recursive(
 
         if path.is_dir() {
             collect_markdown_recursive(base_directory, &path, files);
-        } else if path
-            .extension()
-            .is_some_and(|extension| extension == "md")
-        {
+        } else if path.extension().is_some_and(|extension| extension == "md") {
             let relative = path
                 .strip_prefix(base_directory)
                 .unwrap_or(&path)
@@ -391,11 +388,7 @@ fn print_drift_entry(entry: &DriftEntry) {
             println!("   {} {}", green.apply_to("✓"), dim.apply_to(&entry.name));
         }
         DriftStatus::Expected => {
-            println!(
-                "   {} {}",
-                dim.apply_to("≈"),
-                dim.apply_to(&entry.name),
-            );
+            println!("   {} {}", dim.apply_to("≈"), dim.apply_to(&entry.name),);
         }
         DriftStatus::FrontmatterOnly | DriftStatus::BodyOnly | DriftStatus::Both => {
             print_drift_card(entry);
@@ -511,11 +504,7 @@ fn print_drift_summary(result: &DriftResult) {
         ));
     }
     if expected_count > 0 {
-        parts.push(format!(
-            "{} {} expected",
-            dim.apply_to("≈"),
-            expected_count
-        ));
+        parts.push(format!("{} {} expected", dim.apply_to("≈"), expected_count));
     }
     if local_count > 0 {
         parts.push(format!("{} {} local", cyan.apply_to("●"), local_count));

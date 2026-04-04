@@ -119,4 +119,3 @@ pub fn load_source_uri(module_root: &Path) -> String {
         Err(_) => String::new(),
     }
 }
-

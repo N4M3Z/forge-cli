@@ -28,8 +28,8 @@ pub fn resolve_paths(
             Ok(vec![path])
         }
         Scope::User => {
-            let home = home_directory
-                .ok_or_else(|| "User scope requires home_directory".to_string())?;
+            let home =
+                home_directory.ok_or_else(|| "User scope requires home_directory".to_string())?;
             let path = home.join(provider_target).join(content_kind);
             Ok(vec![path])
         }
@@ -54,8 +54,8 @@ pub fn resolve_paths(
             Ok(vec![path])
         }
         Scope::All => {
-            let home = home_directory
-                .ok_or_else(|| "All scope requires home_directory".to_string())?;
+            let home =
+                home_directory.ok_or_else(|| "All scope requires home_directory".to_string())?;
             let workspace_path = PathBuf::from(provider_target).join(content_kind);
             let user_path = home.join(provider_target).join(content_kind);
             Ok(vec![workspace_path, user_path])

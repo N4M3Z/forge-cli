@@ -22,7 +22,10 @@ fn check_shellcheck(module_root: &Path, result: &mut ActionResult) {
 
     println!("  shellcheck");
     let mut arguments = vec!["-S", "warning"];
-    let paths: Vec<String> = shell_files.iter().map(|path| path.to_string_lossy().to_string()).collect();
+    let paths: Vec<String> = shell_files
+        .iter()
+        .map(|path| path.to_string_lossy().to_string())
+        .collect();
     for path in &paths {
         arguments.push(path);
     }
@@ -39,12 +42,16 @@ fn check_cargo(module_root: &Path, result: &mut ActionResult) {
 
     println!("  cargo fmt --check");
     if !run_command("cargo", &["fmt", "--check"], module_root) {
-        result.errors.push("cargo fmt found formatting issues".to_string());
+        result
+            .errors
+            .push("cargo fmt found formatting issues".to_string());
     }
 
     println!("  cargo clippy");
     if !run_command("cargo", &["clippy", "--", "-D", "warnings"], module_root) {
-        result.errors.push("cargo clippy found warnings".to_string());
+        result
+            .errors
+            .push("cargo clippy found warnings".to_string());
     }
 }
 
@@ -88,8 +95,14 @@ fn check_gitleaks(module_root: &Path, result: &mut ActionResult) {
 
     if has_staged_changes {
         println!("  gitleaks protect --staged");
-        if !run_command("gitleaks", &["protect", "--staged", "--no-banner"], module_root) {
-            result.errors.push("gitleaks found secrets in staged changes".to_string());
+        if !run_command(
+            "gitleaks",
+            &["protect", "--staged", "--no-banner"],
+            module_root,
+        ) {
+            result
+                .errors
+                .push("gitleaks found secrets in staged changes".to_string());
         }
     } else {
         println!("  gitleaks detect");
@@ -138,6 +151,9 @@ fn collect_files_recursive(directory: &Path, extension: &str, files: &mut Vec<st
         }
 
         if path.is_dir() {
+            if path.join(".git").exists() {
+                continue;
+            }
             collect_files_recursive(&path, extension, files);
         } else if path.extension().is_some_and(|found| found == extension) {
             files.push(path);

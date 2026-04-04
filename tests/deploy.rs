@@ -470,3 +470,116 @@ fn copy_preserves_frontmatter() {
     assert!(copied.contains("---"));
     assert!(copied.contains("model: strong"));
 }
+
+// --- Targets routing ---
+
+fn create_rule_with_targets(root: &Path, name: &str, targets: &str) {
+    let rules_dir = root.join("rules");
+    fs::create_dir_all(&rules_dir).unwrap();
+    fs::write(
+        rules_dir.join(format!("{name}.md")),
+        format!(
+            "---\nname: {name}\ndescription: test rule for targets routing\ntargets: {targets}\n---\n\nRule content.\n"
+        ),
+    )
+    .unwrap();
+}
+
+#[test]
+fn install_respects_targets_frontmatter() {
+    let module_directory = tempfile::tempdir().unwrap();
+    let target_directory = tempfile::tempdir().unwrap();
+
+    scaffold_module(module_directory.path());
+    create_rule_with_targets(module_directory.path(), "ClaudeOnly", "claudecode");
+    create_rule(module_directory.path(), "Universal");
+
+    forge()
+        .args([
+            "install",
+            module_directory.path().to_str().unwrap(),
+            "--target",
+            target_directory.path().to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    assert!(
+        target_directory
+            .path()
+            .join(".claude/rules/ClaudeOnly.md")
+            .is_file(),
+        "ClaudeOnly should deploy to claude (alias: claudecode)"
+    );
+
+    assert!(
+        !target_directory
+            .path()
+            .join(".gemini/rules/claude-only.md")
+            .is_file(),
+        "ClaudeOnly should NOT deploy to gemini"
+    );
+
+    assert!(
+        target_directory
+            .path()
+            .join(".claude/rules/Universal.md")
+            .is_file(),
+        "Universal (no targets) should deploy everywhere"
+    );
+
+    assert!(
+        target_directory
+            .path()
+            .join(".gemini/rules/universal.md")
+            .is_file(),
+        "Universal (no targets) should deploy to gemini too"
+    );
+}
+
+#[test]
+fn install_targets_multiple_providers() {
+    let module_directory = tempfile::tempdir().unwrap();
+    let target_directory = tempfile::tempdir().unwrap();
+
+    scaffold_module(module_directory.path());
+    create_rule_with_targets(
+        module_directory.path(),
+        "TwoProviders",
+        "claudecode, geminicli",
+    );
+
+    forge()
+        .args([
+            "install",
+            module_directory.path().to_str().unwrap(),
+            "--target",
+            target_directory.path().to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    assert!(
+        target_directory
+            .path()
+            .join(".claude/rules/TwoProviders.md")
+            .is_file(),
+        "should deploy to claude"
+    );
+
+    assert!(
+        target_directory
+            .path()
+            .join(".gemini/rules/two-providers.md")
+            .is_file(),
+        "should deploy to gemini"
+    );
+
+    assert!(
+        !target_directory
+            .path()
+            .join(".codex/rules/TwoProviders.md")
+            .is_file(),
+        "should NOT deploy to codex"
+    );
+}

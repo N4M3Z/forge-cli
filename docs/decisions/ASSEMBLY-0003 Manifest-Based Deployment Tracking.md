@@ -9,7 +9,7 @@ tags:
     - deployment
 status: accepted
 created: 2026-03-23
-updated: 2026-03-23
+updated: 2026-04-04
 author: "@N4M3Z"
 project: forge-cli
 related:
@@ -45,15 +45,21 @@ Installing skills, agents, and rules to provider directories is a multi-step pro
 The manifest is a **deployment record**, not a build artifact. It lives at the target as a `.manifest` dotfile — one per provider directory. Assembly does not produce it; copy creates it after deploying files.
 
 ```yaml
-agents/GameMaster.md:
-    sha256: 1e1a469e...
-rules/PlayerAgency.md:
-    sha256: 43844e52...
-skills/SessionPrep/SKILL.md:
-    sha256: b3c67018...
+agents:
+    GameMaster.md:
+        fingerprint: 1e1a469e...
+        provenance: agents/.provenance/GameMaster.yaml
+rules:
+    PlayerAgency.md:
+        fingerprint: 43844e52...
+        provenance: rules/.provenance/PlayerAgency.yaml
+    cz:
+        PersonalTaxIncome.md:
+            fingerprint: b3c67018...
+            provenance: rules/cz/.provenance/PersonalTaxIncome.yaml
 ```
 
-Each entry maps a deployed file path (relative to the provider directory) to the SHA-256 hash of the content that was deployed.
+The manifest is nested YAML mirroring the directory structure. Each leaf entry has a `fingerprint` (SHA-256 of deployed content) and a `provenance` pointer to the SLSA sidecar that records the source chain.
 
 ### Staleness detection
 
@@ -70,7 +76,7 @@ Source-level staleness (has the source changed since last build?) is detected by
 
 ### Consequences
 
-- [+] Simple format — just `{path: sha256}`, human-readable
+- [+] Simple format — nested YAML with `fingerprint` and `provenance`, human-readable
 - [+] Lives at the target — survives `build/` cleanup
 - [+] Per-provider — each target directory tracks its own deployments
 - [+] No spec overhead — this is not an attestation, just a cache

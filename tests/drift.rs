@@ -17,7 +17,9 @@ fn rule_with_frontmatter(name: &str, body: &str) -> String {
 }
 
 fn agent_with_model(name: &str, model: &str, body: &str) -> String {
-    format!("---\nname: {name}\ndescription: test agent for drift verification\nmodel: {model}\n---\n\n{body}\n")
+    format!(
+        "---\nname: {name}\ndescription: test agent for drift verification\nmodel: {model}\n---\n\n{body}\n"
+    )
 }
 
 // --- Identical files ---
@@ -27,13 +29,24 @@ fn drift_identical_rules_reports_zero_exit() {
     let module_directory = tempfile::tempdir().unwrap();
     let upstream_directory = tempfile::tempdir().unwrap();
 
-    let content = rule_with_frontmatter("KeepChangelog", "When making a notable change, add an entry to CHANGELOG.md.");
+    let content = rule_with_frontmatter(
+        "KeepChangelog",
+        "When making a notable change, add an entry to CHANGELOG.md.",
+    );
 
     write_file(module_directory.path(), "rules/KeepChangelog.md", &content);
-    write_file(upstream_directory.path(), "rules/KeepChangelog.md", &content);
+    write_file(
+        upstream_directory.path(),
+        "rules/KeepChangelog.md",
+        &content,
+    );
 
     forge()
-        .args(["drift", module_directory.path().to_str().unwrap(), "--upstream", upstream_directory.path().to_str().unwrap()])
+        .args([
+            "drift",
+            module_directory.path().to_str().unwrap(),
+            upstream_directory.path().to_str().unwrap(),
+        ])
         .assert()
         .success();
 }
@@ -49,12 +62,20 @@ fn drift_identical_files_shown_in_json() {
     write_file(upstream_directory.path(), "rules/TestRule.md", &content);
 
     let output = forge()
-        .args(["drift", module_directory.path().to_str().unwrap(), "--upstream", upstream_directory.path().to_str().unwrap(), "--json"])
+        .args([
+            "drift",
+            module_directory.path().to_str().unwrap(),
+            upstream_directory.path().to_str().unwrap(),
+            "--json",
+        ])
         .output()
         .unwrap();
 
     let stdout = String::from_utf8(output.stdout).unwrap();
-    assert!(stdout.contains("\"Identical\""), "expected Identical status in JSON: {stdout}");
+    assert!(
+        stdout.contains("\"Identical\""),
+        "expected Identical status in JSON: {stdout}"
+    );
 }
 
 // --- Body drift ---
@@ -72,18 +93,35 @@ fn drift_body_difference_detected() {
     write_file(
         upstream_directory.path(),
         "rules/UseRTK.md",
-        &rule_with_frontmatter("UseRTK", "Always prefix shell commands with rtk. RTK does not support -C."),
+        &rule_with_frontmatter(
+            "UseRTK",
+            "Always prefix shell commands with rtk. RTK does not support -C.",
+        ),
     );
 
     let output = forge()
-        .args(["drift", module_directory.path().to_str().unwrap(), "--upstream", upstream_directory.path().to_str().unwrap(), "--json"])
+        .args([
+            "drift",
+            module_directory.path().to_str().unwrap(),
+            upstream_directory.path().to_str().unwrap(),
+            "--json",
+        ])
         .output()
         .unwrap();
 
     let stdout = String::from_utf8(output.stdout).unwrap();
-    assert!(stdout.contains("\"BodyOnly\""), "expected BodyOnly status: {stdout}");
-    assert!(stdout.contains("\"changed_keys\": []"), "body-only drift should have empty changed_keys: {stdout}");
-    assert!(!output.status.success(), "drift should return nonzero exit code");
+    assert!(
+        stdout.contains("\"BodyOnly\""),
+        "expected BodyOnly status: {stdout}"
+    );
+    assert!(
+        stdout.contains("\"changed_keys\": []"),
+        "body-only drift should have empty changed_keys: {stdout}"
+    );
+    assert!(
+        !output.status.success(),
+        "drift should return nonzero exit code"
+    );
 }
 
 // --- Frontmatter drift ---
@@ -98,27 +136,51 @@ fn drift_frontmatter_difference_detected() {
     write_file(
         module_directory.path(),
         "rules/ArchitectureDecisionRecords.md",
-        &format!("---\nname: ArchitectureDecisionRecords\ndescription: local variant\n---\n\n{body}\n"),
+        &format!(
+            "---\nname: ArchitectureDecisionRecords\ndescription: local variant\n---\n\n{body}\n"
+        ),
     );
     write_file(
         upstream_directory.path(),
         "rules/ArchitectureDecisionRecords.md",
-        &format!("---\nname: ArchitectureDecisionRecords\ndescription: upstream variant with extra field\nversion: 1.0\n---\n\n{body}\n"),
+        &format!(
+            "---\nname: ArchitectureDecisionRecords\ndescription: upstream variant with extra field\nversion: 1.0\n---\n\n{body}\n"
+        ),
     );
 
     let output = forge()
-        .args(["drift", module_directory.path().to_str().unwrap(), "--upstream", upstream_directory.path().to_str().unwrap(), "--json"])
+        .args([
+            "drift",
+            module_directory.path().to_str().unwrap(),
+            upstream_directory.path().to_str().unwrap(),
+            "--json",
+        ])
         .output()
         .unwrap();
 
     let stdout = String::from_utf8(output.stdout).unwrap();
-    assert!(stdout.contains("\"FrontmatterOnly\""), "expected FrontmatterOnly status: {stdout}");
-    assert!(stdout.contains("\"description\""), "expected description in changed_keys: {stdout}");
-    assert!(stdout.contains("\"version\""), "expected version in changed_keys: {stdout}");
+    assert!(
+        stdout.contains("\"FrontmatterOnly\""),
+        "expected FrontmatterOnly status: {stdout}"
+    );
+    assert!(
+        stdout.contains("\"description\""),
+        "expected description in changed_keys: {stdout}"
+    );
+    assert!(
+        stdout.contains("\"version\""),
+        "expected version in changed_keys: {stdout}"
+    );
     let parsed: serde_json::Value = serde_json::from_str(&stdout).unwrap();
     let changed_keys = parsed["entries"][0]["changed_keys"].as_array().unwrap();
-    let key_strings: Vec<&str> = changed_keys.iter().filter_map(serde_json::Value::as_str).collect();
-    assert!(!key_strings.contains(&"name"), "name is identical, should not be in changed_keys: {key_strings:?}");
+    let key_strings: Vec<&str> = changed_keys
+        .iter()
+        .filter_map(serde_json::Value::as_str)
+        .collect();
+    assert!(
+        !key_strings.contains(&"name"),
+        "name is identical, should not be in changed_keys: {key_strings:?}"
+    );
 }
 
 // --- Both differ ---
@@ -136,16 +198,26 @@ fn drift_both_frontmatter_and_body_difference() {
     write_file(
         upstream_directory.path(),
         "rules/Diverged.md",
-        &format!("---\nname: Diverged\ndescription: different description\nversion: 2.0\n---\n\nUpstream body content.\n"),
+        &format!(
+            "---\nname: Diverged\ndescription: different description\nversion: 2.0\n---\n\nUpstream body content.\n"
+        ),
     );
 
     let output = forge()
-        .args(["drift", module_directory.path().to_str().unwrap(), "--upstream", upstream_directory.path().to_str().unwrap(), "--json"])
+        .args([
+            "drift",
+            module_directory.path().to_str().unwrap(),
+            upstream_directory.path().to_str().unwrap(),
+            "--json",
+        ])
         .output()
         .unwrap();
 
     let stdout = String::from_utf8(output.stdout).unwrap();
-    assert!(stdout.contains("\"Both\""), "expected Both status: {stdout}");
+    assert!(
+        stdout.contains("\"Both\""),
+        "expected Both status: {stdout}"
+    );
 }
 
 // --- Local only ---
@@ -165,15 +237,26 @@ fn drift_local_only_file_detected() {
     fs::create_dir_all(upstream_directory.path().join("rules")).unwrap();
 
     let output = forge()
-        .args(["drift", module_directory.path().to_str().unwrap(), "--upstream", upstream_directory.path().to_str().unwrap(), "--json"])
+        .args([
+            "drift",
+            module_directory.path().to_str().unwrap(),
+            upstream_directory.path().to_str().unwrap(),
+            "--json",
+        ])
         .output()
         .unwrap();
 
     let stdout = String::from_utf8(output.stdout).unwrap();
-    assert!(stdout.contains("\"LocalOnly\""), "expected LocalOnly status: {stdout}");
+    assert!(
+        stdout.contains("\"LocalOnly\""),
+        "expected LocalOnly status: {stdout}"
+    );
 
     // local-only files should NOT cause nonzero exit
-    assert!(output.status.success(), "local-only files should not cause drift failure");
+    assert!(
+        output.status.success(),
+        "local-only files should not cause drift failure"
+    );
 }
 
 // --- Upstream only ---
@@ -192,13 +275,24 @@ fn drift_upstream_only_file_detected() {
     );
 
     let output = forge()
-        .args(["drift", module_directory.path().to_str().unwrap(), "--upstream", upstream_directory.path().to_str().unwrap(), "--json"])
+        .args([
+            "drift",
+            module_directory.path().to_str().unwrap(),
+            upstream_directory.path().to_str().unwrap(),
+            "--json",
+        ])
         .output()
         .unwrap();
 
     let stdout = String::from_utf8(output.stdout).unwrap();
-    assert!(stdout.contains("\"UpstreamOnly\""), "expected UpstreamOnly status: {stdout}");
-    assert!(!output.status.success(), "upstream-only files indicate drift");
+    assert!(
+        stdout.contains("\"UpstreamOnly\""),
+        "expected UpstreamOnly status: {stdout}"
+    );
+    assert!(
+        !output.status.success(),
+        "upstream-only files indicate drift"
+    );
 }
 
 // --- Skills ---
@@ -220,13 +314,24 @@ fn drift_skill_body_difference() {
     );
 
     let output = forge()
-        .args(["drift", module_directory.path().to_str().unwrap(), "--upstream", upstream_directory.path().to_str().unwrap(), "--json"])
+        .args([
+            "drift",
+            module_directory.path().to_str().unwrap(),
+            upstream_directory.path().to_str().unwrap(),
+            "--json",
+        ])
         .output()
         .unwrap();
 
     let stdout = String::from_utf8(output.stdout).unwrap();
-    assert!(stdout.contains("\"BodyOnly\""), "expected BodyOnly for skill: {stdout}");
-    assert!(stdout.contains("ArchitectureDecision/SKILL.md"), "should show relative path: {stdout}");
+    assert!(
+        stdout.contains("\"BodyOnly\""),
+        "expected BodyOnly for skill: {stdout}"
+    );
+    assert!(
+        stdout.contains("ArchitectureDecision/SKILL.md"),
+        "should show relative path: {stdout}"
+    );
 }
 
 // --- Agents ---
@@ -250,12 +355,20 @@ fn drift_agent_model_difference_is_frontmatter() {
     );
 
     let output = forge()
-        .args(["drift", module_directory.path().to_str().unwrap(), "--upstream", upstream_directory.path().to_str().unwrap(), "--json"])
+        .args([
+            "drift",
+            module_directory.path().to_str().unwrap(),
+            upstream_directory.path().to_str().unwrap(),
+            "--json",
+        ])
         .output()
         .unwrap();
 
     let stdout = String::from_utf8(output.stdout).unwrap();
-    assert!(stdout.contains("\"FrontmatterOnly\""), "expected FrontmatterOnly for agent model diff: {stdout}");
+    assert!(
+        stdout.contains("\"FrontmatterOnly\""),
+        "expected FrontmatterOnly for agent model diff: {stdout}"
+    );
 }
 
 // --- Decisions ---
@@ -267,17 +380,36 @@ fn drift_decisions_compared() {
 
     let adr_content = "---\ntitle: Test Decision\nstatus: accepted\ndate: 2026-01-01\n---\n\n# Test Decision\n\nDecision body.\n";
 
-    write_file(module_directory.path(), "docs/decisions/ADR-0001 Test.md", adr_content);
-    write_file(upstream_directory.path(), "docs/decisions/ADR-0001 Test.md", adr_content);
+    write_file(
+        module_directory.path(),
+        "docs/decisions/ADR-0001 Test.md",
+        adr_content,
+    );
+    write_file(
+        upstream_directory.path(),
+        "docs/decisions/ADR-0001 Test.md",
+        adr_content,
+    );
 
     let output = forge()
-        .args(["drift", module_directory.path().to_str().unwrap(), "--upstream", upstream_directory.path().to_str().unwrap(), "--json"])
+        .args([
+            "drift",
+            module_directory.path().to_str().unwrap(),
+            upstream_directory.path().to_str().unwrap(),
+            "--json",
+        ])
         .output()
         .unwrap();
 
     let stdout = String::from_utf8(output.stdout).unwrap();
-    assert!(stdout.contains("\"decisions\""), "expected decisions category: {stdout}");
-    assert!(stdout.contains("\"Identical\""), "expected Identical status: {stdout}");
+    assert!(
+        stdout.contains("\"decisions\""),
+        "expected decisions category: {stdout}"
+    );
+    assert!(
+        stdout.contains("\"Identical\""),
+        "expected Identical status: {stdout}"
+    );
 }
 
 // --- No frontmatter ---
@@ -287,16 +419,32 @@ fn drift_files_without_frontmatter_compared_as_full_body() {
     let module_directory = tempfile::tempdir().unwrap();
     let upstream_directory = tempfile::tempdir().unwrap();
 
-    write_file(module_directory.path(), "rules/NoFrontmatter.md", "Plain content without fences.\n");
-    write_file(upstream_directory.path(), "rules/NoFrontmatter.md", "Different plain content.\n");
+    write_file(
+        module_directory.path(),
+        "rules/NoFrontmatter.md",
+        "Plain content without fences.\n",
+    );
+    write_file(
+        upstream_directory.path(),
+        "rules/NoFrontmatter.md",
+        "Different plain content.\n",
+    );
 
     let output = forge()
-        .args(["drift", module_directory.path().to_str().unwrap(), "--upstream", upstream_directory.path().to_str().unwrap(), "--json"])
+        .args([
+            "drift",
+            module_directory.path().to_str().unwrap(),
+            upstream_directory.path().to_str().unwrap(),
+            "--json",
+        ])
         .output()
         .unwrap();
 
     let stdout = String::from_utf8(output.stdout).unwrap();
-    assert!(stdout.contains("\"BodyOnly\""), "no-frontmatter diff should be BodyOnly: {stdout}");
+    assert!(
+        stdout.contains("\"BodyOnly\""),
+        "no-frontmatter diff should be BodyOnly: {stdout}"
+    );
 }
 
 // --- Nested rules ---
@@ -308,17 +456,36 @@ fn drift_nested_rules_compared() {
 
     let content = rule_with_frontmatter("PersonalTaxIncome", "Czech personal income tax rules.");
 
-    write_file(module_directory.path(), "rules/cz/PersonalTaxIncome.md", &content);
-    write_file(upstream_directory.path(), "rules/cz/PersonalTaxIncome.md", &content);
+    write_file(
+        module_directory.path(),
+        "rules/cz/PersonalTaxIncome.md",
+        &content,
+    );
+    write_file(
+        upstream_directory.path(),
+        "rules/cz/PersonalTaxIncome.md",
+        &content,
+    );
 
     let output = forge()
-        .args(["drift", module_directory.path().to_str().unwrap(), "--upstream", upstream_directory.path().to_str().unwrap(), "--json"])
+        .args([
+            "drift",
+            module_directory.path().to_str().unwrap(),
+            upstream_directory.path().to_str().unwrap(),
+            "--json",
+        ])
         .output()
         .unwrap();
 
     let stdout = String::from_utf8(output.stdout).unwrap();
-    assert!(stdout.contains("cz/PersonalTaxIncome.md"), "should include subdirectory in name: {stdout}");
-    assert!(stdout.contains("\"Identical\""), "nested identical files: {stdout}");
+    assert!(
+        stdout.contains("cz/PersonalTaxIncome.md"),
+        "should include subdirectory in name: {stdout}"
+    );
+    assert!(
+        stdout.contains("\"Identical\""),
+        "nested identical files: {stdout}"
+    );
 }
 
 // --- Empty directories ---
@@ -335,12 +502,20 @@ fn drift_empty_module_against_populated_upstream() {
     );
 
     let output = forge()
-        .args(["drift", module_directory.path().to_str().unwrap(), "--upstream", upstream_directory.path().to_str().unwrap(), "--json"])
+        .args([
+            "drift",
+            module_directory.path().to_str().unwrap(),
+            upstream_directory.path().to_str().unwrap(),
+            "--json",
+        ])
         .output()
         .unwrap();
 
     let stdout = String::from_utf8(output.stdout).unwrap();
-    assert!(stdout.contains("\"UpstreamOnly\""), "expected UpstreamOnly: {stdout}");
+    assert!(
+        stdout.contains("\"UpstreamOnly\""),
+        "expected UpstreamOnly: {stdout}"
+    );
 }
 
 // --- Mixed content kinds ---
@@ -352,26 +527,65 @@ fn drift_reports_all_content_kinds() {
 
     let rule_content = rule_with_frontmatter("SharedRule", "Shared rule body.");
     let agent_content = agent_with_model("SharedAgent", "strong", "Shared agent body.");
-    let skill_content = "---\nname: SharedSkill\ndescription: test skill\n---\n\nShared skill body.\n";
+    let skill_content =
+        "---\nname: SharedSkill\ndescription: test skill\n---\n\nShared skill body.\n";
 
-    write_file(module_directory.path(), "rules/SharedRule.md", &rule_content);
-    write_file(upstream_directory.path(), "rules/SharedRule.md", &rule_content);
+    write_file(
+        module_directory.path(),
+        "rules/SharedRule.md",
+        &rule_content,
+    );
+    write_file(
+        upstream_directory.path(),
+        "rules/SharedRule.md",
+        &rule_content,
+    );
 
-    write_file(module_directory.path(), "agents/SharedAgent.md", &agent_content);
-    write_file(upstream_directory.path(), "agents/SharedAgent.md", &agent_content);
+    write_file(
+        module_directory.path(),
+        "agents/SharedAgent.md",
+        &agent_content,
+    );
+    write_file(
+        upstream_directory.path(),
+        "agents/SharedAgent.md",
+        &agent_content,
+    );
 
-    write_file(module_directory.path(), "skills/SharedSkill/SKILL.md", skill_content);
-    write_file(upstream_directory.path(), "skills/SharedSkill/SKILL.md", skill_content);
+    write_file(
+        module_directory.path(),
+        "skills/SharedSkill/SKILL.md",
+        skill_content,
+    );
+    write_file(
+        upstream_directory.path(),
+        "skills/SharedSkill/SKILL.md",
+        skill_content,
+    );
 
     let output = forge()
-        .args(["drift", module_directory.path().to_str().unwrap(), "--upstream", upstream_directory.path().to_str().unwrap(), "--json"])
+        .args([
+            "drift",
+            module_directory.path().to_str().unwrap(),
+            upstream_directory.path().to_str().unwrap(),
+            "--json",
+        ])
         .output()
         .unwrap();
 
     let stdout = String::from_utf8(output.stdout).unwrap();
-    assert!(stdout.contains("\"agents\""), "should have agents category: {stdout}");
-    assert!(stdout.contains("\"skills\""), "should have skills category: {stdout}");
-    assert!(stdout.contains("\"rules\""), "should have rules category: {stdout}");
+    assert!(
+        stdout.contains("\"agents\""),
+        "should have agents category: {stdout}"
+    );
+    assert!(
+        stdout.contains("\"skills\""),
+        "should have skills category: {stdout}"
+    );
+    assert!(
+        stdout.contains("\"rules\""),
+        "should have rules category: {stdout}"
+    );
 }
 
 // --- Ignore keys ---
@@ -395,13 +609,26 @@ fn ignore_frontmatter_keys_marks_expected() {
     );
 
     let output = forge()
-        .args(["drift", module_directory.path().to_str().unwrap(), "--upstream", upstream_directory.path().to_str().unwrap(), "--ignore", "project,author", "--json"])
+        .args([
+            "drift",
+            module_directory.path().to_str().unwrap(),
+            upstream_directory.path().to_str().unwrap(),
+            "--ignore",
+            "project,author",
+            "--json",
+        ])
         .output()
         .unwrap();
 
     let stdout = String::from_utf8(output.stdout).unwrap();
-    assert!(stdout.contains("\"Expected\""), "all ignored keys should produce Expected: {stdout}");
-    assert!(output.status.success(), "Expected drift should not cause nonzero exit");
+    assert!(
+        stdout.contains("\"Expected\""),
+        "all ignored keys should produce Expected: {stdout}"
+    );
+    assert!(
+        output.status.success(),
+        "Expected drift should not cause nonzero exit"
+    );
 }
 
 #[test]
@@ -421,12 +648,22 @@ fn ignore_body_marks_expected() {
     );
 
     let output = forge()
-        .args(["drift", module_directory.path().to_str().unwrap(), "--upstream", upstream_directory.path().to_str().unwrap(), "--ignore", "body", "--json"])
+        .args([
+            "drift",
+            module_directory.path().to_str().unwrap(),
+            upstream_directory.path().to_str().unwrap(),
+            "--ignore",
+            "body",
+            "--json",
+        ])
         .output()
         .unwrap();
 
     let stdout = String::from_utf8(output.stdout).unwrap();
-    assert!(stdout.contains("\"Expected\""), "ignored body should produce Expected: {stdout}");
+    assert!(
+        stdout.contains("\"Expected\""),
+        "ignored body should produce Expected: {stdout}"
+    );
 }
 
 #[test]
@@ -448,12 +685,22 @@ fn ignore_partial_keys_keeps_drift() {
     );
 
     let output = forge()
-        .args(["drift", module_directory.path().to_str().unwrap(), "--upstream", upstream_directory.path().to_str().unwrap(), "--ignore", "project", "--json"])
+        .args([
+            "drift",
+            module_directory.path().to_str().unwrap(),
+            upstream_directory.path().to_str().unwrap(),
+            "--ignore",
+            "project",
+            "--json",
+        ])
         .output()
         .unwrap();
 
     let stdout = String::from_utf8(output.stdout).unwrap();
-    assert!(stdout.contains("\"FrontmatterOnly\""), "non-ignored key 'version' should keep drift: {stdout}");
+    assert!(
+        stdout.contains("\"FrontmatterOnly\""),
+        "non-ignored key 'version' should keep drift: {stdout}"
+    );
 }
 
 #[test]
@@ -473,12 +720,22 @@ fn ignore_both_frontmatter_and_body() {
     );
 
     let output = forge()
-        .args(["drift", module_directory.path().to_str().unwrap(), "--upstream", upstream_directory.path().to_str().unwrap(), "--ignore", "project,body", "--json"])
+        .args([
+            "drift",
+            module_directory.path().to_str().unwrap(),
+            upstream_directory.path().to_str().unwrap(),
+            "--ignore",
+            "project,body",
+            "--json",
+        ])
         .output()
         .unwrap();
 
     let stdout = String::from_utf8(output.stdout).unwrap();
-    assert!(stdout.contains("\"Expected\""), "all drift ignored should produce Expected: {stdout}");
+    assert!(
+        stdout.contains("\"Expected\""),
+        "all drift ignored should produce Expected: {stdout}"
+    );
 }
 
 #[test]
@@ -498,10 +755,20 @@ fn ignore_body_on_both_drift_keeps_frontmatter() {
     );
 
     let output = forge()
-        .args(["drift", module_directory.path().to_str().unwrap(), "--upstream", upstream_directory.path().to_str().unwrap(), "--ignore", "body", "--json"])
+        .args([
+            "drift",
+            module_directory.path().to_str().unwrap(),
+            upstream_directory.path().to_str().unwrap(),
+            "--ignore",
+            "body",
+            "--json",
+        ])
         .output()
         .unwrap();
 
     let stdout = String::from_utf8(output.stdout).unwrap();
-    assert!(stdout.contains("\"FrontmatterOnly\""), "ignoring body on Both should downgrade to FrontmatterOnly: {stdout}");
+    assert!(
+        stdout.contains("\"FrontmatterOnly\""),
+        "ignoring body on Both should downgrade to FrontmatterOnly: {stdout}"
+    );
 }

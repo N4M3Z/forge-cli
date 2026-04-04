@@ -57,12 +57,14 @@ pub fn validate_frontmatter(
     let mut diagnostics = Vec::new();
 
     let Some((yaml_text, _)) = parse::split_frontmatter(content) else {
-        diagnostics.push(Diagnostic {
-            file: file_path.to_string(),
-            line: None,
-            severity: Severity::Error,
-            message: "missing frontmatter".to_string(),
-        });
+        if has_required_fields(schema_content) {
+            diagnostics.push(Diagnostic {
+                file: file_path.to_string(),
+                line: None,
+                severity: Severity::Error,
+                message: "missing frontmatter".to_string(),
+            });
+        }
         return diagnostics;
     };
 
@@ -70,6 +72,10 @@ pub fn validate_frontmatter(
     check_pattern_constraints(yaml_text, schema_content, file_path, &mut diagnostics);
 
     diagnostics
+}
+
+fn has_required_fields(schema_content: &str) -> bool {
+    yaml::yaml_list(schema_content, "required").is_some()
 }
 
 fn check_required_fields(

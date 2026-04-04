@@ -4,6 +4,8 @@
 providers:
     claude:
         target: ".claude"
+        aliases:
+            - claudecode
         keep_fields:
             agents: [name, description, model, allowedTools]
             skills: [name, description, version]
@@ -15,6 +17,8 @@ providers:
 
     gemini:
         target: ".gemini"
+        aliases:
+            - geminicli
         assembly:
             - kebab-case
             - remap-tools
@@ -30,6 +34,8 @@ providers:
 
     codex:
         target: ".codex"
+        aliases:
+            - codexcli
         assembly:
             - agents-to-toml
             - strip-links

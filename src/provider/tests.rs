@@ -153,3 +153,58 @@ fn map_tool_passes_through_unmapped() {
 
     assert_eq!(map_tool("Write", &mappings), "Write");
 }
+
+fn provider_with_aliases(target: &str, aliases: Vec<&str>) -> ProviderConfig {
+    ProviderConfig {
+        target: target.to_string(),
+        assembly: None,
+        deploy: None,
+        keep_fields: None,
+        models: None,
+        aliases: Some(aliases.into_iter().map(String::from).collect()),
+    }
+}
+
+#[test]
+fn matches_target_by_provider_key() {
+    let config = provider_with_aliases(".claude", vec!["claudecode"]);
+    assert!(config.matches_target("claude", "claude"));
+}
+
+#[test]
+fn matches_target_by_alias() {
+    let config = provider_with_aliases(".claude", vec!["claudecode"]);
+    assert!(config.matches_target("claudecode", "claude"));
+}
+
+#[test]
+fn matches_target_by_target_directory() {
+    let config = provider_with_aliases(".claude", vec!["claudecode"]);
+    assert!(config.matches_target(".claude", "claude"));
+}
+
+#[test]
+fn matches_target_by_stripped_dot_prefix() {
+    let config = provider_with_aliases(".gemini", vec!["geminicli"]);
+    assert!(config.matches_target("gemini", "gemini"));
+}
+
+#[test]
+fn matches_target_rejects_unknown() {
+    let config = provider_with_aliases(".claude", vec!["claudecode"]);
+    assert!(!config.matches_target("cursor", "claude"));
+}
+
+#[test]
+fn matches_target_no_aliases() {
+    let config = ProviderConfig {
+        target: ".opencode".to_string(),
+        assembly: None,
+        deploy: None,
+        keep_fields: None,
+        models: None,
+        aliases: None,
+    };
+    assert!(config.matches_target("opencode", "opencode"));
+    assert!(!config.matches_target("claudecode", "opencode"));
+}

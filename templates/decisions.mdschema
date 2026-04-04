@@ -59,7 +59,6 @@ structure:
                 - min: 1
           - heading:
                 pattern: "## Considered Options"
-            optional: true
             allow_additional: true
             lists:
                 - min: 1

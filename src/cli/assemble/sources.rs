@@ -1,9 +1,14 @@
 use commands::error::{Error, ErrorKind};
+use commands::parse::frontmatter_list;
 use std::collections::HashSet;
 use std::fs;
 use std::path::Path;
 
 use crate::cli::config::read_file;
+
+fn parse_targets(content: &str) -> Option<Vec<String>> {
+    frontmatter_list(content, "targets").map(|value| value.split(", ").map(String::from).collect())
+}
 
 /// A source file discovered during directory walking.
 ///
@@ -29,6 +34,9 @@ pub struct SourceFile {
     pub passthrough: bool,
     /// Qualifier directory name (e.g., "sonnet", "codex"), or None for base files.
     pub qualifier: Option<String>,
+    /// Target providers from frontmatter (e.g., `claudecode`, `geminicli`).
+    /// None means deploy to all providers.
+    pub targets: Option<Vec<String>>,
 }
 
 /// Walk agents/, skills/, rules/ and collect all .md source files.
@@ -144,6 +152,7 @@ fn walk_content_dir(
 
         let content = read_file(&path)?;
 
+        let targets = parse_targets(&content);
         sources.push(SourceFile {
             relative_path: relative,
             full_path: path.to_string_lossy().to_string(),
@@ -151,6 +160,7 @@ fn walk_content_dir(
             kind,
             passthrough: false,
             qualifier: None,
+            targets,
         });
     }
 
@@ -205,6 +215,7 @@ fn walk_qualifier_dir(
             .to_string_lossy()
             .to_string();
         let content = read_file(&path)?;
+        let targets = parse_targets(&content);
         sources.push(SourceFile {
             relative_path: relative,
             full_path: path.to_string_lossy().to_string(),
@@ -212,6 +223,7 @@ fn walk_qualifier_dir(
             kind,
             passthrough: false,
             qualifier: Some(qualifier_name.to_string()),
+            targets,
         });
     }
 
@@ -291,6 +303,7 @@ fn collect_skill_files(
             eprintln!("  flatten   skills/{skill_name}/user/{filename} → {filename}");
         }
 
+        let targets = parse_targets(&content);
         file_map.insert(
             filename,
             SourceFile {
@@ -300,6 +313,7 @@ fn collect_skill_files(
                 kind,
                 passthrough: !is_skill_file,
                 qualifier: None,
+                targets,
             },
         );
     }

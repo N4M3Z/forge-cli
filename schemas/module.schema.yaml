@@ -1,0 +1,25 @@
+$schema: https://json-schema.org/draft/2020-12/schema
+type: object
+required:
+    - name
+    - version
+    - description
+properties:
+    name:
+        type: string
+    version:
+        type: string
+    description:
+        type: string
+    events:
+        type: array
+        items:
+            type: string
+    type:
+        type: string
+    platforms:
+        type: array
+        items:
+            type: string
+    repository:
+        type: string

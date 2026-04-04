@@ -40,6 +40,7 @@ check:
 install: build
 	mkdir -p ~/.local/bin
 	ln -sf "$(CURDIR)/$(BINARY)" ~/.local/bin/forge
+	git config core.hooksPath .githooks
 	@echo "Installed: forge -> $(CURDIR)/$(BINARY)"
 
 clean:

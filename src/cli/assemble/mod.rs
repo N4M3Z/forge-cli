@@ -84,6 +84,15 @@ pub fn execute(path: &str) -> Result<ActionResult, Error> {
             }) {
                 continue;
             }
+
+            if source.targets.as_ref().is_some_and(|file_targets| {
+                !file_targets
+                    .iter()
+                    .any(|target| provider_config.matches_target(target, provider_name))
+            }) {
+                continue;
+            }
+
             let kind_keep_fields = provider_config
                 .keep_fields
                 .as_ref()

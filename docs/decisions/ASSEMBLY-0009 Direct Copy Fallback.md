@@ -9,7 +9,7 @@ tags:
     - fallback
 status: accepted
 created: 2026-03-19
-updated: 2026-03-19
+updated: 2026-04-04
 author: "@N4M3Z"
 project: forge-cli
 related:
@@ -42,15 +42,19 @@ The assembly pipeline produces a `build/` directory with provider-specific outpu
 
 ## Decision Outcome
 
-Ship a minimal `forge copy` command that copies assembled output to provider directories. It reads provider config (prefix, extension) from `defaults.yaml` and copies files — no formatting, no transformation, no dependencies beyond a POSIX shell and a YAML reader.
+Two commands handle deployment:
+
+- `forge deploy` copies assembled output from `build/` to provider directories with manifest tracking, provenance, and incremental install. This is the normal deployment path after `forge assemble`.
+- `forge copy` copies source files directly to a target directory — no assembly, no transforms, no manifest. A raw fallback for environments where the full pipeline isn't needed.
 
 ```sh
-forge install .         # assemble + copy (convenience wrapper)
-forge assemble .        # assemble only → build/
-forge copy build/       # copy only (build/ → provider dirs)
+forge install .                    # assemble + deploy (convenience wrapper)
+forge assemble .                   # assemble only → build/
+forge deploy .                     # deploy from build/ → provider dirs
+forge copy . --target ~/project    # raw copy, no assembly or transforms
 ```
 
-`forge copy` is deliberately named to signal that it does nothing smart — it copies files. If rulesync is available, users can run `rulesync generate` instead. Both produce the same result from the same `build/` input.
+`forge copy` is deliberately named to signal that it does nothing smart — it copies source files as-is to a single target directory. `forge deploy` is the manifest-tracked deployment path.
 
 ### Consequences
 

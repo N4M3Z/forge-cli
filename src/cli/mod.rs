@@ -37,10 +37,6 @@ enum Command {
         #[arg(long)]
         force: bool,
 
-        /// Delete files from previous installs that are no longer in the module
-        #[arg(long)]
-        prune: bool,
-
         /// Prompt before overwriting each file (not yet implemented, see CLI-0007)
         #[arg(long, short, hide = true)]
         interactive: bool,
@@ -64,10 +60,6 @@ enum Command {
         /// Overwrite user-modified files
         #[arg(long)]
         force: bool,
-
-        /// Delete files from previous installs that are no longer in the module
-        #[arg(long)]
-        prune: bool,
 
         /// Prompt before overwriting each file (not yet implemented, see CLI-0007)
         #[arg(long, short, hide = true)]
@@ -95,23 +87,32 @@ enum Command {
         /// Path to a deployed file or provider directory
         path: String,
 
-        /// Show files without provenance (orphans)
+        /// Show files without provenance
         #[arg(long)]
-        orphans: bool,
+        show_orphans: bool,
     },
 
     /// Compare module content against an upstream reference
     Drift {
-        /// Path to the module root
-        path: String,
+        /// Path to the module root (source)
+        source: String,
 
         /// Path to the upstream reference module
-        #[arg(long)]
-        upstream: String,
+        target: Option<String>,
 
         /// Comma-separated keys to ignore (use "body" to ignore body drift)
         #[arg(long, value_delimiter = ',')]
         ignore: Vec<String>,
+    },
+
+    /// Remove stale files from previous installs
+    Clean {
+        /// Path to the module root
+        path: String,
+
+        /// Clean a specific directory instead of default scope
+        #[arg(long)]
+        target: Option<String>,
     },
 
     /// Assemble and package module as release tarballs
@@ -136,10 +137,9 @@ pub fn run() -> i32 {
             path,
             target,
             force,
-            prune,
             interactive,
         } => (
-            install::execute(&path, target.as_deref(), force, prune, interactive),
+            install::execute(&path, target.as_deref(), force, false, interactive),
             "deployed",
         ),
         Command::Assemble { path } => (assemble::execute(&path), "assembled"),
@@ -147,16 +147,15 @@ pub fn run() -> i32 {
             path,
             target,
             force,
-            prune,
             interactive,
         } => (
-            deploy::execute(&path, target.as_deref(), force, prune, interactive),
+            deploy::execute(&path, target.as_deref(), force, false, interactive),
             "deployed",
         ),
         Command::Copy { path, target } => (copy::execute(&path, &target), "copied"),
         Command::Validate { path } => (validate::execute(&path), "validated"),
-        Command::Provenance { path, orphans } => {
-            return match provenance::execute(&path, None, orphans, args.json) {
+        Command::Provenance { path, show_orphans } => {
+            return match provenance::execute(&path, None, show_orphans, args.json) {
                 Ok(code) => code,
                 Err(error) => {
                     eprintln!("fatal: {error}");
@@ -164,8 +163,13 @@ pub fn run() -> i32 {
                 }
             };
         }
-        Command::Drift { path, upstream, ignore } => {
-            return match drift::execute(&path, &upstream, &ignore, args.json) {
+        Command::Drift {
+            source,
+            target,
+            ignore,
+        } => {
+            let upstream = target.as_deref().unwrap_or(".");
+            return match drift::execute(&source, upstream, &ignore, args.json) {
                 Ok(code) => code,
                 Err(error) => {
                     eprintln!("fatal: {error}");
@@ -173,6 +177,10 @@ pub fn run() -> i32 {
                 }
             };
         }
+        Command::Clean { path, target } => (
+            deploy::execute(&path, target.as_deref(), false, true, false),
+            "cleaned",
+        ),
         Command::Release { path, embed } => (release::execute(&path, embed), "released"),
     };
 
