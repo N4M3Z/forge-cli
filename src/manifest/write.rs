@@ -4,7 +4,11 @@ use std::collections::HashMap;
 pub fn write(entries: &HashMap<String, ManifestEntry>) -> Result<String, String> {
     let mut top: serde_yaml::Mapping = serde_yaml::Mapping::new();
 
-    for (name, entry) in entries {
+    let mut sorted_keys: Vec<&String> = entries.keys().collect();
+    sorted_keys.sort();
+
+    for name in sorted_keys {
+        let entry = &entries[name];
         let mut fields = serde_yaml::Mapping::new();
         fields.insert(
             serde_yaml::Value::String("sha256".into()),

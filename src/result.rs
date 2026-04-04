@@ -4,6 +4,7 @@ use serde::Serialize;
 pub struct ActionResult {
     pub installed: Vec<DeployedFile>,
     pub skipped: Vec<SkippedFile>,
+    pub pruned: Vec<PrunedFile>,
     pub errors: Vec<String>,
 }
 
@@ -29,6 +30,12 @@ pub struct SkippedFile {
     pub target: String,
     pub provider: String,
     pub reason: SkipReason,
+}
+
+#[derive(Debug, Serialize)]
+pub struct PrunedFile {
+    pub target: String,
+    pub provider: String,
 }
 
 #[derive(Debug, Clone, Serialize)]

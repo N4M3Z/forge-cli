@@ -35,6 +35,10 @@ enum Command {
         #[arg(long)]
         force: bool,
 
+        /// Delete files from previous installs that are no longer in the module
+        #[arg(long)]
+        prune: bool,
+
         /// Prompt before overwriting each file (not yet implemented, see CLI-0007)
         #[arg(long, short, hide = true)]
         interactive: bool,
@@ -58,6 +62,10 @@ enum Command {
         /// Overwrite user-modified files
         #[arg(long)]
         force: bool,
+
+        /// Delete files from previous installs that are no longer in the module
+        #[arg(long)]
+        prune: bool,
 
         /// Prompt before overwriting each file (not yet implemented, see CLI-0007)
         #[arg(long, short, hide = true)]
@@ -102,9 +110,10 @@ pub fn run() -> i32 {
             path,
             target,
             force,
+            prune,
             interactive,
         } => (
-            install::execute(&path, target.as_deref(), force, interactive),
+            install::execute(&path, target.as_deref(), force, prune, interactive),
             "deployed",
         ),
         Command::Assemble { path } => (assemble::execute(&path), "assembled"),
@@ -112,9 +121,10 @@ pub fn run() -> i32 {
             path,
             target,
             force,
+            prune,
             interactive,
         } => (
-            deploy::execute(&path, target.as_deref(), force, interactive),
+            deploy::execute(&path, target.as_deref(), force, prune, interactive),
             "deployed",
         ),
         Command::Copy { path, target } => (copy::execute(&path, &target), "copied"),

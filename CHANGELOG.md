@@ -8,6 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Added
 
+- Stale file detection and `--prune` flag for install/deploy (#1)
 - Qualifier directory support for rules and agents (CORE-0018)
 - Model tier matching via models.yaml (e.g., `sonnet/` matches claude and opencode)
 - Embedded models.yaml fallback for standalone binary usage

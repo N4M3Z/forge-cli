@@ -75,6 +75,8 @@ pub fn execute(path: &str) -> Result<ActionResult, Error> {
         let has_strip_links =
             assembly_rules.contains(&commands::provider::AssemblyRule::StripLinks);
 
+        let model_tiers = provider_config.models.clone().unwrap_or_default();
+
         for source in &source_files {
             if source.qualifier.as_ref().is_some_and(|qualifier| {
                 !qualifier_matches_provider(qualifier, provider_name, &models)
@@ -84,13 +86,8 @@ pub fn execute(path: &str) -> Result<ActionResult, Error> {
             let kind_keep_fields = provider_config
                 .keep_fields
                 .as_ref()
-                .and_then(|fields_by_kind| fields_by_kind.get(&source.kind))
+                .and_then(|fields_by_kind| fields_by_kind.get(source.kind.as_str()))
                 .cloned()
-                .unwrap_or_default();
-
-            let model_tiers = provider_config
-                .models
-                .clone()
                 .unwrap_or_default();
 
             let assembled = pipeline::assemble_source(
@@ -127,7 +124,7 @@ pub fn execute(path: &str) -> Result<ActionResult, Error> {
             };
 
             let output_path = provider_build_dir
-                .join(&source.kind)
+                .join(source.kind.as_str())
                 .join(&transformed_path);
             let manifest_key = format!("{}/{}/{}", provider_name, source.kind, transformed_path);
 

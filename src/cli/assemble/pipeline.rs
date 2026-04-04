@@ -47,8 +47,12 @@ pub fn assemble_source(
 
     let keep_refs: Vec<&str> = keep_fields.iter().map(String::as_str).collect();
 
-    let mut output =
-        assemble::assemble(&source.content, variant_content.as_deref(), &keep_refs, strip_links);
+    let mut output = assemble::assemble(
+        &source.content,
+        variant_content.as_deref(),
+        &keep_refs,
+        strip_links,
+    );
 
     if !tool_mappings.is_empty() {
         for (from, to) in tool_mappings {
@@ -57,7 +61,7 @@ pub fn assemble_source(
     }
 
     // Map abstract model tiers (strong/fast/light) to provider-specific values
-    if source.kind == "agents" && !model_tiers.is_empty() {
+    if source.kind == commands::provider::ContentKind::Agents && !model_tiers.is_empty() {
         output = map_model_tier(&output, model_tiers);
     }
 

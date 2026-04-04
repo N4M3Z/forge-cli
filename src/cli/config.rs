@@ -41,8 +41,8 @@ pub fn load_merged_config(module_root: &Path) -> Result<String, Error> {
 
 /// Load provider configurations, merging module config with embedded defaults.
 ///
-/// The embedded defaults provide the base (target, assembly rules, keep_fields,
-/// models). The module's providers: section overrides specific fields per provider.
+/// The embedded defaults provide the base (`target`, assembly rules, `keep_fields`,
+/// `models`). The module's `providers:` section overrides specific fields per provider.
 /// If the module has no providers: section, embedded defaults are used entirely.
 pub fn load_providers(config: &str) -> Result<HashMap<String, provider::ProviderConfig>, Error> {
     let embedded_providers = provider::load_providers(EMBEDDED_DEFAULTS).map_err(|error| {

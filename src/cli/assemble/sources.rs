@@ -12,7 +12,7 @@ use crate::cli::config::read_file;
 ///     relative_path: "rules/MyRule.md",
 ///     full_path: "/home/user/module/rules/MyRule.md",
 ///     content: "---\nname: MyRule\n---\n...",
-///     kind: "rules",
+///     kind: ContentKind::Rules,
 ///     passthrough: false,
 ///     qualifier: None,
 /// }
@@ -24,8 +24,7 @@ pub struct SourceFile {
     pub full_path: String,
     /// Raw file content.
     pub content: String,
-    /// Content kind: "agents", "skills", or "rules".
-    pub kind: String,
+    pub kind: commands::provider::ContentKind,
     /// Whether this file is a passthrough (non-SKILL.md file inside a skill dir).
     pub passthrough: bool,
     /// Qualifier directory name (e.g., "sonnet", "codex"), or None for base files.
@@ -60,17 +59,18 @@ pub fn collect(
 ) -> Result<Vec<SourceFile>, Error> {
     let mut sources = Vec::new();
 
-    for kind in &["agents", "skills", "rules"] {
-        let dir = module_root.join(kind);
+    for kind in commands::provider::ContentKind::ALL {
+        let dir = module_root.join(kind.as_str());
         if !dir.is_dir() {
             continue;
         }
 
-        if *kind == "skills" {
-            walk_content_dir(&dir, kind, module_root, &mut sources, &HashSet::new())?;
+        let qualifiers = if *kind == commands::provider::ContentKind::Skills {
+            &HashSet::new()
         } else {
-            walk_content_dir(&dir, kind, module_root, &mut sources, valid_qualifiers)?;
-        }
+            valid_qualifiers
+        };
+        walk_content_dir(&dir, *kind, module_root, &mut sources, qualifiers)?;
     }
 
     Ok(sources)
@@ -83,7 +83,7 @@ pub fn collect(
 /// qualifier directories are scanned for files that have no base counterpart.
 fn walk_content_dir(
     dir: &Path,
-    kind: &str,
+    kind: commands::provider::ContentKind,
     module_root: &Path,
     sources: &mut Vec<SourceFile>,
     valid_qualifiers: &HashSet<String>,
@@ -101,7 +101,7 @@ fn walk_content_dir(
         let path = entry.path();
 
         if path.is_dir() {
-            if kind == "skills" {
+            if kind == commands::provider::ContentKind::Skills {
                 walk_skill_dir(&path, kind, module_root, sources)?;
                 continue;
             }
@@ -148,7 +148,7 @@ fn walk_content_dir(
             relative_path: relative,
             full_path: path.to_string_lossy().to_string(),
             content,
-            kind: kind.to_string(),
+            kind,
             passthrough: false,
             qualifier: None,
         });
@@ -176,7 +176,7 @@ fn walk_content_dir(
 fn walk_qualifier_dir(
     dir: &Path,
     qualifier_name: &str,
-    kind: &str,
+    kind: commands::provider::ContentKind,
     module_root: &Path,
     sources: &mut Vec<SourceFile>,
     base_filenames: &HashSet<String>,
@@ -209,7 +209,7 @@ fn walk_qualifier_dir(
             relative_path: relative,
             full_path: path.to_string_lossy().to_string(),
             content,
-            kind: kind.to_string(),
+            kind,
             passthrough: false,
             qualifier: Some(qualifier_name.to_string()),
         });
@@ -228,7 +228,7 @@ fn walk_qualifier_dir(
 /// ```
 fn walk_skill_dir(
     dir: &Path,
-    kind: &str,
+    kind: commands::provider::ContentKind,
     module_root: &Path,
     sources: &mut Vec<SourceFile>,
 ) -> Result<(), Error> {
@@ -265,7 +265,7 @@ fn walk_skill_dir(
             relative_path: relative,
             full_path: path.to_string_lossy().to_string(),
             content,
-            kind: kind.to_string(),
+            kind,
             passthrough: !is_skill_file,
             qualifier: None,
         });
@@ -430,10 +430,9 @@ mod tests {
         let valid = HashSet::from(["sonnet".to_string()]);
         let sources = collect(dir.path(), &valid).unwrap();
         assert!(
-            sources
-                .iter()
-                .any(|source| source.relative_path.contains("SubRule")
-                    && source.qualifier.is_none())
+            sources.iter().any(
+                |source| source.relative_path.contains("SubRule") && source.qualifier.is_none()
+            )
         );
     }
 
@@ -453,7 +452,7 @@ mod tests {
             .find(|s| s.relative_path.contains("SKILL"))
             .unwrap();
         assert!(skill.qualifier.is_none());
-        assert_eq!(skill.kind, "skills");
+        assert_eq!(skill.kind, commands::provider::ContentKind::Skills);
     }
 
     #[test]
@@ -473,6 +472,6 @@ mod tests {
             .find(|s| s.relative_path.contains("CodexOnly"))
             .unwrap();
         assert_eq!(codex_only.qualifier, Some("codex".to_string()));
-        assert_eq!(codex_only.kind, "agents");
+        assert_eq!(codex_only.kind, commands::provider::ContentKind::Agents);
     }
 }

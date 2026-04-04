@@ -22,7 +22,7 @@ pub fn apply_rules(
     content: &str,
     filename: &str,
     rules: &[AssemblyRule],
-    tool_mappings: &HashMap<String, String, impl std::hash::BuildHasher>,
+    tool_mappings: &HashMap<String, String>,
 ) -> Result<(String, String), String> {
     let mut current_content = content.to_string();
     let mut current_filename = filename.to_string();
