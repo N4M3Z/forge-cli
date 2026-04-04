@@ -41,6 +41,7 @@ pub fn apply_rules(
                 current_content = markdown_to_toml(&current_filename, &current_content)?;
                 current_filename = current_filename.replace(".md", ".toml");
             }
+            AssemblyRule::StripLinks => {}
         }
     }
 
