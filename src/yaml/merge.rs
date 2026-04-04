@@ -43,6 +43,10 @@ pub fn deep_merge(defaults_content: &str, override_content: &str) -> Result<Stri
 }
 
 /// Recursively merge `overlay` into `base`. Mappings recurse, everything else replaces.
+///
+/// Type conflicts (e.g. base is a mapping, overlay is a sequence) keep the base
+/// value and skip the overlay. This prevents downstream deserialization failures
+/// when a module's config uses a different YAML type than the embedded defaults.
 fn merge_value(base: &mut Value, overlay: Value) {
     match (&mut *base, overlay) {
         (Value::Mapping(base_map), Value::Mapping(overlay_map)) => {
@@ -54,6 +58,9 @@ fn merge_value(base: &mut Value, overlay: Value) {
                     }
                 }
             }
+        }
+        (Value::Mapping(_), _) | (_, Value::Mapping(_)) => {
+            eprintln!("warning: config type conflict (mapping vs non-mapping), keeping default");
         }
         (base, overlay) => {
             *base = overlay;

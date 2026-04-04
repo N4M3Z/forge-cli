@@ -214,3 +214,33 @@ fn merge_both_empty_mappings() {
     let merged = deep_merge("{}", "{}").unwrap();
     assert_eq!(yaml_value(&merged, "anything"), None);
 }
+
+#[test]
+fn merge_keeps_default_when_override_has_sequence_for_mapping() {
+    let defaults = "models:\n    claude:\n        strong: opus\n";
+    let override_with_sequence = "models:\n    - opus\n    - sonnet\n";
+    let merged = deep_merge(defaults, override_with_sequence).unwrap();
+    assert_eq!(
+        yaml_value(&merged, "models.claude.strong"),
+        Some("opus".into())
+    );
+}
+
+#[test]
+fn merge_keeps_default_when_override_has_mapping_for_scalar() {
+    let defaults = "version: 1\n";
+    let override_with_mapping = "version:\n    major: 2\n";
+    let merged = deep_merge(defaults, override_with_mapping).unwrap();
+    assert_eq!(yaml_value(&merged, "version"), Some("1".into()));
+}
+
+#[test]
+fn merge_keeps_default_when_nested_type_conflicts() {
+    let defaults = "providers:\n    claude:\n        models:\n            strong: opus\n";
+    let override_content = "providers:\n    claude:\n        models:\n            - opus\n";
+    let merged = deep_merge(defaults, override_content).unwrap();
+    assert_eq!(
+        yaml_value(&merged, "providers.claude.models.strong"),
+        Some("opus".into())
+    );
+}
