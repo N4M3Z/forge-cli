@@ -1,10 +1,6 @@
 # forge-cli default configuration.
 # Override: create config.yaml (gitignored) with only the fields you want to change.
 
-validation:
-    required: [module.yaml, defaults.yaml, README.md, LICENSE]
-    optional: [INSTALL.md, CONTRIBUTING.md, CODEOWNERS, CHANGELOG.md, .gitattributes]
-
 providers:
     claude:
         target: ".claude"

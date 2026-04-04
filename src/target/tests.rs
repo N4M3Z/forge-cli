@@ -14,7 +14,7 @@ fn target_dir() -> &'static Path {
 
 #[test]
 fn workspace_scope_produces_relative_path() {
-    let paths = resolve_paths(Scope::Workspace, PROVIDER, KIND, None, None);
+    let paths = resolve_paths(Scope::Workspace, PROVIDER, KIND, None, None).unwrap();
 
     let expected = vec![PathBuf::from(".claude/rules")];
     assert_eq!(paths, expected);
@@ -22,7 +22,7 @@ fn workspace_scope_produces_relative_path() {
 
 #[test]
 fn user_scope_produces_path_under_home() {
-    let paths = resolve_paths(Scope::User, PROVIDER, KIND, Some(home()), None);
+    let paths = resolve_paths(Scope::User, PROVIDER, KIND, Some(home()), None).unwrap();
 
     let expected = vec![PathBuf::from("/home/user/.claude/rules")];
     assert_eq!(paths, expected);
@@ -30,7 +30,7 @@ fn user_scope_produces_path_under_home() {
 
 #[test]
 fn directory_scope_uses_target_directory() {
-    let paths = resolve_paths(Scope::Directory, PROVIDER, KIND, None, Some(target_dir()));
+    let paths = resolve_paths(Scope::Directory, PROVIDER, KIND, None, Some(target_dir())).unwrap();
 
     let expected = vec![PathBuf::from("/Developer/blah/rules")];
     assert_eq!(paths, expected);
@@ -38,7 +38,7 @@ fn directory_scope_uses_target_directory() {
 
 #[test]
 fn all_scope_returns_workspace_and_user() {
-    let paths = resolve_paths(Scope::All, PROVIDER, KIND, Some(home()), None);
+    let paths = resolve_paths(Scope::All, PROVIDER, KIND, Some(home()), None).unwrap();
 
     let expected = vec![
         PathBuf::from(".claude/rules"),
@@ -49,7 +49,7 @@ fn all_scope_returns_workspace_and_user() {
 
 #[test]
 fn project_scope_includes_cwd_based_key() {
-    let paths = resolve_paths(Scope::Project, PROVIDER, "agents", Some(home()), None);
+    let paths = resolve_paths(Scope::Project, PROVIDER, "agents", Some(home()), None).unwrap();
 
     assert_eq!(paths.len(), 1);
     let path_string = paths[0].to_string_lossy().to_string();
@@ -65,7 +65,8 @@ fn workspace_ignores_home_and_target() {
         KIND,
         Some(home()),
         Some(target_dir()),
-    );
+    )
+    .unwrap();
 
     let expected = vec![PathBuf::from(".claude/rules")];
     assert_eq!(paths, expected);
@@ -79,8 +80,21 @@ fn arbitrary_provider_and_content_kind() {
         "templates",
         Some(home()),
         None,
-    );
+    )
+    .unwrap();
 
     let expected = vec![PathBuf::from("/home/user/.custom-provider/templates")];
     assert_eq!(paths, expected);
+}
+
+#[test]
+fn user_scope_without_home_returns_error() {
+    let result = resolve_paths(Scope::User, PROVIDER, KIND, None, None);
+    assert!(result.is_err());
+}
+
+#[test]
+fn directory_scope_without_target_returns_error() {
+    let result = resolve_paths(Scope::Directory, PROVIDER, KIND, None, None);
+    assert!(result.is_err());
 }

@@ -54,11 +54,16 @@ cargo build --release
 
 ### Symlink
 
-You must ensure `~/.local/bin` is on your PATH.
-
 ```sh
 mkdir -p ~/.local/bin
 ln -sf "$(pwd)/target/release/forge" ~/.local/bin/forge
+```
+
+If `~/.local/bin` is not on PATH:
+
+```zsh
+echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc
+source ~/.zshrc
 ```
 
 ### Verify
