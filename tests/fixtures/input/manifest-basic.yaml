@@ -1,5 +1,7 @@
-rules/AgentTeams.md:
-    sha256: e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
-
-rules/CodeStyle.md:
-    sha256: 1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef
+rules:
+    AgentTeams.md:
+        fingerprint: e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+        provenance: .provenance/AgentTeams.yaml
+    CodeStyle.md:
+        fingerprint: 1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef
+        provenance: .provenance/CodeStyle.yaml

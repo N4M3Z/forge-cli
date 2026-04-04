@@ -8,6 +8,8 @@ provenance:
     predicate:
         buildDefinition:
             buildType: {build_type}
+            externalParameters:
+                source: {source_uri}
             resolvedDependencies:
 {resolved_dependencies}
         runDetails:

@@ -30,6 +30,12 @@ pub fn execute(
 
     let merged_config = config::load_merged_config(module_root)?;
     let providers = config::load_providers(&merged_config)?;
+    let module_source_uri = config::load_source_uri(module_root);
+    let module_name = if module_source_uri.is_empty() {
+        None
+    } else {
+        Some(module_source_uri)
+    };
 
     for (provider_name, provider_config) in &providers {
         let build_provider_dir = module_root.join("build").join(provider_name);
@@ -63,21 +69,33 @@ pub fn execute(
         // modules make automatic detection unreliable without module ownership)
         if prune {
             let stale_keys: Vec<String> = existing_manifest
-                .keys()
-                .filter(|key| !deployed_keys.contains(*key))
-                .filter(|key| {
+                .iter()
+                .filter(|(key, _)| !deployed_keys.contains(*key))
+                .filter(|(key, _)| {
                     ["agents/", "skills/", "rules/"]
                         .iter()
                         .any(|prefix| key.starts_with(prefix))
                 })
-                .cloned()
+                .filter(|(_, entry)| {
+                    is_owned_by_module(entry, &target_base, module_name.as_deref())
+                })
+                .map(|(key, _)| key.clone())
                 .collect();
 
             for stale_key in &stale_keys {
                 let stale_path = target_base.join(stale_key);
-                if stale_path.is_file() {
-                    let _ = fs::remove_file(&stale_path);
+                if stale_path.is_file() && fs::remove_file(&stale_path).is_err() {
+                    eprintln!(
+                        "warning: cannot remove {}",
+                        stale_path.display()
+                    );
                 }
+                // Also remove provenance sidecar
+                let provenance_path = target_base.join(
+                    manifest::provenance_path(stale_key),
+                );
+                let _ = fs::remove_file(&provenance_path);
+
                 existing_manifest.remove(stale_key);
                 result.pruned.push(PrunedFile {
                     target: stale_path.to_string_lossy().to_string(),
@@ -125,13 +143,20 @@ fn deploy_provider_files(
             let target_path = target_base.join(kind.as_str()).join(&relative);
 
             let build_content = config::read_file(&build_path)?;
-            let build_sha256 = manifest::content_sha256(&build_content);
+            let build_fingerprint = manifest::content_sha256(&build_content);
+            let provenance_relative = manifest::provenance_path(&manifest_key);
+            let sidecar_source = manifest::sidecar_path(&build_path);
+
+            if sidecar_source.is_file() {
+                let provenance_target = target_base.join(&provenance_relative);
+                let _ = copy_file(&sidecar_source, &provenance_target);
+            }
 
             let target_content = fs::read_to_string(&target_path).ok();
             let status = manifest::status(
                 target_content.as_deref(),
                 new_manifest.get(&manifest_key),
-                &build_sha256,
+                &build_fingerprint,
             );
 
             match status {
@@ -140,7 +165,8 @@ fn deploy_provider_files(
                     new_manifest.insert(
                         manifest_key,
                         manifest::ManifestEntry {
-                            sha256: build_sha256,
+                            fingerprint: build_fingerprint.clone(),
+                                provenance: Some(provenance_relative.clone()),
                         },
                     );
                     result.installed.push(DeployedFile {
@@ -153,7 +179,8 @@ fn deploy_provider_files(
                     new_manifest.insert(
                         manifest_key,
                         manifest::ManifestEntry {
-                            sha256: build_sha256,
+                            fingerprint: build_fingerprint.clone(),
+                                provenance: Some(provenance_relative.clone()),
                         },
                     );
                     result.skipped.push(SkippedFile {
@@ -168,7 +195,8 @@ fn deploy_provider_files(
                         new_manifest.insert(
                             manifest_key,
                             manifest::ManifestEntry {
-                                sha256: build_sha256,
+                                fingerprint: build_fingerprint.clone(),
+                                provenance: Some(provenance_relative.clone()),
                             },
                         );
                         result.installed.push(DeployedFile {
@@ -306,4 +334,42 @@ fn collect_files_recursive(dir: &Path) -> Result<Vec<std::path::PathBuf>, Error>
     }
 
     Ok(files)
+}
+
+/// Check if a stale manifest entry was installed by the current module.
+///
+/// Reads the provenance sidecar and checks the builder ID against the module name.
+/// If no provenance exists or can't be read, assumes ownership (prune it).
+fn is_owned_by_module(
+    entry: &manifest::ManifestEntry,
+    target_base: &Path,
+    module_name: Option<&str>,
+) -> bool {
+    let Some(module) = module_name else {
+        return true;
+    };
+
+    let Some(provenance_relative) = &entry.provenance else {
+        return true;
+    };
+
+    let provenance_path = target_base.join(provenance_relative);
+    let Ok(content) = fs::read_to_string(&provenance_path) else {
+        return true;
+    };
+
+    let Ok(parsed): Result<serde_yaml::Value, _> = serde_yaml::from_str(&content) else {
+        return true;
+    };
+
+    let source_uri = parsed
+        .get("provenance")
+        .and_then(|provenance| provenance.get("predicate"))
+        .and_then(|predicate| predicate.get("buildDefinition"))
+        .and_then(|definition| definition.get("externalParameters"))
+        .and_then(|parameters| parameters.get("source"))
+        .and_then(serde_yaml::Value::as_str)
+        .unwrap_or("");
+
+    source_uri == module || source_uri.ends_with(&format!("/{module}"))
 }
