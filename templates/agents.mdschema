@@ -4,6 +4,42 @@ frontmatter:
           type: string
         - name: description
           type: string
+        - name: model
+          type: string
+          optional: true
+        - name: tools
+          type: array
+          optional: true
+        - name: disallowedTools
+          type: array
+          optional: true
+        - name: permissionMode
+          type: string
+          optional: true
+        - name: maxTurns
+          type: string
+          optional: true
+        - name: effort
+          type: string
+          optional: true
+        - name: skills
+          type: array
+          optional: true
+        - name: memory
+          type: string
+          optional: true
+        - name: isolation
+          type: string
+          optional: true
+        - name: color
+          type: string
+          optional: true
+        - name: hooks
+          type: string
+          optional: true
+        - name: mcpServers
+          type: array
+          optional: true
 
 heading_rules:
     no_skip_levels: true
