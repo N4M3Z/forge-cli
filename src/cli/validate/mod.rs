@@ -1,6 +1,7 @@
 mod check;
 mod schema;
 mod templates;
+mod tools;
 
 use commands::error::{Error, ErrorKind};
 use commands::result::ActionResult;
@@ -61,6 +62,8 @@ pub fn execute(path: &str) -> Result<ActionResult, Error> {
             }
         }
     }
+
+    tools::run_external_checks(module_root, &mut result);
 
     Ok(result)
 }

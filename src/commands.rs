@@ -1,5 +1,6 @@
 pub mod error;
 pub mod manifest;
+pub mod module;
 pub mod parse;
 pub mod provider;
 pub mod result;

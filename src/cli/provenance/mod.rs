@@ -7,11 +7,16 @@ use std::path::Path;
 
 mod scan;
 
-pub fn execute(path: &str, _source_filter: Option<&str>, _json_output: bool) -> Result<i32, Error> {
+pub fn execute(
+    path: &str,
+    source_filter: Option<&str>,
+    show_orphans: bool,
+    _json_output: bool,
+) -> Result<i32, Error> {
     let target = Path::new(path);
 
     if target.is_dir() {
-        return Ok(scan::print_summary(target));
+        return Ok(scan::print_summary(target, source_filter, show_orphans));
     }
 
     let file_path = target;

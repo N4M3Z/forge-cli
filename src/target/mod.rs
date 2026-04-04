@@ -21,19 +21,21 @@ pub fn resolve_paths(
     content_kind: &str,
     home_directory: Option<&Path>,
     target_directory: Option<&Path>,
-) -> Vec<PathBuf> {
+) -> Result<Vec<PathBuf>, String> {
     match scope {
         Scope::Workspace => {
             let path = PathBuf::from(provider_target).join(content_kind);
-            vec![path]
+            Ok(vec![path])
         }
         Scope::User => {
-            let home = home_directory.expect("User scope requires home_directory");
+            let home = home_directory
+                .ok_or_else(|| "User scope requires home_directory".to_string())?;
             let path = home.join(provider_target).join(content_kind);
-            vec![path]
+            Ok(vec![path])
         }
         Scope::Project => {
-            let home = home_directory.expect("Project scope requires home_directory");
+            let home = home_directory
+                .ok_or_else(|| "Project scope requires home_directory".to_string())?;
             let cwd = std::env::current_dir().unwrap_or_default();
             let cwd_string = cwd.to_string_lossy().to_string();
             let project_key = cwd_string.replace('/', "-");
@@ -43,18 +45,20 @@ pub fn resolve_paths(
                 .join(provider_target)
                 .join(project_key)
                 .join(content_kind);
-            vec![path]
+            Ok(vec![path])
         }
         Scope::Directory => {
-            let target = target_directory.expect("Directory scope requires target_directory");
+            let target = target_directory
+                .ok_or_else(|| "Directory scope requires target_directory".to_string())?;
             let path = target.join(content_kind);
-            vec![path]
+            Ok(vec![path])
         }
         Scope::All => {
-            let home = home_directory.expect("All scope requires home_directory");
+            let home = home_directory
+                .ok_or_else(|| "All scope requires home_directory".to_string())?;
             let workspace_path = PathBuf::from(provider_target).join(content_kind);
             let user_path = home.join(provider_target).join(content_kind);
-            vec![workspace_path, user_path]
+            Ok(vec![workspace_path, user_path])
         }
     }
 }

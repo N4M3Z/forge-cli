@@ -27,7 +27,7 @@ upstream: []
 
 ## Context and Problem Statement
 
-Skills, agents, and rules are authored as markdown with YAML frontmatter. Each AI coding provider expects files in different directories, with different naming conventions, different body formats, and different metadata. The system needs a clear separation between content transformation (assembly) and file placement (deployment).
+Skills, agents, and rules are authored as markdown with YAML frontmatter. Each AI coding provider expects files in different directories, with different naming conventions, different body formats, and different metadata. Raw file copying works initially but breaks down as the instruction set grows — you end up with duplicated files across providers, no way to trace which source produced a deployed instruction, and no mechanism to detect when someone edited a deployed file directly instead of updating the source. The system needs a clear separation between content transformation (assembly) and file placement (deployment), with provenance tracking at every step.
 
 ## Decision Drivers
 

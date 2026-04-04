@@ -1,10 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# forge module pre-commit hook
+# Canonical source: https://github.com/N4M3Z/forge-cli/blob/main/templates/pre-commit
+
 if command -v forge >/dev/null 2>&1; then
     forge validate .
 elif [ -f scripts/validate.sh ]; then
     bash scripts/validate.sh
 else
     echo "warning: forge not installed and scripts/validate.sh not found, skipping validation"
+    echo "  install forge-cli: https://github.com/N4M3Z/forge-cli"
 fi
