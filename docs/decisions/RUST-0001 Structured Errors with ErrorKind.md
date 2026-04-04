@@ -1,11 +1,23 @@
 ---
-status: Accepted
-date: 2026-03-19
+title: "Structured Errors with ErrorKind"
+description: "Custom Error struct with Copy-able ErrorKind enum for programmatic error branching"
+type: adr
+category: rust
+tags:
+    - rust
+    - error-handling
+status: accepted
+created: 2026-03-19
+updated: 2026-03-19
+author: "@N4M3Z"
+project: forge-cli
+related:
+    - "RUST-0009 ErrorKind Pattern"
 responsible: ["@N4M3Z"]
 accountable: ["@N4M3Z"]
 consulted: ["DeveloperCouncil"]
 informed: []
-tags: [rust, error-handling]
+upstream: []
 ---
 
 # Structured Errors with ErrorKind

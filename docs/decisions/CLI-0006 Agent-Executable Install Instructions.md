@@ -1,11 +1,24 @@
 ---
-status: Accepted
-date: 2026-03-25
+title: "Agent-Executable Install Instructions"
+description: "INSTALL.md following Mintlify standard for autonomous agent installation"
+type: adr
+category: cli
+tags:
+    - documentation
+    - installation
+    - convention
+status: accepted
+created: 2026-03-25
+updated: 2026-03-25
+author: "@N4M3Z"
+project: forge-cli
+related:
+    - "CLI-0008 Validation Script Distribution"
 responsible: ["@N4M3Z"]
 accountable: ["@N4M3Z"]
 consulted: ["DeveloperCouncil", "WebResearcher"]
 informed: []
-tags: [documentation, installation, convention]
+upstream: []
 ---
 
 # Agent-Executable Install Instructions
@@ -21,6 +34,12 @@ The Mintlify install.md standard [1] solves this with structured, task-oriented 
 - Install instructions should not pollute CLAUDE.md/AGENTS.md (behavioral) or README.md (human-oriented)
 - Verification criteria must be explicit and measurable
 - The format must be human-readable and reviewable before execution
+
+## Considered Options
+
+1. **README.md install section** — human-oriented, no structured success criteria for agents.
+2. **CLAUDE.md install commands** — pollutes behavioral instructions with one-time setup.
+3. **Dedicated INSTALL.md** — separate file with structured format and measurable DONE WHEN criteria.
 
 ## Decision Outcome
 

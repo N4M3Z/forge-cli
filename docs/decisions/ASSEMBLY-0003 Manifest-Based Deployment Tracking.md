@@ -1,11 +1,25 @@
 ---
-status: Accepted
-date: 2026-03-23
+title: "Manifest-Based Deployment Tracking"
+description: "SHA-256 manifest dotfiles at target directories for incremental install and modification detection"
+type: adr
+category: assembly
+tags:
+    - assembly
+    - manifest
+    - deployment
+status: accepted
+created: 2026-03-23
+updated: 2026-03-23
+author: "@N4M3Z"
+project: forge-cli
+related:
+    - "ASSEMBLY-0002 Provenance Tracking"
+    - "CLI-0003 Conflict Resolution on Install"
 responsible: ["@N4M3Z"]
 accountable: ["@N4M3Z"]
 consulted: ["DeveloperCouncil"]
 informed: []
-tags: [assembly, manifest, deployment]
+upstream: []
 ---
 
 # Manifest-Based Deployment Tracking
@@ -19,6 +33,12 @@ Installing skills, agents, and rules to provider directories is a multi-step pro
 - Incremental installs — skip unchanged files
 - User modification detection — distinguish "forge installed this" from "user edited this"
 - Simple format — no spec overhead for what is fundamentally a hash lookup table
+
+## Considered Options
+
+1. **No tracking** — always overwrite everything on install. Simple but destroys user modifications.
+2. **Git-based tracking** — use git status in provider directories. Requires provider directories to be in a repo.
+3. **Manifest dotfile** — per-provider `.manifest` with deployed file hashes. Simple, self-contained.
 
 ## Decision Outcome
 

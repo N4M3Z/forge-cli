@@ -1,11 +1,22 @@
 ---
-status: Accepted
-date: 2026-03-19
+title: "Repository Structure"
+description: "Conventions and upstream references governing forge-cli repo layout"
+type: adr
+category: cli
+tags:
+    - architecture
+    - structure
+status: accepted
+created: 2026-03-19
+updated: 2026-03-19
+author: "@N4M3Z"
+project: forge-cli
+related: []
 responsible: ["@N4M3Z"]
 accountable: ["@N4M3Z"]
 consulted: []
 informed: []
-tags: [architecture, structure]
+upstream: []
 ---
 
 # Repository Structure
@@ -13,6 +24,11 @@ tags: [architecture, structure]
 ## Context and Problem Statement
 
 forge-cli is a Rust binary crate that assembles, validates, and deploys AI coding tool content (skills, agents, rules). It needs a clear structure that documents where things go and which upstream decisions apply.
+
+## Considered Options
+
+1. **Ad-hoc structure** — let the layout emerge organically. Risks inconsistency as the project grows.
+2. **Documented conventions with upstream references** — explicitly reference CORE ADRs for each structural decision. One place to understand the repo.
 
 ## Decision Outcome
 

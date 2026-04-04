@@ -1,11 +1,24 @@
 ---
-status: Accepted
-date: 2026-03-19
+title: "Cross-Provider Convergence"
+description: "Design forge-cli as assembler/validator with explicitly transitional deployment layer"
+type: adr
+category: assembly
+tags:
+    - assembly
+    - providers
+    - strategy
+status: accepted
+created: 2026-03-19
+updated: 2026-03-19
+author: "@N4M3Z"
+project: forge-cli
+related:
+    - "ASSEMBLY-0005 Rulesync Interoperability"
 responsible: ["@N4M3Z"]
 accountable: ["@N4M3Z"]
 consulted: ["WebResearcher"]
 informed: []
-tags: [assembly, providers, strategy]
+upstream: []
 ---
 
 # Cross-Provider Convergence
@@ -22,6 +35,11 @@ This convergence changes what forge-cli needs to do over time.
 - Provider-specific formatting (TOML for Codex, kebab-case for Gemini) is transitional
 - forge-cli's deployment layer should shrink as providers converge
 - Assembly and validation are the durable capabilities
+
+## Considered Options
+
+1. **Full provider abstraction** — build a thick deployment layer covering every provider difference. Maximizes coverage but most code becomes dead weight as providers converge.
+2. **Assembler + validator with transitional deployment** — invest in durable capabilities, treat deployment as temporary scaffolding.
 
 ## Decision Outcome
 

@@ -1,9 +1,28 @@
 frontmatter:
     fields:
+        - name: title
+          type: string
+        - name: description
+          type: string
+        - name: type
+          type: string
+        - name: category
+          type: string
+        - name: tags
+          type: array
         - name: status
           type: string
-        - name: date
+        - name: created
           format: date
+        - name: updated
+          format: date
+        - name: author
+          type: string
+        - name: project
+          type: string
+        - name: related
+          type: array
+          optional: true
         - name: responsible
           type: array
         - name: accountable
@@ -14,12 +33,8 @@ frontmatter:
         - name: informed
           type: array
           optional: true
-        - name: promoted
+        - name: upstream
           type: array
-          optional: true
-        - name: tags
-          type: array
-          optional: true
 
 heading_rules:
     no_skip_levels: true
@@ -29,25 +44,27 @@ structure:
     - heading:
           pattern: "^# .+"
           regex: true
-      allow_additional: false
+      allow_additional: true
       children:
           - heading:
                 pattern: "## Context and Problem Statement"
+            allow_additional: true
             word_count:
                 min: 20
           - heading:
                 pattern: "## Decision Drivers"
             optional: true
+            allow_additional: true
             lists:
                 - min: 1
           - heading:
                 pattern: "## Considered Options"
+            allow_additional: true
             lists:
                 - min: 1
           - heading:
                 pattern: "## Decision Outcome"
-            required_text:
-                - "Chosen option:"
+            allow_additional: true
             children:
                 - heading:
                       pattern: "### Consequences"

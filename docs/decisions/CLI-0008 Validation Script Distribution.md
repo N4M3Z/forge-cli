@@ -2,7 +2,7 @@
 title: "Validation Script Distribution"
 description: "Module validation via local script copy with upstream drift detection"
 type: adr
-category: distribution
+category: cli
 tags:
     - cli
     - validation
@@ -10,11 +10,12 @@ tags:
 status: accepted
 created: 2026-04-02
 updated: 2026-04-02
-author: "N4M3Z"
+author: "@N4M3Z"
 project: forge-cli
-related: []
-responsible: ["N4M3Z"]
-accountable: ["N4M3Z"]
+related:
+    - "CLI-0006 Agent-Executable Install Instructions"
+responsible: ["@N4M3Z"]
+accountable: ["@N4M3Z"]
 consulted: ["DeveloperCouncil", "WebResearcher"]
 informed: []
 upstream: []
@@ -59,6 +60,6 @@ Chosen option: **local copy with drift detection**, because it combines security
 - [+] CI and local dev run identical checks
 - [-] Modules must manually update their copy (mitigated by drift warning)
 
-## Links
+## More Information
 
 - [CLI-0006 Agent-Executable Install Instructions](CLI-0006 Agent-Executable Install Instructions.md) — INSTALL.md standard for module setup

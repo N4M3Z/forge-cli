@@ -1,11 +1,26 @@
 ---
-status: Accepted
-date: 2026-03-19
+title: "Assembly and Deployment Pipeline"
+description: "Two-stage pipeline separating content transformation from file placement"
+type: adr
+category: assembly
+tags:
+    - assembly
+    - deployment
+    - architecture
+status: accepted
+created: 2026-03-19
+updated: 2026-03-19
+author: "@N4M3Z"
+project: forge-cli
+related:
+    - "ASSEMBLY-0001 Content Assembly Pipeline"
+    - "ASSEMBLY-0005 Rulesync Interoperability"
+    - "ASSEMBLY-0009 Direct Copy Fallback"
 responsible: ["@N4M3Z"]
 accountable: ["@N4M3Z"]
 consulted: ["DeveloperCouncil", "WebResearcher"]
 informed: []
-tags: [assembly, deployment, architecture]
+upstream: []
 ---
 
 # Assembly and Deployment Pipeline
@@ -20,6 +35,12 @@ Skills, agents, and rules are authored as markdown with YAML frontmatter. Each A
 - Assembly transforms are deterministic and testable in isolation
 - Deployment is a commodity operation (file copy) that external tools like rulesync already handle
 - The pipeline must produce a build artifact that can be inspected before deployment
+
+## Considered Options
+
+1. **Single-stage direct deploy** — transform and copy in one pass. No intermediate output to inspect.
+2. **Two-stage with build directory** — assembly produces inspectable output, deployment copies it.
+3. **External tool only** — delegate everything to rulesync or similar. No control over assembly transforms.
 
 ## Decision Outcome
 

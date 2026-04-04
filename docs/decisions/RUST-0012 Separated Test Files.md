@@ -1,11 +1,23 @@
 ---
-status: Accepted
-date: 2026-03-19
+title: "Separated Test Files"
+description: "Sibling tests.rs files instead of inline cfg(test) blocks for clean separation"
+type: adr
+category: rust
+tags:
+    - rust
+    - testing
+status: accepted
+created: 2026-03-19
+updated: 2026-03-19
+author: "@N4M3Z"
+project: forge-cli
+related:
+    - "RUST-0004 Test Infrastructure"
 responsible: ["@N4M3Z"]
 accountable: ["@N4M3Z"]
 consulted: []
 informed: []
-tags: [rust, testing]
+upstream: []
 ---
 
 # Separated Test Files
@@ -13,6 +25,11 @@ tags: [rust, testing]
 ## Context and Problem Statement
 
 Rust allows tests inline via `#[cfg(test)] mod tests { ... }` at the bottom of the source file. This mixes production code with test code in the same file, making both harder to read. Long test modules push production code out of view.
+
+## Considered Options
+
+1. **Inline cfg(test) blocks** — tests at the bottom of source files. Mixes production and test code.
+2. **Sibling tests.rs files** — dedicated test files alongside production code. Clean separation.
 
 ## Decision Outcome
 

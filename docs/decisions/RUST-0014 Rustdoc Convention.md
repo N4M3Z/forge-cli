@@ -1,11 +1,23 @@
 ---
-status: Accepted
-date: 2026-03-21
+title: "Rustdoc Convention"
+description: "Rust API Guidelines documentation standard with summary, examples, and errors sections"
+type: adr
+category: rust
+tags:
+    - rust
+    - documentation
+status: accepted
+created: 2026-03-21
+updated: 2026-03-21
+author: "@N4M3Z"
+project: forge-cli
+related:
+    - "RUST-0003 Code Style and Tooling"
 responsible: ["@N4M3Z"]
 accountable: ["@N4M3Z"]
 consulted: []
 informed: []
-tags: [rust, documentation]
+upstream: []
 ---
 
 # Rustdoc Convention
@@ -13,6 +25,11 @@ tags: [rust, documentation]
 ## Context and Problem Statement
 
 Rust has a built-in documentation system — `rustdoc`. Doc comments are standard markdown. `cargo doc` generates HTML documentation, `cargo test --doc` runs code examples as tests. This is the universal standard across the Rust ecosystem [1], used by every major crate including Proton's muon.
+
+## Considered Options
+
+1. **No documentation convention** — ad-hoc doc comments, inconsistent coverage.
+2. **Rust API Guidelines standard** — structured doc comments with summary, examples, and errors sections.
 
 ## Decision Outcome
 

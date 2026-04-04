@@ -1,11 +1,24 @@
 ---
-status: Accepted
-date: 2026-03-20
+title: "Embedded Assets via rust-embed"
+description: "Optional compile-time asset embedding for standalone binary distribution"
+type: adr
+category: cli
+tags:
+    - cli
+    - distribution
+    - features
+status: accepted
+created: 2026-03-20
+updated: 2026-03-20
+author: "@N4M3Z"
+project: forge-cli
+related:
+    - "RUST-0007 Feature Flags"
 responsible: ["@N4M3Z"]
 accountable: ["@N4M3Z"]
 consulted: ["DeveloperCouncil"]
 informed: []
-tags: [cli, distribution, features]
+upstream: []
 ---
 
 # Embedded Assets via rust-embed
@@ -20,6 +33,12 @@ forge-cli normally reads content from the filesystem (module repos, `defaults.ya
 - Standalone distribution requires zero filesystem dependencies
 - Embedded content goes stale when source files change — acceptable for versioned releases
 - Not all users need embedded assets — most work from source repos
+
+## Considered Options
+
+1. **Always embed** — all content compiled into every build. Bloats development binary, stale during development.
+2. **Optional feature flag** — embed only when building releases. Development reads from disk.
+3. **External packaging** — distribute tarballs alongside the binary. Two artifacts to manage.
 
 ## Decision Outcome
 

@@ -1,11 +1,25 @@
 ---
-status: Accepted
-date: 2026-03-19
+title: "Test Infrastructure"
+description: "External fixture files and testing feature flag for shared test utilities"
+type: adr
+category: rust
+tags:
+    - rust
+    - testing
+    - muon
+status: accepted
+created: 2026-03-19
+updated: 2026-03-19
+author: "@N4M3Z"
+project: forge-cli
+related:
+    - "RUST-0012 Separated Test Files"
+    - "RUST-0007 Feature Flags"
 responsible: ["@N4M3Z"]
 accountable: ["@N4M3Z"]
 consulted: ["DeveloperCouncil"]
 informed: []
-tags: [rust, testing, muon]
+upstream: []
 ---
 
 # Test Infrastructure
@@ -20,6 +34,11 @@ Tests that validate markdown processing need readable test data. Inline string l
 - Test utilities must be available to both unit and integration tests
 - Test-only code must not ship in release builds
 - Muon's `testing` feature flag pattern is the established Rust approach
+
+## Considered Options
+
+1. **Inline string literals** — test data as escaped strings in Rust. Unreadable for markdown content.
+2. **External fixture files with testing feature** — real markdown files loaded via `include_str!`, shared utilities behind feature flag.
 
 ## Decision Outcome
 
