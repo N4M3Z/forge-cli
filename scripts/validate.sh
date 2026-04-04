@@ -91,7 +91,11 @@ except Exception as e:
 # --- ADR frontmatter ---
 
 check_adr_frontmatter() {
-    if [ ! -d docs/decisions ] || [ ! -f bin/validate-adr.py ]; then
+    local validator=""
+    for candidate in skills/ArchitectureDecision/validate-adr.py bin/validate-adr.py; do
+        if [ -f "$candidate" ]; then validator="$candidate"; break; fi
+    done
+    if [ ! -d docs/decisions ] || [ -z "$validator" ]; then
         return
     fi
 
@@ -109,7 +113,7 @@ check_adr_frontmatter() {
 
     if command -v python3 >/dev/null 2>&1; then
         echo "  ADR frontmatter validation"
-        if ! python3 bin/validate-adr.py "$schema" docs/decisions/; then
+        if ! python3 "$validator" "$schema" docs/decisions/; then
             ERRORS=$((ERRORS + 1))
         fi
     fi
