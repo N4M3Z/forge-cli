@@ -90,10 +90,14 @@ enum Command {
         path: String,
     },
 
-    /// Show provenance information for a deployed file
+    /// Show provenance information for a deployed file or directory
     Provenance {
-        /// Path to a deployed file
+        /// Path to a deployed file or provider directory
         path: String,
+
+        /// Show files without provenance (orphans)
+        #[arg(long)]
+        orphans: bool,
     },
 
     /// Compare module content against an upstream reference
@@ -151,8 +155,8 @@ pub fn run() -> i32 {
         ),
         Command::Copy { path, target } => (copy::execute(&path, &target), "copied"),
         Command::Validate { path } => (validate::execute(&path), "validated"),
-        Command::Provenance { path } => {
-            return match provenance::execute(&path, None, args.json) {
+        Command::Provenance { path, orphans } => {
+            return match provenance::execute(&path, None, orphans, args.json) {
                 Ok(code) => code,
                 Err(error) => {
                     eprintln!("fatal: {error}");

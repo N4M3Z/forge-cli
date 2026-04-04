@@ -5,13 +5,14 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::Path;
 
-pub fn print_summary(directory: &Path, source_filter: Option<&str>) -> i32 {
+pub fn print_summary(directory: &Path, source_filter: Option<&str>, show_orphans: bool) -> i32 {
     let mut by_source: BTreeMap<String, (usize, usize)> = BTreeMap::new();
+    let mut orphans: Vec<String> = Vec::new();
 
     for kind in commands::provider::ContentKind::ALL {
         let kind_directory = directory.join(kind.as_str());
         if kind_directory.is_dir() {
-            collect_recursive(&kind_directory, &mut by_source);
+            collect_recursive(&kind_directory, directory, &mut by_source, &mut orphans);
         }
     }
 
@@ -24,7 +25,7 @@ pub fn print_summary(directory: &Path, source_filter: Option<&str>) -> i32 {
     let dim = Style::new().dim();
     let bold = Style::new().bold();
 
-    if by_source.is_empty() {
+    if by_source.is_empty() && orphans.is_empty() {
         println!("\n No provenance found in {}\n", directory.display());
         return 0;
     }
@@ -43,11 +44,32 @@ pub fn print_summary(directory: &Path, source_filter: Option<&str>) -> i32 {
             status
         );
     }
+
+    if show_orphans && !orphans.is_empty() {
+        println!();
+        println!(
+            " {} {}",
+            red.apply_to("orphans"),
+            dim.apply_to(format!("({} files without provenance)", orphans.len()))
+        );
+        for orphan in &orphans {
+            println!("   {} {orphan}", red.apply_to("•"));
+        }
+    }
+
     println!();
-    0
+
+    let has_problems =
+        !orphans.is_empty() || by_source.values().any(|(verified, total)| verified != total);
+    i32::from(show_orphans && has_problems)
 }
 
-fn collect_recursive(directory: &Path, by_source: &mut BTreeMap<String, (usize, usize)>) {
+fn collect_recursive(
+    directory: &Path,
+    target_root: &Path,
+    by_source: &mut BTreeMap<String, (usize, usize)>,
+    orphans: &mut Vec<String>,
+) {
     let Ok(entries) = fs::read_dir(directory) else {
         return;
     };
@@ -58,7 +80,7 @@ fn collect_recursive(directory: &Path, by_source: &mut BTreeMap<String, (usize, 
         if path.is_dir() {
             let dirname = path.file_name().unwrap_or_default().to_string_lossy();
             if !dirname.starts_with('.') {
-                collect_recursive(&path, by_source);
+                collect_recursive(&path, target_root, by_source, orphans);
             }
             continue;
         }
@@ -67,7 +89,14 @@ fn collect_recursive(directory: &Path, by_source: &mut BTreeMap<String, (usize, 
             continue;
         }
 
+        let relative = path
+            .strip_prefix(target_root)
+            .unwrap_or(&path)
+            .to_string_lossy()
+            .to_string();
+
         let Ok(sidecar) = read_sidecar(&super::resolve_sidecar_path(&path)) else {
+            orphans.push(relative);
             continue;
         };
 
