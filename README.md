@@ -124,3 +124,5 @@ See `docs/decisions/` for architectural decision records.
 ## License
 
 EUPL-1.2
+
+[6]: https://in-toto.io/
