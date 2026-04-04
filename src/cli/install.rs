@@ -16,8 +16,9 @@ pub fn execute(
     path: &str,
     target: Option<&str>,
     force: bool,
+    prune: bool,
     interactive: bool,
 ) -> Result<ActionResult, Error> {
     assemble::execute(path)?;
-    deploy::execute(path, target, force, interactive)
+    deploy::execute(path, target, force, prune, interactive)
 }

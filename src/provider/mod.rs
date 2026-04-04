@@ -1,6 +1,33 @@
 use serde::Deserialize;
 use std::collections::HashMap;
 
+// --- Content Kind ---
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ContentKind {
+    Agents,
+    Skills,
+    Rules,
+}
+
+impl ContentKind {
+    pub const ALL: &[ContentKind] = &[Self::Agents, Self::Skills, Self::Rules];
+
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Agents => "agents",
+            Self::Skills => "skills",
+            Self::Rules => "rules",
+        }
+    }
+}
+
+impl std::fmt::Display for ContentKind {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(self.as_str())
+    }
+}
+
 // --- Types ---
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -75,10 +102,7 @@ pub fn load_tool_mappings(
 
 // --- Lookup ---
 
-pub fn map_tool(
-    tool: &str,
-    mappings: &HashMap<String, String, impl std::hash::BuildHasher>,
-) -> String {
+pub fn map_tool(tool: &str, mappings: &HashMap<String, String>) -> String {
     if let Some(mapped) = mappings.get(tool) {
         return mapped.clone();
     }
@@ -89,7 +113,7 @@ pub fn map_tool(
 
 pub fn validate_qualifier(
     qualifier_name: &str,
-    models: &HashMap<String, Vec<String>, impl std::hash::BuildHasher>,
+    models: &HashMap<String, Vec<String>>,
 ) -> Result<(), String> {
     if qualifier_name == "user" {
         return Ok(());

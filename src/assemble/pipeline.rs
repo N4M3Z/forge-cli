@@ -40,7 +40,7 @@ pub fn assemble_file(
     provider_name: &str,
     rules: &[AssemblyRule],
     keep_fields: &[&str],
-    tool_mappings: &HashMap<String, String, impl std::hash::BuildHasher>,
+    tool_mappings: &HashMap<String, String>,
 ) -> Result<AssembledFile, String> {
     let filename = extract_filename(source.relative_path);
     let content_kind = extract_content_kind(source.relative_path);
@@ -50,7 +50,12 @@ pub fn assemble_file(
         source.content.to_string()
     } else {
         let has_strip_links = rules.contains(&AssemblyRule::StripLinks);
-        super::assemble(source.content, source.variant_content, keep_fields, has_strip_links)
+        super::assemble(
+            source.content,
+            source.variant_content,
+            keep_fields,
+            has_strip_links,
+        )
     };
 
     // Step 2: apply provider rules

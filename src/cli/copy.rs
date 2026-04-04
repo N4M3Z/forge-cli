@@ -12,15 +12,21 @@ pub fn execute(path: &str, target: &str) -> Result<ActionResult, Error> {
     let target_root = Path::new(target);
     let mut result = ActionResult::new();
 
-    for kind in &["agents", "skills", "rules"] {
-        let source_directory = module_root.join(kind);
+    for kind in commands::provider::ContentKind::ALL {
+        let kind_string = kind.as_str();
+        let source_directory = module_root.join(kind_string);
         if !source_directory.is_dir() {
             continue;
         }
 
-        let target_directory = target_root.join(kind);
+        let target_directory = target_root.join(kind_string);
 
-        copy_directory_recursive(&source_directory, &target_directory, kind, &mut result)?;
+        copy_directory_recursive(
+            &source_directory,
+            &target_directory,
+            kind_string,
+            &mut result,
+        )?;
     }
 
     Ok(result)
