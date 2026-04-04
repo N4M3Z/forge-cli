@@ -1,11 +1,22 @@
 ---
-status: Accepted
-date: 2026-03-19
+title: "Synchronous Core"
+description: "All core operations synchronous to avoid async infection and runtime dependencies"
+type: adr
+category: rust
+tags:
+    - rust
+    - architecture
+status: accepted
+created: 2026-03-19
+updated: 2026-03-19
+author: "@N4M3Z"
+project: forge-cli
+related: []
 responsible: ["@N4M3Z"]
 accountable: ["@N4M3Z"]
 consulted: ["DeveloperCouncil"]
 informed: []
-tags: [rust, architecture]
+upstream: []
 ---
 
 # Synchronous Core
@@ -20,6 +31,11 @@ Rust's async/await propagates through call stacks — once a function is async, 
 - Async adds complexity (runtime dependency, `Send` bounds) with no benefit for file operations
 - Once async enters the core, it infects every function signature in the call chain
 - Any contributor should be able to work on the code without async expertise
+
+## Considered Options
+
+1. **Async throughout** — tokio runtime, async file I/O. Maximum throughput potential but unnecessary complexity for filesystem operations.
+2. **Synchronous core with async boundaries** — sync by default, async only at explicit I/O boundaries if network calls are needed.
 
 ## Decision Outcome
 

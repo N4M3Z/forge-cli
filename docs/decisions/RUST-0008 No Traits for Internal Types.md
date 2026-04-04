@@ -1,11 +1,22 @@
 ---
-status: Accepted
-date: 2026-03-19
+title: "No Traits for Internal Types"
+description: "Concrete structs with inherent methods over trait abstractions for internal types"
+type: adr
+category: rust
+tags:
+    - rust
+    - patterns
+status: accepted
+created: 2026-03-19
+updated: 2026-03-19
+author: "@N4M3Z"
+project: forge-cli
+related: []
 responsible: ["@N4M3Z"]
 accountable: ["@N4M3Z"]
 consulted: ["DeveloperCouncil"]
 informed: []
-tags: [rust, patterns]
+upstream: []
 ---
 
 # No Traits for Internal Types
@@ -13,6 +24,11 @@ tags: [rust, patterns]
 ## Context and Problem Statement
 
 Traits in Rust scatter method implementations across files — the struct is defined in one place, trait impls in another. IDE "go to definition" may jump to the trait declaration instead of the implementation. For internal types with no polymorphism, this indirection makes code harder to navigate and understand.
+
+## Considered Options
+
+1. **Trait-heavy design** — extract traits for testability and polymorphism. Scatters implementations across files.
+2. **Concrete structs only** — inherent methods on the struct itself. Every method in one place, findable with a single "go to definition."
 
 ## Decision Outcome
 

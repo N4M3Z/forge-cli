@@ -1,11 +1,23 @@
 ---
-status: Accepted
-date: 2026-03-19
+title: "Content Assembly Pipeline"
+description: "Custom assembly stage for transforming source markdown into deployable content"
+type: adr
+category: assembly
+tags:
+    - assembly
+    - architecture
+status: accepted
+created: 2026-03-19
+updated: 2026-03-19
+author: "@N4M3Z"
+project: forge-cli
+related:
+    - "ASSEMBLY-0004 Assembly and Deployment Pipeline"
 responsible: ["@N4M3Z"]
 accountable: ["@N4M3Z"]
 consulted: ["DeveloperCouncil", "WebResearcher"]
 informed: []
-tags: [assembly, architecture]
+upstream: []
 ---
 
 # Content Assembly Pipeline

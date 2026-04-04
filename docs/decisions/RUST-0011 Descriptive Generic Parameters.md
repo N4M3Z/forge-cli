@@ -1,11 +1,24 @@
 ---
-status: Accepted
-date: 2026-03-19
+title: "Descriptive Generic Parameters"
+description: "Full descriptive names for generic type parameters instead of single letters"
+type: adr
+category: rust
+tags:
+    - rust
+    - naming
+    - readability
+status: accepted
+created: 2026-03-19
+updated: 2026-03-19
+author: "@N4M3Z"
+project: forge-cli
+related:
+    - "RUST-0003 Code Style and Tooling"
 responsible: ["@N4M3Z"]
 accountable: ["@N4M3Z"]
 consulted: []
 informed: []
-tags: [rust, naming, readability]
+upstream: []
 ---
 
 # Descriptive Generic Parameters
@@ -13,6 +26,11 @@ tags: [rust, naming, readability]
 ## Context and Problem Statement
 
 Rust convention uses single letters for generic parameters (`T`, `S`, `E`, `K`, `V`). This is a holdover from C++ templates and Java generics. In practice, `impl<S> Builder<(), S>` requires a comment to explain that `S` means "any Storage type." The code is not self-documenting.
+
+## Considered Options
+
+1. **Single-letter generics** — Rust convention. Requires comments to explain meaning.
+2. **Descriptive generic names** — self-documenting code, no comments needed.
 
 ## Decision Outcome
 

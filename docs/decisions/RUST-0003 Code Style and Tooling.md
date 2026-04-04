@@ -1,11 +1,25 @@
 ---
-status: Accepted
-date: 2026-03-19
+title: "Code Style and Tooling"
+description: "rustfmt, clippy pedantic, and naming conventions for maximally explicit code"
+type: adr
+category: rust
+tags:
+    - rust
+    - style
+    - tooling
+status: accepted
+created: 2026-03-19
+updated: 2026-03-19
+author: "@N4M3Z"
+project: forge-cli
+related:
+    - "RUST-0011 Descriptive Generic Parameters"
+    - "RUST-0010 Dependency and Lint Configuration"
 responsible: ["@N4M3Z"]
 accountable: ["@N4M3Z"]
 consulted: []
 informed: []
-tags: [rust, style, tooling]
+upstream: []
 ---
 
 # Code Style and Tooling
@@ -13,6 +27,11 @@ tags: [rust, style, tooling]
 ## Context and Problem Statement
 
 Consistent formatting and lint configuration across modules prevents style drift and reduces review friction. Code must be maximally explicit — long variable names, long method names, descriptive generic parameters (per RUST-0011). Well-written code does not need comments. If code requires a comment to explain what it does, the names are wrong.
+
+## Considered Options
+
+1. **Default rustfmt + no clippy** — minimal configuration, allows inconsistency.
+2. **Custom rustfmt + clippy pedantic** — strict formatting and linting, catches more issues at compile time.
 
 ## Decision Outcome
 

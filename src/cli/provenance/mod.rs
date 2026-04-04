@@ -22,9 +22,8 @@ pub fn execute(path: &str, _source_filter: Option<&str>, _json_output: bool) -> 
         ));
     }
 
-    let sidecar = read_sidecar(&resolve_sidecar_path(file_path)).map_err(|error| {
-        Error::new(ErrorKind::Io, format!("no provenance found: {error}"))
-    })?;
+    let sidecar = read_sidecar(&resolve_sidecar_path(file_path))
+        .map_err(|error| Error::new(ErrorKind::Io, format!("no provenance found: {error}")))?;
 
     let statement = &sidecar.provenance;
     let definition = &statement.predicate.build_definition;
@@ -46,24 +45,61 @@ pub fn execute(path: &str, _source_filter: Option<&str>, _json_output: bool) -> 
     println!();
     println!(" {} {}", dim.apply_to("┌"), bold.apply_to(&*display_path));
     println!(" {}", dim.apply_to("│"));
-    println!(" {}  {}   {}", dim.apply_to("│"), dim.apply_to("source"), cyan.apply_to(&definition.external_parameters.source));
-    println!(" {}  {}    {}", dim.apply_to("│"), dim.apply_to("built"), &details.metadata.started_on);
-    println!(" {}  {}  {} {}", dim.apply_to("│"), dim.apply_to("builder"), &details.builder.id, dim.apply_to(&details.builder.version.forge));
+    println!(
+        " {}  {}   {}",
+        dim.apply_to("│"),
+        dim.apply_to("source"),
+        cyan.apply_to(&definition.external_parameters.source)
+    );
+    println!(
+        " {}  {}    {}",
+        dim.apply_to("│"),
+        dim.apply_to("built"),
+        &details.metadata.started_on
+    );
+    println!(
+        " {}  {}  {} {}",
+        dim.apply_to("│"),
+        dim.apply_to("builder"),
+        &details.builder.id,
+        dim.apply_to(&details.builder.version.forge)
+    );
     println!(" {}", dim.apply_to("│"));
 
     for dependency in &definition.resolved_dependencies {
         let short = &dependency.digest.sha256[..16.min(dependency.digest.sha256.len())];
-        println!(" {}  {} {} {}", dim.apply_to("│"), dim.apply_to("input"), &dependency.uri, dim.apply_to(format!("sha256:{short}")));
+        println!(
+            " {}  {} {} {}",
+            dim.apply_to("│"),
+            dim.apply_to("input"),
+            &dependency.uri,
+            dim.apply_to(format!("sha256:{short}"))
+        );
     }
 
     let short_output = &output_hash[..16.min(output_hash.len())];
-    println!(" {}  {} {}", dim.apply_to("│"), dim.apply_to("output"), dim.apply_to(format!("sha256:{short_output}")));
+    println!(
+        " {}  {} {}",
+        dim.apply_to("│"),
+        dim.apply_to("output"),
+        dim.apply_to(format!("sha256:{short_output}"))
+    );
     println!(" {}", dim.apply_to("│"));
 
     if chain_verified {
-        println!(" {}  {} {}", dim.apply_to("│"), green.apply_to("✓"), green.apply_to("hash verified"));
+        println!(
+            " {}  {} {}",
+            dim.apply_to("│"),
+            green.apply_to("✓"),
+            green.apply_to("hash verified")
+        );
     } else {
-        println!(" {}  {} {}", dim.apply_to("│"), red.apply_to("✗"), red.apply_to("hash mismatch — file modified after deployment"));
+        println!(
+            " {}  {} {}",
+            dim.apply_to("│"),
+            red.apply_to("✗"),
+            red.apply_to("hash mismatch — file modified after deployment")
+        );
     }
 
     println!(" {}", dim.apply_to("└"));

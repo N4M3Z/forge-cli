@@ -59,7 +59,9 @@ pub fn load_providers(config: &str) -> Result<HashMap<String, provider::Provider
     match provider::load_providers(&module_config) {
         Ok(providers) => Ok(providers),
         Err(error) => {
-            eprintln!("warning: module config incompatible with provider schema ({error}), using embedded defaults");
+            eprintln!(
+                "warning: module config incompatible with provider schema ({error}), using embedded defaults"
+            );
             Ok(embedded_providers)
         }
     }
@@ -139,8 +141,7 @@ pub struct ValidationConfig {
 
 /// Load validation config from embedded defaults, merged with module overrides.
 pub fn load_validation_config(module_root: &Path) -> ValidationConfig {
-    let merged = load_merged_config(module_root)
-        .unwrap_or_else(|_| EMBEDDED_DEFAULTS.to_string());
+    let merged = load_merged_config(module_root).unwrap_or_else(|_| EMBEDDED_DEFAULTS.to_string());
 
     let Ok(parsed): Result<serde_yaml::Value, _> = serde_yaml::from_str(&merged) else {
         return load_validation_from_yaml(EMBEDDED_DEFAULTS);

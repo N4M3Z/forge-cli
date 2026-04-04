@@ -1,11 +1,24 @@
 ---
-status: Proposed
-date: 2026-03-26
+title: "Interactive Mode and TUI"
+description: "Deferred per-file conflict prompts and terminal UI for build inspection"
+type: adr
+category: cli
+tags:
+    - cli
+    - ux
+    - future
+status: proposed
+created: 2026-03-26
+updated: 2026-03-26
+author: "@N4M3Z"
+project: forge-cli
+related:
+    - "CLI-0003 Conflict Resolution on Install"
 responsible: ["@N4M3Z"]
 accountable: ["@N4M3Z"]
 consulted: []
 informed: []
-tags: [cli, ux, future]
+upstream: []
 ---
 
 # Interactive Mode and TUI
@@ -20,6 +33,11 @@ tags: [cli, ux, future]
 - Visual inspection of build/ output before deployment
 - Provider selection (install to specific providers, not all)
 - Manifest diff view (what changed since last install)
+
+## Considered Options
+
+1. **No interactive mode** — force-or-skip only. Simple but no middle ground for conflict resolution.
+2. **Interactive prompts + future TUI** — phased approach starting with stdin prompts, graduating to ratatui.
 
 ## Decision Outcome
 

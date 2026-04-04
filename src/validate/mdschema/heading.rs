@@ -20,8 +20,18 @@ fn heading_regex() -> &'static Regex {
 pub(crate) fn extract_headings(body: &str) -> Vec<Heading> {
     let re = heading_regex();
     let mut headings = Vec::new();
+    let mut in_code_fence = false;
 
     for (line_idx, line) in body.lines().enumerate() {
+        if line.starts_with("```") {
+            in_code_fence = !in_code_fence;
+            continue;
+        }
+
+        if in_code_fence {
+            continue;
+        }
+
         if let Some(caps) = re.captures(line) {
             headings.push(Heading {
                 body_line: line_idx + 1,

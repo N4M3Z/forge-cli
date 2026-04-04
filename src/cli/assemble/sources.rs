@@ -102,7 +102,7 @@ fn walk_content_dir(
 
         if path.is_dir() {
             if kind == commands::provider::ContentKind::Skills {
-                walk_skill_dir(&path, kind, module_root, sources)?;
+                walk_skill_dir(&path, kind, sources)?;
                 continue;
             }
 
@@ -219,18 +219,48 @@ fn walk_qualifier_dir(
 }
 
 /// Walk a skill subdirectory. SKILL.md is assembled; other .md files are passthrough.
+/// Subdirectories (user/, model qualifiers) are flattened into the skill root.
+/// user/ files override root files with the same name.
 ///
 /// Given `skills/Explain/`:
 ///
 /// ```text
-/// skills/Explain/SKILL.md       → passthrough: false (assembled)
-/// skills/Explain/examples.md    → passthrough: true  (copied verbatim)
+/// skills/Explain/SKILL.md            → passthrough: false (assembled)
+/// skills/Explain/examples.md         → passthrough: true  (copied verbatim)
+/// skills/Explain/user/Extra.md       → passthrough: true  (flattened to Explain/Extra.md)
+/// skills/Explain/user/examples.md    → passthrough: true  (overrides root examples.md)
 /// ```
 fn walk_skill_dir(
     dir: &Path,
     kind: commands::provider::ContentKind,
-    module_root: &Path,
     sources: &mut Vec<SourceFile>,
+) -> Result<(), Error> {
+    let skill_name = dir
+        .file_name()
+        .unwrap_or_default()
+        .to_string_lossy()
+        .to_string();
+
+    let mut file_map: std::collections::HashMap<String, SourceFile> =
+        std::collections::HashMap::new();
+
+    collect_skill_files(dir, &skill_name, kind, &mut file_map, false)?;
+
+    let user_dir = dir.join("user");
+    if user_dir.is_dir() {
+        collect_skill_files(&user_dir, &skill_name, kind, &mut file_map, true)?;
+    }
+
+    sources.extend(file_map.into_values());
+    Ok(())
+}
+
+fn collect_skill_files(
+    dir: &Path,
+    skill_name: &str,
+    kind: commands::provider::ContentKind,
+    file_map: &mut std::collections::HashMap<String, SourceFile>,
+    is_overlay: bool,
 ) -> Result<(), Error> {
     let entries = fs::read_dir(dir)
         .map_err(|e| Error::new(ErrorKind::Io, format!("cannot read {}: {e}", dir.display())))?;
@@ -252,23 +282,26 @@ fn walk_skill_dir(
             .to_string();
 
         let is_skill_file = filename == "SKILL.md";
-
-        let relative = path
-            .strip_prefix(module_root)
-            .unwrap_or(&path)
-            .to_string_lossy()
-            .to_string();
-
+        let flattened_relative = format!("skills/{skill_name}/{filename}");
         let content = read_file(&path)?;
 
-        sources.push(SourceFile {
-            relative_path: relative,
-            full_path: path.to_string_lossy().to_string(),
-            content,
-            kind,
-            passthrough: !is_skill_file,
-            qualifier: None,
-        });
+        if is_overlay && file_map.contains_key(&filename) {
+            eprintln!("  override  skills/{skill_name}/user/{filename} → {filename}");
+        } else if is_overlay {
+            eprintln!("  flatten   skills/{skill_name}/user/{filename} → {filename}");
+        }
+
+        file_map.insert(
+            filename,
+            SourceFile {
+                relative_path: flattened_relative,
+                full_path: path.to_string_lossy().to_string(),
+                content,
+                kind,
+                passthrough: !is_skill_file,
+                qualifier: None,
+            },
+        );
     }
 
     Ok(())
@@ -473,5 +506,68 @@ mod tests {
             .unwrap();
         assert_eq!(codex_only.qualifier, Some("codex".to_string()));
         assert_eq!(codex_only.kind, commands::provider::ContentKind::Agents);
+    }
+
+    #[test]
+    fn walk_skill_dir_flattens_user_subdirectory() {
+        let dir = tempfile::tempdir().unwrap();
+        let skill_dir = scaffold_kind(dir.path(), "skills").join("TestSkill");
+        let user_dir = skill_dir.join("user");
+        std::fs::create_dir_all(&user_dir).unwrap();
+
+        std::fs::write(
+            skill_dir.join("SKILL.md"),
+            "---\nname: TestSkill\n---\n# TestSkill",
+        )
+        .unwrap();
+        std::fs::write(skill_dir.join("Reference.md"), "Root reference content").unwrap();
+        std::fs::write(user_dir.join("Extra.md"), "User-only companion").unwrap();
+        std::fs::write(user_dir.join("Reference.md"), "User override content").unwrap();
+
+        let mut sources = Vec::new();
+        walk_skill_dir(
+            &skill_dir,
+            commands::provider::ContentKind::Skills,
+            &mut sources,
+        )
+        .unwrap();
+
+        assert_eq!(
+            sources.len(),
+            3,
+            "expected 3 sources, got {}",
+            sources.len()
+        );
+
+        let skill = sources
+            .iter()
+            .find(|s| s.relative_path.contains("SKILL.md"))
+            .unwrap();
+        assert!(!skill.passthrough, "SKILL.md should not be passthrough");
+
+        let reference = sources
+            .iter()
+            .find(|s| s.relative_path.contains("Reference.md"))
+            .unwrap();
+        assert!(reference.passthrough, "Reference.md should be passthrough");
+        assert_eq!(
+            reference.content, "User override content",
+            "user/ should override root"
+        );
+
+        let extra = sources
+            .iter()
+            .find(|s| s.relative_path.contains("Extra.md"))
+            .unwrap();
+        assert!(extra.passthrough, "Extra.md should be passthrough");
+        assert_eq!(extra.content, "User-only companion");
+
+        for source in &sources {
+            assert!(
+                !source.relative_path.contains("user/"),
+                "relative path should be flattened: {}",
+                source.relative_path
+            );
+        }
     }
 }

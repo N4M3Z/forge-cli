@@ -12,6 +12,52 @@ Skills, agents, and rules are authored once as markdown with YAML frontmatter. f
 
 **Install** — Runs assemble + copy in one step.
 
+## How Content Flows
+
+```ascii
+  SOURCE                         ASSEMBLE                          DEPLOY
+  ┌──────────────────────┐       ┌────────────────────────────┐      ┌──────────────────────┐
+  │ rules/               │       │ build/                     │      │ .claude/             │
+  │ ├── UseRTK.md        │──┐    │ ├── claude/                │──┐   │ ├── rules/           │
+  │ ├── claude/UseRTK.md │──┤    │ │   ├── rules/             │  │   │ │   └── UseRTK.md    │
+  │ └── user/UseRTK.md   │──┘    │ │   │   └── UseRTK.md      │  ├──→│ ├── agents/          │
+  │                      │  ┌──→ │ │   ├── agents/            │  │   │ │   └── GameMaster.md│
+  │ agents/              │  │    │ │   │   └── GameMaster.md  │  │   │ ├── skills/          │
+  │ └── GameMaster.md    │──┘    │ │   └── skills/            │  │   │ │   └── MySkill/     │
+  │                      │       │ │       └── MySkill/       │  │   │ │       ├── SKILL.md │
+  │ skills/              │       │ │           ├── SKILL.md   │  │   │ │       ├── Ref.md   │
+  │ └── MySkill/         │──┐    │ │           ├── Ref.md     │  │   │ │       └── Extra.md │
+  │     ├── SKILL.md     │──┤    │ │           └── Extra.md   │  │   │ └── .manifest        │
+  │     ├── Ref.md       │──┤    │ │               ↑          │  │   └──────────────────────┘
+  │     └── user/        │  │    │ │           flattened from │  │
+  │         └── Extra.md │──┘    │ │           user/          │  │   ┌─────────────────────┐
+  └──────────────────────┘       │ ├── gemini/                │  ├──→│ .gemini/            │
+                                 │ │   └── ... (kebab-case)   │  │   └─────────────────────┘
+       ┌──────────────┐          │ ├── codex/                 │  │
+       │ Strip:       │          │ │   └── ... (TOML agents)  │  │   ┌─────────────────────┐
+       │  frontmatter │          │ └── opencode/              │  └──→│ .codex/             │
+       │  ref links   │          │     └── ... (kebab-case)   │      └─────────────────────┘
+       │ Resolve:     │          └────────────────────────────┘
+       │  variants    │
+       │  qualifiers  │          ┌──────────────┐
+       │ Generate:    │          │ .yaml prov   │  provenance sidecars
+       │  sidecars    │          │ .manifest    │  deployment tracking
+       └──────────────┘          └──────────────┘
+```
+
+### Qualifier Directories
+
+Subdirectories in source are organizational — they flatten at assembly time:
+
+| Directory         | Purpose                      | Precedence |
+| ----------------- | ---------------------------- | ---------- |
+| `user/`           | User overrides and additions | Highest    |
+| `provider/model/` | Model-specific variants      |            |
+| `provider/`       | Provider-specific variants   |            |
+| *(root)*          | Base content                 | Lowest     |
+
+When a file exists in both `user/` and root, `user/` wins. Files only in `user/` are deployed flat alongside root files.
+
 ## Providers
 
 Provider conventions are config-driven via `defaults.yaml`:
@@ -43,6 +89,7 @@ forge install path/to/module --target ~/project # deploy to specific directory
 forge install path/to/module --force            # overwrite user-modified files
 forge assemble path/to/module                   # build only, no deployment
 forge copy path/to/module --target ~/project    # deploy from existing build/
+forge validate path/to/module                   # check module structure
 ```
 
 ## Build
@@ -54,31 +101,13 @@ make lint     # cargo fmt --check + clippy + semgrep
 make install  # symlink to ~/.local/bin/forge
 ```
 
-## Architecture
+## Pipeline Artifacts
 
-Two-stage pipeline with an intermediate `build/` directory:
-
-```
-                    ┌────────────────────────────────────────────────────┐
-                    │                    build/                          │
-  ┌──────────┐      │  ┌────────────────┐   ┌────────────────────────┐   │     ┌──────────────┐
-  │  source/ │────> │  │ claude/        │   │ gemini/                │   │────>│ .claude/     │
-  │          │      │  │   agents/      │   │   agents/              │   │     │   agents/    │
-  │ agents/  │      │  │   rules/       │   │   rules/               │   │     │   rules/     │
-  │ rules/   │      │  │   skills/      │   │   skills/              │   │     │   skills/    │
-  │ skills/  │      │  │                │   │                        │   │     │   .manifest  │
-  │          │      │  │ + .yaml prov       │ + .yaml prov           │   │     └──────────────┘
-  └──────────┘      │  └────────────────┘   └────────────────────────┘   │     ┌──────────────┐
-                    │                                                    │────>│ .gemini/     │
-     assemble       │  codex/                opencode/                   │     │   .manifest  │
-                    │  + .yaml prov          + .yaml prov                │     └──────────────┘
-                    └────────────────────────────────────────────────────┘          copy
-```
-
-| Artifact     | Stage    | Location              | Purpose                              |
-| ------------ | -------- | --------------------- | ------------------------------------ |
-| `.yaml` prov | assemble | `build/<provider>/`   | SLSA/in-toto source-to-output record |
-| `.manifest`  | copy     | `.<provider>/`        | SHA-256 of each deployed file        |
+| Artifact         | Stage    | Location            | Purpose                              |
+| ---------------- | -------- | ------------------- | ------------------------------------ |
+| `.yaml` sidecars | assemble | `build/<provider>/` | SLSA/in-toto source-to-output record |
+| `.provenance/`   | deploy   | `.<provider>/`      | Provenance alongside deployed files  |
+| `.manifest`      | deploy   | `.<provider>/`      | Fingerprint of each deployed file    |
 
 See `docs/decisions/` for architectural decision records.
 

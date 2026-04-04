@@ -1,11 +1,23 @@
 ---
-status: Accepted
-date: 2026-03-19
+title: "Provider and Model Identifiers"
+description: "Configurable models.yaml for validating qualifier directory names against provider APIs"
+type: adr
+category: assembly
+tags:
+    - assembly
+    - providers
+    - validation
+status: accepted
+created: 2026-03-19
+updated: 2026-03-19
+author: "@N4M3Z"
+project: forge-cli
+related: []
 responsible: ["@N4M3Z"]
 accountable: ["@N4M3Z"]
 consulted: ["WebResearcher"]
 informed: []
-tags: [assembly, providers, validation]
+upstream: []
 ---
 
 # Provider and Model Identifiers
@@ -20,6 +32,11 @@ Qualifier directories use provider and model names as path segments (`claude/cla
 - Typos must be caught during assembly validation, not silently ignored
 - New models are released regularly — the valid set must be updatable without code changes
 - Each provider publishes their model identifiers in their API docs
+
+## Considered Options
+
+1. **Hardcoded identifiers** — valid names compiled into the binary. Requires recompilation for new models.
+2. **Configurable models.yaml** — external config listing valid identifiers. Updatable without code changes.
 
 ## Decision Outcome
 

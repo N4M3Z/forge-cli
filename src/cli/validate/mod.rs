@@ -1,12 +1,20 @@
 mod check;
 mod schema;
+mod templates;
 
 use commands::error::{Error, ErrorKind};
 use commands::result::ActionResult;
 use std::fs;
 use std::path::Path;
 
-use crate::cli::config;
+const REQUIRED_FILES: &[&str] = &["module.yaml", "defaults.yaml", "README.md", "LICENSE"];
+const OPTIONAL_FILES: &[&str] = &[
+    "INSTALL.md",
+    "CONTRIBUTING.md",
+    "CODEOWNERS",
+    "CHANGELOG.md",
+    ".gitattributes",
+];
 
 /// Validate module structure and content files against schemas.
 ///
@@ -23,8 +31,14 @@ pub fn execute(path: &str) -> Result<ActionResult, Error> {
     for kind in &["agents", "rules"] {
         let dir = module_root.join(kind);
         if dir.is_dir() {
-            check::flat_directory(&dir, module_root, &mut result)?;
+            check::flat_directory(&dir, module_root, kind, &mut result)?;
         }
+    }
+
+    // ADR directory
+    let decisions_dir = module_root.join("docs").join("decisions");
+    if decisions_dir.is_dir() {
+        check::flat_directory(&decisions_dir, module_root, "decisions", &mut result)?;
     }
 
     // Skills have subdirectories — iterate and validate each
@@ -51,11 +65,8 @@ pub fn execute(path: &str) -> Result<ActionResult, Error> {
     Ok(result)
 }
 
-/// Check module structure against validation config from defaults.yaml.
 fn check_module_structure(module_root: &Path, result: &mut ActionResult) {
-    let validation_config = config::load_validation_config(module_root);
-
-    for filename in &validation_config.required {
+    for filename in REQUIRED_FILES {
         if module_root.join(filename).is_file() {
             println!("  ok {filename}");
         } else {
@@ -66,7 +77,7 @@ fn check_module_structure(module_root: &Path, result: &mut ActionResult) {
         }
     }
 
-    for filename in &validation_config.optional {
+    for filename in OPTIONAL_FILES {
         if module_root.join(filename).is_file() {
             println!("  ok {filename}");
         } else {

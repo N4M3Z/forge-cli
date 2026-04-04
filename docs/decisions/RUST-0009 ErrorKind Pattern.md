@@ -1,11 +1,23 @@
 ---
-status: Accepted
-date: 2026-03-19
+title: "ErrorKind Pattern"
+description: "Full implementation pattern for Error struct with non_exhaustive ErrorKind enum"
+type: adr
+category: rust
+tags:
+    - rust
+    - error-handling
+status: accepted
+created: 2026-03-19
+updated: 2026-03-19
+author: "@N4M3Z"
+project: forge-cli
+related:
+    - "RUST-0001 Structured Errors with ErrorKind"
 responsible: ["@N4M3Z"]
 accountable: ["@N4M3Z"]
 consulted: ["DeveloperCouncil"]
 informed: []
-tags: [rust, error-handling]
+upstream: []
 ---
 
 # ErrorKind Pattern
@@ -13,6 +25,11 @@ tags: [rust, error-handling]
 ## Context and Problem Statement
 
 `Result<T, String>` is simple but prevents callers from branching on error category. As the codebase grows, some callers need to distinguish between parse errors (skip the file) and I/O errors (abort the operation). The standard library uses `std::io::ErrorKind` for exactly this pattern.
+
+## Considered Options
+
+1. **`Result<T, String>` everywhere** — simple but no programmatic error discrimination.
+2. **`Error` struct with `ErrorKind`** — callers branch on kind, follows std::io::ErrorKind convention.
 
 ## Decision Outcome
 

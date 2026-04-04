@@ -1,11 +1,25 @@
 ---
-status: Accepted
-date: 2026-03-19
+title: "Dependency and Lint Configuration"
+description: "Cargo.toml lint settings, dependency grouping, and edition conventions"
+type: adr
+category: rust
+tags:
+    - rust
+    - cargo
+    - lints
+status: accepted
+created: 2026-03-19
+updated: 2026-03-19
+author: "@N4M3Z"
+project: forge-cli
+related:
+    - "RUST-0005 Deny Unexpected Cfgs"
+    - "RUST-0003 Code Style and Tooling"
 responsible: ["@N4M3Z"]
 accountable: ["@N4M3Z"]
 consulted: ["DeveloperCouncil"]
 informed: []
-tags: [rust, cargo, lints]
+upstream: []
 ---
 
 # Dependency and Lint Configuration
@@ -13,6 +27,11 @@ tags: [rust, cargo, lints]
 ## Context and Problem Statement
 
 Cargo.toml configuration affects compile-time safety, dependency hygiene, and code consistency. Several settings that catch bugs early are not enabled by default.
+
+## Considered Options
+
+1. **Default Cargo settings** — minimal configuration, misses compile-time safety checks.
+2. **Strict lint and dependency conventions** — deny unexpected cfgs, dep: prefix, grouped dependencies.
 
 ## Decision Outcome
 

@@ -1,6 +1,8 @@
 use std::fs;
 use std::path::Path;
 
+use super::templates;
+
 /// Load `.schema.yaml` from a directory if present.
 ///
 /// Provider-specific schema files define required frontmatter fields
@@ -41,4 +43,19 @@ pub fn load_schema(dir: &Path) -> Option<String> {
 pub fn load_mdschema(dir: &Path) -> Option<String> {
     let mdschema_path = dir.join(".mdschema");
     fs::read_to_string(&mdschema_path).ok()
+}
+
+/// Load `.mdschema` from a directory, scaffolding from embedded template
+/// if missing.
+///
+/// When no `.mdschema` exists and a matching template is available for
+/// the content kind (skills, agents, rules, decisions), writes the
+/// template to the directory and returns its content.
+///
+/// Returns `None` when no schema exists and no template is available.
+pub fn load_mdschema_or_scaffold(dir: &Path, kind: &str) -> Option<String> {
+    if let Some(content) = load_mdschema(dir) {
+        return Some(content);
+    }
+    templates::scaffold_if_missing(dir, kind)
 }

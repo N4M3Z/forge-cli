@@ -1,11 +1,25 @@
 ---
-status: Proposed
-date: 2026-03-19
+title: "Rulesync Interoperability"
+description: "Optional rulesync integration for multi-provider deployment with built-in fallback"
+type: adr
+category: assembly
+tags:
+    - assembly
+    - deployment
+    - interop
+status: proposed
+created: 2026-03-19
+updated: 2026-03-19
+author: "@N4M3Z"
+project: forge-cli
+related:
+    - "ASSEMBLY-0008 Adopt Rulesync Deployment Conventions"
+    - "ASSEMBLY-0009 Direct Copy Fallback"
 responsible: ["@N4M3Z"]
 accountable: ["@N4M3Z"]
 consulted: ["WebResearcher"]
 informed: []
-tags: [assembly, deployment, interop]
+upstream: []
 ---
 
 # Rulesync Interoperability

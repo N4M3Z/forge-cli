@@ -1,11 +1,24 @@
 ---
-status: Proposed
-date: 2026-03-19
+title: "Validation via YAML Schema"
+description: "JSON Schema files for frontmatter validation with external tool fallback"
+type: adr
+category: assembly
+tags:
+    - assembly
+    - validation
+    - json-schema
+status: proposed
+created: 2026-03-19
+updated: 2026-03-19
+author: "@N4M3Z"
+project: forge-cli
+related:
+    - "CLI-0002 Module Layout"
 responsible: ["@N4M3Z"]
 accountable: ["@N4M3Z"]
 consulted: ["WebResearcher"]
 informed: []
-tags: [assembly, validation, json-schema]
+upstream: []
 ---
 
 # Validation via YAML Schema
@@ -21,6 +34,12 @@ Module validation hardcodes frontmatter field requirements, naming patterns, and
 - `forge yaml` ships with forge-cli and can serve as a fallback when `yq` is unavailable
 - Skills should validate against the upstream Agent Skills spec
 - Validation rules should be editable without recompilation
+
+## Considered Options
+
+1. **Hardcoded Rust validation** — frontmatter checks as match arms in Rust. Fast but requires recompilation to change rules.
+2. **JSON Schema validation** — external schema files checked by standard tools. Editable without recompilation.
+3. **Custom YAML DSL** — invent a validation language. Maximum flexibility but no ecosystem tooling.
 
 ## Decision Outcome
 
