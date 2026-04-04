@@ -4,6 +4,16 @@ Assemble, validate, and deploy markdown content across AI coding providers.
 
 Skills, agents, and rules are authored once as markdown with YAML frontmatter. forge-cli transforms them for each provider's conventions and deploys to the right directories.
 
+## Why not just copy files?
+
+Copying works until instructions drift. forge-cli adds three things raw copying can't:
+
+- **Assembly** — strips frontmatter, resolves `user/` overrides, applies provider-specific transforms (kebab-case, tool remapping). The deployed file is clean; the source keeps its metadata.
+- **Provenance** — each deployed file has an [in-toto/SLSA][6] record of what sources produced it. When something breaks, you can trace which source file and which override combined to produce the deployed instruction.
+- **Manifest tracking** — `.manifest` at each target records what was deployed and when. Detects user modifications, skips unchanged files, prunes orphans from renamed sources.
+
+The `user/` subdirectory lets individuals customize without polluting upstream (git-ignored, merged during assembly). Model qualifier directories (`claude-opus-4/`, `claude-sonnet-4/`) handle the reality that models need different instructions as they evolve.
+
 ## What it does
 
 **Assemble** — Transforms source markdown into provider-specific output. Strips frontmatter, removes GFM reference links, resolves variant overrides, applies provider rules (kebab-case filenames, tool name remapping, TOML conversion). Writes provenance sidecars (SLSA/in-toto) alongside each built file.
