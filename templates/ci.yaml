@@ -6,6 +6,10 @@ on:
     pull_request:
         branches: [main]
 
+env:
+    SCRIPT_URL: "https://raw.githubusercontent.com/N4M3Z/forge-cli/main/scripts/validate.sh"
+    SCRIPT_SHA: "6300614cb084a5d4e415c276fe5ee3a0f198a01d9f98cb80f6f6392e6c775b40"
+
 jobs:
     validate:
         runs-on: ubuntu-latest
@@ -26,4 +30,11 @@ jobs:
                   node-version: "22"
 
             - name: Validate
-              run: bash scripts/validate.sh
+              run: |
+                  script=$(curl -sfL "$SCRIPT_URL")
+                  actual=$(echo "$script" | sha256sum | cut -d' ' -f1)
+                  if [ "$actual" != "$SCRIPT_SHA" ]; then
+                      echo "error: validate.sh hash mismatch (expected $SCRIPT_SHA, got $actual)"
+                      exit 1
+                  fi
+                  echo "$script" | bash -s -- .
