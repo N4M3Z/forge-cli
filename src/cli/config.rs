@@ -129,3 +129,63 @@ pub fn load_source_uri(module_root: &Path) -> String {
         .unwrap_or("")
         .to_string()
 }
+
+/// Validation file requirements from embedded defaults.
+pub struct ValidationConfig {
+    pub required: Vec<String>,
+    pub optional: Vec<String>,
+}
+
+/// Load validation config from embedded defaults, merged with module overrides.
+pub fn load_validation_config(module_root: &Path) -> ValidationConfig {
+    let merged = load_merged_config(module_root)
+        .unwrap_or_else(|_| EMBEDDED_DEFAULTS.to_string());
+
+    let Ok(parsed): Result<serde_yaml::Value, _> = serde_yaml::from_str(&merged) else {
+        return load_validation_from_yaml(EMBEDDED_DEFAULTS);
+    };
+
+    if parsed.get("validation").is_some() {
+        load_validation_from_value(&parsed)
+    } else {
+        load_validation_from_yaml(EMBEDDED_DEFAULTS)
+    }
+}
+
+fn load_validation_from_yaml(yaml_content: &str) -> ValidationConfig {
+    let Ok(parsed): Result<serde_yaml::Value, _> = serde_yaml::from_str(yaml_content) else {
+        return ValidationConfig {
+            required: Vec::new(),
+            optional: Vec::new(),
+        };
+    };
+    load_validation_from_value(&parsed)
+}
+
+fn load_validation_from_value(parsed: &serde_yaml::Value) -> ValidationConfig {
+    let validation = parsed.get("validation");
+
+    let required = validation
+        .and_then(|validation| validation.get("required"))
+        .and_then(serde_yaml::Value::as_sequence)
+        .map(|sequence| {
+            sequence
+                .iter()
+                .filter_map(|item| item.as_str().map(String::from))
+                .collect()
+        })
+        .unwrap_or_default();
+
+    let optional = validation
+        .and_then(|validation| validation.get("optional"))
+        .and_then(serde_yaml::Value::as_sequence)
+        .map(|sequence| {
+            sequence
+                .iter()
+                .filter_map(|item| item.as_str().map(String::from))
+                .collect()
+        })
+        .unwrap_or_default();
+
+    ValidationConfig { required, optional }
+}
