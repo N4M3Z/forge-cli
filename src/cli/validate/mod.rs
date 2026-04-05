@@ -1,6 +1,6 @@
 mod check;
 mod schema;
-mod templates;
+pub(crate) mod templates;
 mod tools;
 
 use commands::error::{Error, ErrorKind};

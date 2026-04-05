@@ -1,0 +1,23 @@
+# CONTRIBUTING.md schema for forge modules
+
+heading_rules:
+    no_skip_levels: true
+    max_depth: 3
+
+structure:
+    - heading:
+          pattern: "# Contributing"
+      allow_additional: true
+      children:
+          - heading:
+                pattern: "## Getting Started"
+          - heading:
+                pattern: "## (Conventions|Code Conventions)$"
+                regex: true
+            optional: true
+          - heading:
+                pattern: "## Git"
+            optional: true
+          - heading:
+                pattern: "## Pull Requests"
+            optional: true
