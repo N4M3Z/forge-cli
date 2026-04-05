@@ -12,7 +12,8 @@ const EMBEDDED_REMAP_TOOLS: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/config/remap-tools.yaml"
 ));
-const EMBEDDED_MODELS: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/models.yaml"));
+const EMBEDDED_MODELS: &str =
+    include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/config/models.yaml"));
 
 /// Read a file to string with consistent error handling.
 pub fn read_file(path: &Path) -> Result<String, Error> {

@@ -96,7 +96,7 @@ merge_derives = false
 
 Use Rust edition 2024 for new crates [3].
 
-### Consequences
+## Consequences
 
 - [+] `unexpected_cfgs = "deny"` catches typos in cfg attributes [1]
 - [+] `dep:` prefix prevents accidental feature creation [2]

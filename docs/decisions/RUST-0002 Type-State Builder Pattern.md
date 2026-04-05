@@ -65,7 +65,7 @@ impl Builder<Http, FileStore> {
 
 Use this pattern for objects with 2+ required configuration steps. For simpler construction, plain `new()` with required parameters is sufficient.
 
-### Consequences
+## Consequences
 
 - [+] Compiler prevents calling `.build()` before required steps
 - [+] No runtime validation, no `Option<T>` fields

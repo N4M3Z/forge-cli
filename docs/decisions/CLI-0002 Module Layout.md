@@ -123,10 +123,6 @@ tests/
 | `forge copy`        | raw source → target directory (no assembly, no transforms)            |
 | `forge release`     | assemble + package as tarballs (+ optional `--embed`)                 |
 
-## More Information
-
-[1]: https://docs.anthropic.com/en/docs/claude-code/skills "Claude Code skills — required frontmatter fields"
-
 ### Growth rule
 
 If a module exceeds ~300 lines, split it into internal files within the module directory. If two modules always import each other, merge them. If a module has zero tests, it's probably doing too little — absorb it.
@@ -157,9 +153,13 @@ pub use merge::assemble;
 
 Each internal file is focused — one concern, one file. The module boundary doesn't change; only the internal structure grows.
 
-### Consequences
+## Consequences
 
 - [+] Focused modules — each has one job
 - [+] Each module testable with external fixtures
 - [+] Library modules minimize I/O — CLI handlers own the boundary
 - [+] No module does two things
+
+## More Information
+
+[1]: https://docs.anthropic.com/en/docs/claude-code/skills "Claude Code skills — required frontmatter fields"

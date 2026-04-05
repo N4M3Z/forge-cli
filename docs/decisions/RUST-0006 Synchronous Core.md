@@ -45,7 +45,7 @@ Synchronous: config loading, module discovery, path resolution, content assembly
 
 Async only if needed: network fetches (remote registries), external tool invocation with timeout.
 
-### Consequences
+## Consequences
 
 - [+] No async runtime dependency
 - [+] No `Send` + `Sync` bounds on types

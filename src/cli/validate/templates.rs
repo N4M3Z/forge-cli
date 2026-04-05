@@ -6,10 +6,10 @@ struct SchemaTemplates;
 
 fn template_name(kind: &str) -> Option<&'static str> {
     match kind {
-        "skills" => Some("skills.mdschema"),
-        "agents" => Some("agents.mdschema"),
-        "rules" => Some("rules.mdschema"),
-        "decisions" => Some("decisions.mdschema"),
+        "skills" => Some("mdschema/skills.mdschema"),
+        "agents" => Some("mdschema/agents.mdschema"),
+        "rules" => Some("mdschema/rules.mdschema"),
+        "decisions" => Some("mdschema/decisions.mdschema"),
         _ => None,
     }
 }

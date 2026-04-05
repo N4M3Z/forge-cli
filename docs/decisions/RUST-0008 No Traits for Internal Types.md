@@ -39,7 +39,7 @@ Traits are permitted only for:
 - External crate requirements (clap `Parser`, serde `Deserialize`)
 - Genuinely polymorphic boundaries where 2+ real implementations exist today
 
-### Consequences
+## Consequences
 
 - [+] Every method lives on the struct — one place to look
 - [+] No scattered impl blocks across files

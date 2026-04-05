@@ -1,10 +1,10 @@
 const STATEMENT_TEMPLATE: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
-    "/templates/statement.yaml"
+    "/templates/provenance/statement.yaml"
 ));
 const DEPENDENCY_TEMPLATE: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
-    "/templates/dependency.yaml"
+    "/templates/provenance/dependency.yaml"
 ));
 
 pub fn generate_statement(

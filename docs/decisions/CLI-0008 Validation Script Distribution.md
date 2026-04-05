@@ -52,7 +52,7 @@ Chosen option: **local copy with drift detection**, because it combines security
 
 **Drift detection** — on every run, `validate.sh` hashes itself against the upstream version at `github.com/N4M3Z/forge-cli/main/bin/validate.sh`. Mismatch emits a warning. Warning is informational, not blocking.
 
-### Consequences
+## Consequences
 
 - [+] No remote code execution in CI or pre-commit
 - [+] Drift detection catches stale copies without blocking

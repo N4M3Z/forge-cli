@@ -85,7 +85,7 @@ pub struct TestDispatcher {
 }
 ```
 
-### Consequences
+## Consequences
 
 - [+] Fixtures are readable markdown files, not escaped strings
 - [+] Golden output enables snapshot-style testing with clear diffs

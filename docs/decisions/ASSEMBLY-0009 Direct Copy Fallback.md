@@ -56,7 +56,7 @@ forge copy . --target ~/project    # raw copy, no assembly or transforms
 
 `forge copy` is deliberately named to signal that it does nothing smart — it copies source files as-is to a single target directory. `forge deploy` is the manifest-tracked deployment path.
 
-### Consequences
+## Consequences
 
 - [+] Zero external dependencies for basic deployment
 - [+] `build/` is inspectable before deployment

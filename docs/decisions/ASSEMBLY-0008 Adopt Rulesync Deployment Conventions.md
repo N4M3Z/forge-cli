@@ -65,7 +65,7 @@ Examples of conventions adopted from rulesync [1]:
 - Scope tiers: project (`./<provider>/`) → user (`~/.<provider>/`) → global
 - Config format: JSONC with `targets` and `features` arrays
 
-### Consequences
+## Consequences
 
 - [+] No need to research or document provider directory layouts ourselves
 - [+] Future rulesync interoperability is natural

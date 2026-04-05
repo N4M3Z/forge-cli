@@ -69,7 +69,7 @@ mod tests {
 
 Anything beyond a single fixture-loop test goes in `tests.rs`.
 
-### Consequences
+## Consequences
 
 - [+] Production files contain only production code
 - [+] Tests are always in the same predictable location

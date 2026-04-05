@@ -45,7 +45,7 @@ check-cfg = ["cfg(ci)"]
 
 This catches stale or misspelled feature flags at compile time. Custom cfg values (like `ci` for CI-only tests) must be declared in `check-cfg`. Stable since Rust 1.80 (July 2024), adopted by muon and other production Rust projects.
 
-### Consequences
+## Consequences
 
 - [+] Typos in `cfg()` attributes are compile errors, not silent omissions
 - [+] Stale feature flags caught during migration

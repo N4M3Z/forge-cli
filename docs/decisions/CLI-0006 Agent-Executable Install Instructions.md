@@ -63,7 +63,7 @@ Content rules from the spec:
 - Include: all shell commands for the core workflow, verification commands, minimal working example
 - Exclude: troubleshooting, optional features, GUI-only steps, alternative methods, lengthy explanations
 
-### Consequences
+## Consequences
 
 - [+] Predictable location — agents look for `INSTALL.md` in every repo
 - [+] DONE WHEN embeds verification — no separate VERIFY.md needed

@@ -79,7 +79,7 @@ Prompt per modified file: overwrite, skip, show diff, backup and overwrite.
 
 Overwrite everything. No prompts, no skips.
 
-### Consequences
+## Consequences
 
 - [+] User modifications never silently destroyed
 - [+] Provenance trace on conflicts shows exactly what produced the deployed file
