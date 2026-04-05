@@ -16,8 +16,36 @@ jobs:
               with:
                   components: rustfmt, clippy
 
-            - name: Validate
-              run: bash scripts/validate.sh
+            - name: Build
+              run: cargo build --release
 
-            - name: Test
-              run: cargo test
+            - name: Upload binary
+              uses: actions/upload-artifact@v7
+              with:
+                  name: forge
+                  path: target/release/forge
+
+    quality:
+        needs: build
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v6
+
+            - uses: dtolnay/rust-toolchain@stable
+              with:
+                  components: rustfmt, clippy
+
+            - name: Download forge
+              uses: actions/download-artifact@v8
+              with:
+                  name: forge
+                  path: /usr/local/bin
+
+            - name: Install tools
+              run: |
+                  chmod +x /usr/local/bin/forge
+                  curl -sSfL "$(curl -s https://api.github.com/repos/gitleaks/gitleaks/releases/latest | grep -o 'https://[^"]*linux_x64.tar.gz')" | tar xz -C /usr/local/bin
+                  pip install semgrep
+
+            - name: Validate
+              uses: j178/prek-action@v2

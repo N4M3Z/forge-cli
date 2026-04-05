@@ -3,6 +3,7 @@ repos:
       hooks:
           - id: trailing-whitespace
           - id: check-yaml
+            exclude: ^templates/
           - id: check-json
 
     - repo: local
@@ -57,5 +58,11 @@ repos:
           - id: semgrep
             name: semgrep OWASP
             entry: semgrep scan --config=p/owasp-top-ten --metrics=off --quiet .
+            language: system
+            pass_filenames: false
+
+          - id: forge-validate
+            name: forge validate
+            entry: forge validate .
             language: system
             pass_filenames: false

@@ -7,27 +7,27 @@ set -euo pipefail
 SCRIPT_URL="https://raw.githubusercontent.com/N4M3Z/forge-cli/main/scripts/validate.sh"
 SCRIPT_SHA="f1fc47c463097005152ff2dcd5c8e57e7bb55d9b8c7a61c5b697fc662aeb5bde"
 
-# Prefer forge binary, fall back to validate.sh via curl
-if command -v forge >/dev/null 2>&1; then
+if command -v prek >/dev/null 2>&1; then
+    prek run --all-files
+elif command -v forge >/dev/null 2>&1; then
     forge validate .
-    exit $?
+else
+    echo "`prek` and `forge` not found, falling back to validate.sh"
+
+    tmpdir=$(mktemp -d)
+    trap 'rm -rf "$tmpdir"' EXIT
+
+    curl --max-time 30 -sfL "$SCRIPT_URL" -o "$tmpdir/validate.sh" 2>/dev/null \
+        || { echo "validate.sh unreachable — install forge-cli or check connectivity"; exit 1; }
+
+    actual=$(sha256sum "$tmpdir/validate.sh" 2>/dev/null || shasum -a 256 "$tmpdir/validate.sh")
+    actual=${actual%% *}
+
+    if [ "$actual" != "$SCRIPT_SHA" ]; then
+        echo "validate.sh hash mismatch (expected $SCRIPT_SHA, got $actual)"
+        echo "  update SCRIPT_SHA after verifying the new script"
+        exit 1
+    fi
+
+    bash "$tmpdir/validate.sh" .
 fi
-
-echo "forge not found, falling back to validate.sh"
-
-tmpdir=$(mktemp -d)
-trap 'rm -rf "$tmpdir"' EXIT
-
-curl --max-time 30 -sfL "$SCRIPT_URL" -o "$tmpdir/validate.sh" 2>/dev/null \
-    || { echo "validate.sh unreachable — install forge-cli or check connectivity"; exit 1; }
-
-actual=$(sha256sum "$tmpdir/validate.sh" 2>/dev/null || shasum -a 256 "$tmpdir/validate.sh")
-actual=${actual%% *}
-
-if [ "$actual" != "$SCRIPT_SHA" ]; then
-    echo "validate.sh hash mismatch (expected $SCRIPT_SHA, got $actual)"
-    echo "  update SCRIPT_SHA after verifying the new script"
-    exit 1
-fi
-
-bash "$tmpdir/validate.sh" .

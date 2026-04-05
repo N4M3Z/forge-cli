@@ -6,10 +6,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ```sh
 make build              # cargo build --release
-make test               # cargo test + doc tests
-make lint               # cargo fmt --check + clippy + semgrep OWASP
+make validate           # run pre-commit checks (prek → forge → validate.sh)
+make test               # validate + cargo test
+make install            # build, symlink to ~/.local/bin/forge, activate git hooks
 make check              # verify module structure files exist
-make install            # build + symlink to ~/.local/bin/forge + configure pre-commit hook
 ```
 
 Run a single test:
@@ -18,7 +18,7 @@ Run a single test:
 cargo test -- test_name
 ```
 
-Pre-commit hook runs `scripts/validate.sh` via `.githooks/pre-commit`. Activated by `make install` (sets `core.hooksPath`).
+Pre-commit hook cascade: `prek run --all-files` → `forge validate .` → `scripts/validate.sh`. Activated by `make install` (sets `core.hooksPath` to `.githooks`). prek config in `.pre-commit-config.yaml`.
 
 ## Architecture
 
@@ -32,20 +32,20 @@ source files → assemble (strip frontmatter, resolve variants, apply transforms
 
 ### Key Modules
 
-| Module          | Path                | Purpose                                                      |
-| --------------- | ------------------- | ------------------------------------------------------------ |
-| `cli`           | `src/cli/`          | Clap subcommands — one file per command                      |
-| `assemble`      | `src/assemble/`     | Strip frontmatter, resolve variant overrides, strip ref links |
-| `transform`     | `src/transform/`    | Provider-specific transforms (kebab-case, tool remap, TOML)  |
-| `validate`      | `src/validate/`     | Module structure, `.mdschema` compliance, agent frontmatter  |
-| `manifest`      | `src/manifest/`     | `.manifest` read/write, SLSA provenance sidecars, staleness  |
-| `provider`      | `src/provider/`     | Provider config from `defaults.yaml` (targets, assembly rules) |
-| `parse`         | `src/parse/`        | YAML frontmatter extraction (flat keys only, no nested YAML) |
-| `target`        | `src/target/`       | Deploy target resolution (scope, platform paths)             |
-| `module`        | `src/module.rs`     | `module.yaml` deserialization                                |
-| `error`         | `src/error.rs`      | `ErrorKind` enum + `Error` struct                            |
-| `result`        | `src/result.rs`     | `ActionResult` for structured command output                 |
-| `yaml`          | `src/yaml/`         | YAML deep merge (defaults + config overlay)                  |
+| Module     | Path             | Purpose                                                       |
+| ---------- | ---------------- | ------------------------------------------------------------- |
+| `cli`      | `src/cli/`       | Clap subcommands — one directory per command with `mod.rs` + `tests.rs` |
+| `assemble` | `src/assemble/`  | Strip frontmatter, resolve variant overrides, strip ref links |
+| `transform`| `src/transform/` | Provider-specific transforms (kebab-case, tool remap, TOML)  |
+| `validate` | `src/validate/`  | Module structure, `.mdschema` compliance, agent frontmatter   |
+| `manifest` | `src/manifest/`  | `.manifest` read/write, SLSA provenance sidecars, staleness   |
+| `provider` | `src/provider/`  | Provider config from `defaults.yaml` (targets, assembly rules) |
+| `parse`    | `src/parse/`     | YAML frontmatter extraction (flat keys only, no nested YAML)  |
+| `target`   | `src/target/`    | Deploy target resolution (scope, platform paths)              |
+| `module`   | `src/module.rs`  | `module.yaml` deserialization                                 |
+| `error`    | `src/error.rs`   | `ErrorKind` enum + `Error` struct                             |
+| `result`   | `src/result.rs`  | `ActionResult` for structured command output                  |
+| `yaml`     | `src/yaml/`      | YAML deep merge (defaults + config overlay)                   |
 
 ### Crate Structure
 
@@ -57,9 +57,15 @@ Provider conventions are config-driven via `defaults.yaml`. Each provider has a 
 
 Variant resolution uses qualifier directories (`user/`, `claude/`, `claude-opus-4/`) that flatten at assembly time. `user/` has highest precedence.
 
+### Validation
+
+`forge validate` runs structural checks only (module files, frontmatter, mdschema). External tool checks (shellcheck, cargo fmt/clippy, gitleaks, semgrep, ruff, tsc) run as fallback when prek is not installed. When prek is the orchestrator, `forge validate` skips external tools to avoid duplication.
+
+Configurable excludes in `defaults.yaml` under `validate.exclude` — glob patterns for files to skip during YAML/JSON/whitespace checks (e.g. `templates/*` for template files with placeholders).
+
 ### Test Layout
 
-Unit tests live as sibling `tests.rs` files next to `mod.rs`. Integration tests in `tests/` with fixtures in `tests/fixtures/`. Fixtures loaded via `include_str!`.
+Unit tests live as sibling `tests.rs` files next to `mod.rs` in every module. Integration tests in `tests/` with fixtures in `tests/fixtures/`. Fixtures loaded via `include_str!`.
 
 ## Conventions
 
@@ -69,3 +75,4 @@ Unit tests live as sibling `tests.rs` files next to `mod.rs`. Integration tests 
 - 4-space indentation everywhere
 - All commands support `--json` for machine-readable output
 - `defaults.yaml` (committed) + `config.yaml` (gitignored) deep merge pattern
+- PRs required for all changes to `main` (branch ruleset enforced)

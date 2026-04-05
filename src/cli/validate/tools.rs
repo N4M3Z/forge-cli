@@ -5,14 +5,6 @@ use std::process::Command;
 use crate::cli::config;
 
 pub fn run_external_checks(module_root: &Path, result: &mut ActionResult) {
-    if has_tool("prek") && module_root.join(".pre-commit-config.yaml").is_file() {
-        println!("  prek run --all-files");
-        if !run_command("prek", &["run", "--all-files"], module_root) {
-            result.errors.push("prek checks failed".to_string());
-        }
-        return;
-    }
-
     let exclude_patterns = load_exclude_patterns(module_root);
 
     check_trailing_whitespace(module_root, &exclude_patterns, result);
@@ -24,7 +16,6 @@ pub fn run_external_checks(module_root: &Path, result: &mut ActionResult) {
     check_ruff(module_root, result);
     check_gitleaks(module_root, result);
     check_semgrep(module_root, result);
-    run_cargo_test(module_root, result);
 }
 
 fn load_exclude_patterns(module_root: &Path) -> Vec<String> {
@@ -171,17 +162,6 @@ fn check_cargo(module_root: &Path, result: &mut ActionResult) {
         result
             .errors
             .push("cargo clippy found warnings".to_string());
-    }
-}
-
-fn run_cargo_test(module_root: &Path, result: &mut ActionResult) {
-    if !module_root.join("Cargo.toml").is_file() || !has_tool("cargo") {
-        return;
-    }
-
-    println!("  cargo test");
-    if !run_command("cargo", &["test"], module_root) {
-        result.errors.push("cargo test failed".to_string());
     }
 }
 
