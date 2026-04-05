@@ -1,0 +1,6 @@
+- id: forge-validate
+  name: forge validate
+  description: Validate module structure, schemas, and content
+  entry: forge validate
+  language: rust
+  pass_filenames: false

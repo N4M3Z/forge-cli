@@ -1,0 +1,10 @@
+repos:
+    - repo: https://github.com/N4M3Z/forge-cli
+      rev: v0.2.0
+      hooks:
+          - id: forge-validate
+
+    - repo: builtin
+      hooks:
+          - id: trailing-whitespace
+          - id: check-yaml

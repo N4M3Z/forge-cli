@@ -1,0 +1,61 @@
+repos:
+    - repo: builtin
+      hooks:
+          - id: trailing-whitespace
+          - id: check-yaml
+          - id: check-json
+
+    - repo: local
+      hooks:
+          - id: shellcheck
+            name: shellcheck
+            entry: shellcheck -S warning
+            language: system
+            types: [shell]
+
+          - id: cargo-fmt
+            name: cargo fmt
+            entry: cargo fmt --check
+            language: system
+            pass_filenames: false
+            types: [rust]
+
+          - id: cargo-clippy
+            name: cargo clippy
+            entry: cargo clippy -- -D warnings
+            language: system
+            pass_filenames: false
+            types: [rust]
+
+          - id: cargo-test
+            name: cargo test
+            entry: cargo test
+            language: system
+            pass_filenames: false
+            types: [rust]
+
+          - id: tsc
+            name: tsc --noEmit
+            entry: npx tsc --noEmit
+            language: system
+            pass_filenames: false
+            types: [ts]
+
+          - id: ruff
+            name: ruff check
+            entry: ruff check .
+            language: system
+            pass_filenames: false
+            types: [python]
+
+          - id: gitleaks
+            name: gitleaks
+            entry: gitleaks detect --no-banner --no-git -s .
+            language: system
+            pass_filenames: false
+
+          - id: semgrep
+            name: semgrep OWASP
+            entry: semgrep scan --config=p/owasp-top-ten --metrics=off --quiet .
+            language: system
+            pass_filenames: false

@@ -21,8 +21,8 @@ test:
 	cargo test --doc
 
 lint:
-	cargo fmt --check
-	cargo clippy -- -D warnings
+	@if command -v prek >/dev/null 2>&1; then prek run --all-files; \
+	else cargo fmt --check && cargo clippy -- -D warnings; fi
 	@if command -v semgrep >/dev/null 2>&1; then semgrep scan --config=p/owasp-top-ten --metrics=off --quiet . 2>/dev/null || true; fi
 
 check:

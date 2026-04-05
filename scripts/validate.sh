@@ -245,6 +245,36 @@ check_secrets() {
     fi
 }
 
+# --- OWASP scan ---
+
+check_semgrep() {
+    if ! command -v semgrep >/dev/null 2>&1; then
+        return
+    fi
+
+    echo "  semgrep OWASP"
+    if ! semgrep scan --config=p/owasp-top-ten --metrics=off --quiet . 2>/dev/null; then
+        ERRORS=$((ERRORS + 1))
+    fi
+}
+
+# --- Rust tests ---
+
+check_cargo_test() {
+    if [ ! -f Cargo.toml ]; then
+        return
+    fi
+
+    if ! command -v cargo >/dev/null 2>&1; then
+        return
+    fi
+
+    echo "  cargo test"
+    if ! cargo test 2>/dev/null; then
+        ERRORS=$((ERRORS + 1))
+    fi
+}
+
 # --- Run all checks ---
 
 check_drift
@@ -257,6 +287,8 @@ check_rust
 check_python
 check_typescript
 check_secrets
+check_semgrep
+check_cargo_test
 
 if [ "$ERRORS" -gt 0 ]; then
     echo ""

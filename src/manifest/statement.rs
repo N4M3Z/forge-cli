@@ -1,5 +1,11 @@
-const STATEMENT_TEMPLATE: &str = include_str!("statement.yaml");
-const DEPENDENCY_TEMPLATE: &str = include_str!("dependency.yaml");
+const STATEMENT_TEMPLATE: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/templates/statement.yaml"
+));
+const DEPENDENCY_TEMPLATE: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/templates/dependency.yaml"
+));
 
 pub fn generate_statement(
     subject_name: &str,

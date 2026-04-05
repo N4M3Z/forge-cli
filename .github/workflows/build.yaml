@@ -16,7 +16,7 @@ jobs:
               with:
                   components: rustfmt, clippy
 
-            - name: Lint
+            - name: Validate
               run: bash scripts/validate.sh
 
             - name: Test
