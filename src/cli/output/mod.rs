@@ -22,6 +22,7 @@ pub fn print(result: &ActionResult, json_output: bool, verb: &str) {
 
 struct ProviderGroup<'a> {
     kinds: BTreeMap<&'a str, usize>,
+    deployed: Vec<&'a str>,
     skips: Vec<&'a SkippedFile>,
     pruned: Vec<&'a PrunedFile>,
 }
@@ -31,16 +32,16 @@ fn group_by_provider(result: &ActionResult) -> BTreeMap<&str, ProviderGroup<'_>>
 
     for entry in &result.installed {
         let kind = extract_content_kind(&entry.target);
-        *groups
+        let group = groups
             .entry(&entry.provider)
             .or_insert_with(|| ProviderGroup {
                 kinds: BTreeMap::new(),
+                deployed: Vec::new(),
                 skips: Vec::new(),
                 pruned: Vec::new(),
-            })
-            .kinds
-            .entry(kind)
-            .or_default() += 1;
+            });
+        *group.kinds.entry(kind).or_default() += 1;
+        group.deployed.push(&entry.target);
     }
 
     for skipped in &result.skipped {
@@ -48,6 +49,7 @@ fn group_by_provider(result: &ActionResult) -> BTreeMap<&str, ProviderGroup<'_>>
             .entry(&skipped.provider)
             .or_insert_with(|| ProviderGroup {
                 kinds: BTreeMap::new(),
+                deployed: Vec::new(),
                 skips: Vec::new(),
                 pruned: Vec::new(),
             })
@@ -60,6 +62,7 @@ fn group_by_provider(result: &ActionResult) -> BTreeMap<&str, ProviderGroup<'_>>
             .entry(&pruned_file.provider)
             .or_insert_with(|| ProviderGroup {
                 kinds: BTreeMap::new(),
+                deployed: Vec::new(),
                 skips: Vec::new(),
                 pruned: Vec::new(),
             })
@@ -98,6 +101,11 @@ fn print_providers(groups: &BTreeMap<&str, ProviderGroup<'_>>, result: &ActionRe
                 .map(|(kind, count)| format!("{} {}", dim.apply_to(kind), count))
                 .collect();
             println!("   {}", parts.join("  "));
+        }
+
+        for target in &group.deployed {
+            let relative = extract_relative_path(target);
+            println!("   {} {}", green.apply_to("●"), relative);
         }
 
         for skipped in &group.skips {
