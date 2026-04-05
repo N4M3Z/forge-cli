@@ -6,13 +6,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+
+- prek as declarative validation entry point
+- Native YAML, JSON, and trailing whitespace checks in `forge validate`
+- `--source` filter on `forge provenance` command
+- `templates/` reorganized into `mdschema/`, `provenance/`, `init/`
+
+### Fixed
+
+- `load_models` path and error handling
+- `--show-orphans` flag name (was documented as `--orphans`)
+- Stale Makefile targets in README, CLAUDE.md, CONTRIBUTING.md
+
 ## [0.2.0] - 2026-04-04
 
 ### Added
 
 - `forge drift` command for upstream comparison with frontmatter key diffing and `--ignore` flag
-- `forge provenance --orphans` flag for detecting files without provenance
-- `forge provenance --source` filter for scoping scan results by module
+- `forge provenance --show-orphans` flag for detecting files without provenance
 - `forge clean` command for removing stale files from previous installs
 - `forge release` command for packaging assembled content as tarballs
 - `forge validate` runs external tools (shellcheck, cargo fmt/clippy, cargo test, tsc, gitleaks)

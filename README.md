@@ -193,11 +193,11 @@ All commands support `--json` for machine-readable output.
 ## Build
 
 ```sh
-make build    # cargo build --release
-make test     # cargo test + doc tests
-make lint     # cargo fmt --check + clippy + semgrep OWASP
-make check    # verify module structure files exist
-make install  # build + symlink to ~/.local/bin/forge + configure pre-commit hook
+make build      # cargo build --release
+make install    # build, symlink to ~/.local/bin/forge, activate git hooks
+make validate   # run pre-commit checks (prek → forge → validate.sh)
+make test       # validate + cargo test
+make clean      # remove build artifacts
 ```
 
 ## Pipeline Artifacts

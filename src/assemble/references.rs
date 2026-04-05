@@ -1,11 +1,13 @@
-/// Remove reference-style link definitions (`[1]: url`) and
-/// inline reference markers (` [1]`) from content.
+/// Remove reference-style link definitions (`[1]: url`, `[MADR]: url`) and
+/// inline reference markers (` [1]`, ` [MADR]`) from content.
 pub fn strip(content: &str) -> String {
     static INLINE_RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
     static DEF_RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
 
-    let inline_re = INLINE_RE.get_or_init(|| regex::Regex::new(r" \[\d+\]").expect("valid regex"));
-    let def_re = DEF_RE.get_or_init(|| regex::Regex::new(r"^\[\d+\]:").expect("valid regex"));
+    let inline_re =
+        INLINE_RE.get_or_init(|| regex::Regex::new(r" \[[\w][\w-]*\]").expect("valid regex"));
+    let def_re =
+        DEF_RE.get_or_init(|| regex::Regex::new(r"^\[[\w][\w-]*\]:").expect("valid regex"));
 
     let mut output_lines: Vec<String> = Vec::new();
     let mut in_ref_block = false;
@@ -38,7 +40,7 @@ pub fn extract(content: &str) -> Vec<String> {
     static URL_RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
 
     let url_re =
-        URL_RE.get_or_init(|| regex::Regex::new(r"^\[\d+\]:\s*(\S+)").expect("valid regex"));
+        URL_RE.get_or_init(|| regex::Regex::new(r"^\[[\w][\w-]*\]:\s*(\S+)").expect("valid regex"));
 
     let mut urls: Vec<String> = Vec::new();
     for line in content.lines() {

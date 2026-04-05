@@ -6,10 +6,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ```sh
 make build              # cargo build --release
+make install            # build, symlink to ~/.local/bin/forge, activate git hooks
 make validate           # run pre-commit checks (prek → forge → validate.sh)
 make test               # validate + cargo test
-make install            # build, symlink to ~/.local/bin/forge, activate git hooks
-make check              # verify module structure files exist
+make clean              # remove build artifacts
 ```
 
 Run a single test:

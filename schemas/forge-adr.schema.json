@@ -1,6 +1,6 @@
 {
     "$schema": "http://json-schema.org/draft-07/schema#",
-    "$id": "https://github.com/N4M3Z/forge-core/schemas/forge-adr.schema.json",
+    "$id": "https://github.com/N4M3Z/forge-cli/schemas/forge-adr.schema.json",
     "title": "Forge ADR Frontmatter",
     "description": "JSON Schema for validating forge ADR YAML frontmatter (structured-madr + x-forge- extensions)",
     "type": "object",

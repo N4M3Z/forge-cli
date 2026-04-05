@@ -123,6 +123,32 @@ fn extract_returns_empty_for_no_refs() {
     assert!(urls.is_empty());
 }
 
+const REFS_MNEMONIC: &str = fixture!("refs-mnemonic.md");
+
+#[test]
+fn strip_removes_mnemonic_inline_markers() {
+    let result = references::strip("Text with a ref [MADR] and another [OWASP].");
+    assert_eq!(result, "Text with a ref and another.");
+}
+
+#[test]
+fn strip_removes_mnemonic_definitions() {
+    let result = references::strip(REFS_MNEMONIC);
+    assert!(!result.contains("[MADR]"));
+    assert!(!result.contains("[OWASP]"));
+    assert!(!result.contains("[keepachangelog]"));
+    assert!(!result.contains("https://adr.github.io"));
+}
+
+#[test]
+fn extract_returns_mnemonic_urls() {
+    let urls = references::extract(REFS_MNEMONIC);
+    assert_eq!(urls.len(), 3);
+    assert_eq!(urls[0], "https://adr.github.io/madr/");
+    assert_eq!(urls[1], "https://owasp.org/");
+    assert_eq!(urls[2], "https://keepachangelog.com/");
+}
+
 // --- variants::Mode ---
 
 #[test]

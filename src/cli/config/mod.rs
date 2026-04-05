@@ -97,7 +97,7 @@ pub fn load_tool_mappings(
 /// Returns an empty map if neither the module file nor the embedded file
 /// can be parsed (all model-tier qualifiers become unresolvable).
 pub fn load_models(module_root: &Path) -> HashMap<String, Vec<String>> {
-    let models_path = module_root.join("models.yaml");
+    let models_path = module_root.join("config/models.yaml");
     let content = if models_path.is_file() {
         read_file(&models_path).ok()
     } else {
@@ -105,7 +105,15 @@ pub fn load_models(module_root: &Path) -> HashMap<String, Vec<String>> {
     };
 
     match content {
-        Some(yaml) => provider::load_models(&yaml).unwrap_or_default(),
+        Some(yaml) => match provider::load_models(&yaml) {
+            Ok(models) => models,
+            Err(error) => {
+                eprintln!(
+                    "warning: failed to parse models config ({error}), using embedded defaults"
+                );
+                provider::load_models(EMBEDDED_MODELS).unwrap_or_default()
+            }
+        },
         None => HashMap::new(),
     }
 }
