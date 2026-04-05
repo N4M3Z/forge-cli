@@ -3,6 +3,7 @@ mod config;
 mod copy;
 mod deploy;
 mod drift;
+mod init;
 mod install;
 mod output;
 mod provenance;
@@ -24,6 +25,12 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
+    /// Initialize a new forge module with required files and schemas
+    Init {
+        /// Path to the module root (created if missing)
+        path: String,
+    },
+
     /// Assemble and deploy module content to provider directories
     Install {
         /// Path to the module root
@@ -137,6 +144,7 @@ pub fn run() -> i32 {
     let args = Cli::parse();
 
     let (result, verb) = match args.command {
+        Command::Init { path } => (init::execute(&path), "initialized"),
         Command::Install {
             path,
             target,

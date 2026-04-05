@@ -1,22 +1,33 @@
 use rust_embed::RustEmbed;
 
 #[derive(RustEmbed)]
-#[folder = "templates/"]
-struct SchemaTemplates;
+#[folder = "templates/init/"]
+pub(crate) struct InitTemplates;
 
-fn template_name(kind: &str) -> Option<&'static str> {
-    match kind {
-        "skills" => Some("mdschema/skills.mdschema"),
-        "agents" => Some("mdschema/agents.mdschema"),
-        "rules" => Some("mdschema/rules.mdschema"),
-        "decisions" => Some("mdschema/decisions.mdschema"),
-        _ => None,
-    }
-}
+const README_MDSCHEMA: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/schemas/README.mdschema"
+));
+const CONTRIBUTING_MDSCHEMA: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/schemas/CONTRIBUTING.mdschema"
+));
 
 pub fn embedded_mdschema(kind: &str) -> Option<String> {
-    let template_filename = template_name(kind)?;
-    let template_content = SchemaTemplates::get(template_filename)?;
-    let content = std::str::from_utf8(template_content.data.as_ref()).ok()?;
-    Some(content.to_string())
+    match kind {
+        "readme" => Some(README_MDSCHEMA.to_string()),
+        "contributing" => Some(CONTRIBUTING_MDSCHEMA.to_string()),
+        _ => {
+            let embed_path = match kind {
+                "skills" => "skills/.mdschema",
+                "agents" => "agents/.mdschema",
+                "rules" => "rules/.mdschema",
+                "decisions" => "docs/decisions/.mdschema",
+                _ => return None,
+            };
+            let content = InitTemplates::get(embed_path)?;
+            let text = std::str::from_utf8(content.data.as_ref()).ok()?;
+            Some(text.to_string())
+        }
+    }
 }
