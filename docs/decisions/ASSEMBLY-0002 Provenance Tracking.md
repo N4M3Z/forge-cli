@@ -76,7 +76,7 @@ predicate:
 
 For standardized in-toto `.link` attestations, `in-toto-run` can wrap `forge assemble` as an observer without changing the assembly pipeline [3].
 
-### Consequences
+## Consequences
 
 - [+] Industry standard — cosign/Sigstore tooling for verification
 - [+] Compact — one self-contained statement per output file

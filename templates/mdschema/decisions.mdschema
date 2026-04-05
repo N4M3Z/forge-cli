@@ -65,12 +65,17 @@ structure:
           - heading:
                 pattern: "## Decision Outcome"
             allow_additional: true
-            children:
-                - heading:
-                      pattern: "### Consequences"
-                  optional: true
-                  lists:
-                      - min: 1
+          - heading:
+                pattern: "## Consequences"
+            optional: true
+            allow_additional: true
+            lists:
+                - min: 1
           - heading:
                 pattern: "## More Information"
             optional: true
+            allow_additional: true
+          - heading:
+                pattern: "## Audit"
+            optional: true
+            allow_additional: true

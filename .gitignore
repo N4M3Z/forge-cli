@@ -20,5 +20,12 @@ config.yaml
 .codex/
 .opencode/
 
+# Node
+package-lock.json
+node_modules/
+
+# Plans
+docs/plans/
+
 # macOS
 .DS_Store

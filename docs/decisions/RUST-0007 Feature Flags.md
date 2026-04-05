@@ -72,7 +72,7 @@ check-cfg = ["cfg(ci)"]
 
 Catches stale or misspelled feature flags at compile time (per RUST-0005).
 
-### Consequences
+## Consequences
 
 - [+] Minimal builds possible for embedded or constrained environments
 - [+] Dependency graph is explicit and auditable

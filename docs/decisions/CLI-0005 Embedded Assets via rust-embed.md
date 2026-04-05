@@ -69,7 +69,7 @@ forge release . --embed        # tarballs + standalone binary with content baked
 
 The assembly pipeline works identically in both modes — the only difference is where source bytes come from (filesystem vs compiled-in).
 
-### Consequences
+## Consequences
 
 - [+] Single-binary distribution via `forge release --embed`
 - [+] No impact on development workflow (feature disabled by default)

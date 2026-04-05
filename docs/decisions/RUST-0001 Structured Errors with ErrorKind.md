@@ -64,7 +64,7 @@ pub enum ErrorKind {
 
 `Result<T, String>` remains acceptable for simple functions where callers never branch on error kind. See RUST-0009 for the full implementation pattern with `#[non_exhaustive]` and factory methods.
 
-### Consequences
+## Consequences
 
 - [+] Callers branch on `ErrorKind`, not error text
 - [+] Source errors preserved via `Box<dyn Error>`

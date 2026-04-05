@@ -74,7 +74,7 @@ forge install .
 
 `--json` flag for machine consumption. Per-provider breakdown by default.
 
-### Consequences
+## Consequences
 
 - [+] Clear reporting of partial installs
 - [+] Machine-parseable output for CI integration

@@ -68,7 +68,7 @@ impl Error {
 | `Result<T, String>`  | Internal functions where caller only prints       |
 | `Result<T, Error>`   | Public API boundaries where callers branch on kind |
 
-### Consequences
+## Consequences
 
 - [+] Callers branch on `ErrorKind`, not error text
 - [+] Follows `std::io::ErrorKind` convention

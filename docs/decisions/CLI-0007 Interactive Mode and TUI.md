@@ -57,7 +57,7 @@ A `forge tui` subcommand providing:
 
 Candidate crates: `ratatui` for terminal rendering, `crossterm` for input handling.
 
-### Consequences
+## Consequences
 
 - [+] Per-file control without --force-or-nothing
 - [+] Visual feedback for multi-provider deployments

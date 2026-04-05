@@ -61,7 +61,7 @@ The name should describe what the parameter represents, not abbreviate it:
 
 Standard trait bounds (`T: Display`, `T: Send + Sync`) are the exception — single letters are acceptable when the bound itself documents the intent.
 
-### Consequences
+## Consequences
 
 - [+] Generic code reads without comments
 - [+] No "what does S mean?" questions in review

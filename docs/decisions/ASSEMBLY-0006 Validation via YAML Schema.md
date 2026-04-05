@@ -96,7 +96,7 @@ Tool precedence: prefer external tools when installed (`yq`, `check-jsonschema`,
 | Module  | `module.schema.json`     | `check-jsonschema` / built-in   |
 | DCI     | regex patterns in config | built-in (no external tool)     |
 
-### Consequences
+## Consequences
 
 - [+] JSON Schema is universal — anyone can read, edit, validate with any tool
 - [+] No custom validation code for frontmatter

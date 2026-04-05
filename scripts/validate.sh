@@ -100,7 +100,7 @@ check_adr_frontmatter() {
     fi
 
     local schema=""
-    for candidate in templates/forge-adr.json templates/structured-madr.json; do
+    for candidate in schemas/forge-adr.schema.json templates/forge-adr.json templates/structured-madr.json; do
         if [ -f "$candidate" ]; then
             schema="$candidate"
             break

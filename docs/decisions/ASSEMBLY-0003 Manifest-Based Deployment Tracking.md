@@ -74,7 +74,7 @@ On subsequent installs, copy reads `.manifest` from the target and compares:
 
 Source-level staleness (has the source changed since last build?) is detected by comparing provenance sidecars against current source files. See ASSEMBLY-0002.
 
-### Consequences
+## Consequences
 
 - [+] Simple format — nested YAML with `fingerprint` and `provenance`, human-readable
 - [+] Lives at the target — survives `build/` cleanup

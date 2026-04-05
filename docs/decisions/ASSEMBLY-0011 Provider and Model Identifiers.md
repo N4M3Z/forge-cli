@@ -78,7 +78,7 @@ During `forge assemble` and `forge validate`, every qualifier directory name is 
 
 When a provider releases a new model, add it to `models.yaml`. No code change, no recompilation. The config ships with forge-cli and can be overridden via the standard `config.yaml` deep merge.
 
-### Consequences
+## Consequences
 
 - [+] Typos in qualifier directories caught at assembly time
 - [+] New models are a config update, not a code change

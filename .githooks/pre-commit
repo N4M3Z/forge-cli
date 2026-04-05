@@ -9,6 +9,9 @@ if command -v prek >/dev/null 2>&1; then
 elif command -v forge >/dev/null 2>&1; then
     forge validate .
 else
-    echo "`prek` and `forge` not found, falling back to validate.sh"
+    echo ""
+    echo "  ⚠  Neither prek nor forge found — using validate.sh fallback"
+    echo "     Install: cargo install --locked forge-cli   or   cargo binstall prek"
+    echo ""
     bash scripts/validate.sh .
 fi

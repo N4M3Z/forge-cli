@@ -62,7 +62,7 @@ What we handle that rulesync doesn't:
 
 We will adopt rulesync's deployment conventions (directory layouts, target naming, scope tiers) rather than inventing our own. This includes their target identifiers (`claudecode`, `geminicli`, `codexcli`), feature types (rules, skills, commands, subagents, hooks), and per-file `targets` frontmatter for selective deployment.
 
-### Consequences
+## Consequences
 
 - [+] No hard dependency on Node.js tooling
 - [+] Built-in deployer covers the 4 providers we target

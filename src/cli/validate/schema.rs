@@ -66,19 +66,23 @@ pub fn load_schema(dir: &Path) -> Option<String> {
 ///     max_depth: 3
 /// ```
 ///
-/// Returns `None` when no `.mdschema` exists in the directory.
-pub fn load_mdschema(dir: &Path) -> Option<String> {
+/// Returns `Ok(None)` when no `.mdschema` exists, `Err` on I/O errors.
+pub fn load_mdschema(dir: &Path) -> Result<Option<String>, String> {
     let mdschema_path = dir.join(".mdschema");
-    fs::read_to_string(&mdschema_path).ok()
+    match fs::read_to_string(&mdschema_path) {
+        Ok(content) => Ok(Some(content)),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(format!("cannot read {}: {error}", mdschema_path.display())),
+    }
 }
 
 /// Load `.mdschema` from a directory, falling back to the embedded template.
 ///
 /// Checks for a local `.mdschema` first. If missing, returns the
 /// embedded template for the content kind without writing to disk.
-pub fn load_mdschema_or_fallback(directory: &Path, kind: &str) -> Option<String> {
-    if let Some(content) = load_mdschema(directory) {
-        return Some(content);
+pub fn load_mdschema_or_fallback(directory: &Path, kind: &str) -> Result<Option<String>, String> {
+    match load_mdschema(directory)? {
+        Some(content) => Ok(Some(content)),
+        None => Ok(templates::embedded_mdschema(kind)),
     }
-    templates::embedded_mdschema(kind)
 }

@@ -173,7 +173,7 @@ agents/SecurityArchitect.md       build/claude/agents/SecurityArchitect.md    (Y
                                   build/codex/agents/SecurityArchitect.toml   (TOML format)
 ```
 
-### Consequences
+## Consequences
 
 - [+] Assembly is a pure function — testable without filesystem side effects
 - [+] `build/` directory is inspectable before deployment

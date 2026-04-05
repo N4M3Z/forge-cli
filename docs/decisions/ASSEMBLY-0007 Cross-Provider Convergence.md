@@ -63,7 +63,7 @@ Design the forge tool as an **assembler and validator** whose deployment layer i
 
 Once Claude Code adopts `.agents/skills/`, the deployment layer for skills reduces to a single directory copy. Agent deployment may take longer to converge (no shared agent format yet). Rule deployment has no upstream standard and remains forge-specific.
 
-### Consequences
+## Consequences
 
 - [+] Assembly and validation investment is permanent
 - [+] Deployment code can be removed without architectural impact

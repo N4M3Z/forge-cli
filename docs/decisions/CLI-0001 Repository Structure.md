@@ -64,7 +64,7 @@ Directories are navigation, not categorization. Every directory name is a routin
 
 EUPL-1.2. Per CORE-0015 [8].
 
-### Consequences
+## Consequences
 
 - [+] Upstream decisions referenced, not duplicated
 - [+] One place to understand the repo's conventions

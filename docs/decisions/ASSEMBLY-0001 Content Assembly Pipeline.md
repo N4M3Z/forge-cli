@@ -51,7 +51,7 @@ Steps:
 4. **Strip** — remove frontmatter delimiters, H1 heading, and reference-style link definitions from the assembled body
 5. **Format** — apply provider-specific output formatting (YAML frontmatter for Claude/Gemini/OpenCode, TOML for Codex)
 
-### Consequences
+## Consequences
 
 - [+] Source files are clean markdown readable in any viewer
 - [+] Provider differences are handled at assembly time, not authoring time

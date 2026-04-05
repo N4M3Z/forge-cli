@@ -24,7 +24,8 @@ pub fn flat_directory(
 ) -> Result<(), Error> {
     let schema_content =
         schema::load_schema(dir).or_else(|| schema::embedded_schema(kind).map(String::from));
-    let mdschema_content = schema::load_mdschema_or_fallback(dir, kind);
+    let mdschema_content = schema::load_mdschema_or_fallback(dir, kind)
+        .map_err(|error| Error::new(ErrorKind::Io, error))?;
 
     let entries = fs::read_dir(dir)
         .map_err(|e| Error::new(ErrorKind::Io, format!("cannot read {}: {e}", dir.display())))?;
@@ -74,7 +75,8 @@ pub fn flat_directory(
 ///     .mdschema         ← structural constraints for this skill
 /// ```
 pub fn skill_directory(dir: &Path, result: &mut ActionResult) -> Result<(), Error> {
-    let mdschema_content = schema::load_mdschema_or_fallback(dir, "skills");
+    let mdschema_content = schema::load_mdschema_or_fallback(dir, "skills")
+        .map_err(|error| Error::new(ErrorKind::Io, error))?;
 
     // Only validate SKILL.md against the schema — companions are reference
     // docs without skill frontmatter (name, description, version).
