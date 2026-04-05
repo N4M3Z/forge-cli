@@ -1,47 +1,31 @@
-# forge-cli — build, test, lint, install
+# forge-cli
 
+FORGE ?= forge
 BINARY = target/release/forge
 
-.PHONY: help build test lint check clean install
+.PHONY: help build install validate test clean
 
 help:
-	@echo "forge-cli targets:"
-	@echo "  make build     Compile the forge binary"
-	@echo "  make test      Run all tests"
-	@echo "  make lint      Clippy + fmt + shellcheck + semgrep"
-	@echo "  make check     Verify module structure and dependencies"
-	@echo "  make install   Build and symlink forge to ~/.local/bin"
-	@echo "  make clean     Remove build artifacts"
+	@echo "  make build      compile the forge binary"
+	@echo "  make install    build, symlink, activate git hooks"
+	@echo "  make validate   run pre-commit checks"
+	@echo "  make test       validate + cargo test"
+	@echo "  make clean      remove build artifacts"
 
 build:
 	cargo build --release
-
-test:
-	cargo test
-	cargo test --doc
-
-lint:
-	@if command -v prek >/dev/null 2>&1; then prek run --all-files; \
-	else cargo fmt --check && cargo clippy -- -D warnings; fi
-	@if command -v semgrep >/dev/null 2>&1; then semgrep scan --config=p/owasp-top-ten --metrics=off --quiet . 2>/dev/null || true; fi
-
-check:
-	@test -f module.yaml      && echo "  ok module.yaml"      || echo "  MISSING module.yaml"
-	@test -f Cargo.toml       && echo "  ok Cargo.toml"       || echo "  MISSING Cargo.toml"
-	@test -f defaults.yaml    && echo "  ok defaults.yaml"    || echo "  MISSING defaults.yaml"
-	@test -f README.md        && echo "  ok README.md"        || echo "  MISSING README.md"
-	@test -f INSTALL.md       && echo "  ok INSTALL.md"       || echo "  MISSING INSTALL.md"
-	@test -f CONTRIBUTING.md  && echo "  ok CONTRIBUTING.md"  || echo "  MISSING CONTRIBUTING.md"
-	@test -f CHANGELOG.md     && echo "  ok CHANGELOG.md"     || echo "  MISSING CHANGELOG.md"
-	@test -f CODEOWNERS       && echo "  ok CODEOWNERS"       || echo "  MISSING CODEOWNERS"
-	@test -f LICENSE          && echo "  ok LICENSE"          || echo "  MISSING LICENSE"
-	@test -f .gitattributes   && echo "  ok .gitattributes"   || echo "  MISSING .gitattributes"
 
 install: build
 	mkdir -p ~/.local/bin
 	ln -sf "$(CURDIR)/$(BINARY)" ~/.local/bin/forge
 	git config core.hooksPath .githooks
 	@echo "Installed: forge -> $(CURDIR)/$(BINARY)"
+
+validate:
+	@bash .githooks/pre-commit
+
+test: validate
+	cargo test
 
 clean:
 	cargo clean
