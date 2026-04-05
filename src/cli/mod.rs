@@ -87,6 +87,10 @@ enum Command {
         /// Path to a deployed file or provider directory
         path: String,
 
+        /// Filter by source module URI
+        #[arg(long)]
+        source: Option<String>,
+
         /// Show files without provenance
         #[arg(long)]
         show_orphans: bool,
@@ -154,8 +158,12 @@ pub fn run() -> i32 {
         ),
         Command::Copy { path, target } => (copy::execute(&path, &target), "copied"),
         Command::Validate { path } => (validate::execute(&path), "validated"),
-        Command::Provenance { path, show_orphans } => {
-            return match provenance::execute(&path, None, show_orphans, args.json) {
+        Command::Provenance {
+            path,
+            source,
+            show_orphans,
+        } => {
+            return match provenance::execute(&path, source.as_deref(), show_orphans, args.json) {
                 Ok(code) => code,
                 Err(error) => {
                     eprintln!("fatal: {error}");

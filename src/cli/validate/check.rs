@@ -85,10 +85,12 @@ pub fn skill_directory(dir: &Path, result: &mut ActionResult) -> Result<(), Erro
         let content = read_file(&skill_file)?;
         let display_path = skill_file.to_string_lossy().to_string();
 
+        let skill_schema = schema::embedded_schema("skills").map(String::from);
+
         collect_diagnostics(
             &content,
             &display_path,
-            None,
+            skill_schema.as_ref(),
             mdschema_content.as_ref(),
             result,
         );

@@ -106,7 +106,7 @@ fn check_json_syntax(module_root: &Path, exclude_patterns: &[String], result: &m
     }
 }
 
-fn is_excluded(path: &Path, module_root: &Path, patterns: &[String]) -> bool {
+pub(super) fn is_excluded(path: &Path, module_root: &Path, patterns: &[String]) -> bool {
     let relative = path
         .strip_prefix(module_root)
         .unwrap_or(path)

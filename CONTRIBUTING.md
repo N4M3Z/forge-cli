@@ -7,19 +7,11 @@ git clone https://github.com/N4M3Z/forge-cli.git
 cd forge-cli
 make build
 make test
-make lint
 ```
 
 ## Build & Test
 
-```sh
-make build              # cargo build --release
-make test               # cargo test + doc tests
-make lint               # cargo fmt --check + clippy + semgrep
-make check              # verify module structure
-```
-
-Run a single test:
+See [README.md](README.md#build) for build targets. Run a single test:
 
 ```sh
 cargo test -- test_name
@@ -57,5 +49,7 @@ Types: `feat`, `fix`, `docs`, `chore`, `refactor`, `test`.
 
 1. Fork and create a branch
 2. Make changes following the conventions above
-3. `make test && make lint`
+3. `make test`
 4. Open a PR against `main`
+
+CI runs `prek` (linting, formatting, tests) and `cargo test` on every PR. The `main` branch requires passing CI and one approval before merge.

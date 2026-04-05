@@ -50,3 +50,29 @@ fn check_module_yaml_skips_when_no_module_yaml() {
 
     assert!(result.errors.is_empty());
 }
+
+// --- tools.rs native checks ---
+
+#[test]
+fn is_excluded_matches_prefix_glob() {
+    let module_root = std::path::Path::new("/project");
+    let file_path = std::path::Path::new("/project/templates/statement.yaml");
+    let patterns = vec!["templates/*".to_string()];
+    assert!(tools::is_excluded(file_path, module_root, &patterns));
+}
+
+#[test]
+fn is_excluded_rejects_non_matching_path() {
+    let module_root = std::path::Path::new("/project");
+    let file_path = std::path::Path::new("/project/schemas/agent.schema.yaml");
+    let patterns = vec!["templates/*".to_string()];
+    assert!(!tools::is_excluded(file_path, module_root, &patterns));
+}
+
+#[test]
+fn is_excluded_matches_exact_path() {
+    let module_root = std::path::Path::new("/project");
+    let file_path = std::path::Path::new("/project/defaults.yaml");
+    let patterns = vec!["defaults.yaml".to_string()];
+    assert!(tools::is_excluded(file_path, module_root, &patterns));
+}

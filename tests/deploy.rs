@@ -583,3 +583,68 @@ fn install_targets_multiple_providers() {
         "should NOT deploy to codex"
     );
 }
+
+// --- Issue #8: manifest at --target location ---
+
+#[test]
+fn install_target_writes_manifest_with_correct_fingerprints() {
+    let module_directory = tempfile::tempdir().unwrap();
+    let target_directory = tempfile::tempdir().unwrap();
+
+    scaffold_module(module_directory.path());
+    create_rule(module_directory.path(), "ManifestRule");
+
+    forge()
+        .args([
+            "install",
+            module_directory.path().to_str().unwrap(),
+            "--target",
+            target_directory.path().to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    let manifest_path = target_directory.path().join(".claude/.manifest");
+    assert!(manifest_path.is_file(), ".manifest should exist at target");
+
+    let manifest_content = fs::read_to_string(&manifest_path).unwrap();
+    assert!(
+        manifest_content.contains("ManifestRule.md"),
+        "manifest should reference the deployed rule"
+    );
+    assert!(
+        manifest_content.contains("fingerprint:"),
+        "manifest should contain fingerprints"
+    );
+}
+
+// --- Issue #12: mdschema validation in validate pipeline ---
+
+#[test]
+fn validate_catches_mdschema_violation() {
+    let module_directory = tempfile::tempdir().unwrap();
+
+    scaffold_module(module_directory.path());
+    fs::write(module_directory.path().join("README.md"), "# Test\n").unwrap();
+    fs::write(module_directory.path().join("LICENSE"), "EUPL-1.2\n").unwrap();
+
+    let rules_dir = module_directory.path().join("rules");
+    fs::create_dir_all(&rules_dir).unwrap();
+
+    fs::write(
+        rules_dir.join(".mdschema"),
+        "frontmatter:\n    fields:\n        - name: status\n          type: string\n",
+    )
+    .unwrap();
+
+    fs::write(
+        rules_dir.join("BadRule.md"),
+        "---\nname: BadRule\ndescription: missing status field\n---\n\n# BadRule\n",
+    )
+    .unwrap();
+
+    forge()
+        .args(["validate", module_directory.path().to_str().unwrap()])
+        .assert()
+        .failure();
+}
