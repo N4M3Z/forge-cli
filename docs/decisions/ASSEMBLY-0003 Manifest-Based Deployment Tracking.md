@@ -69,8 +69,10 @@ On subsequent installs, copy reads `.manifest` from the target and compares:
 | -------------------------- | ------------------------- | --------- | ------------------- |
 | matches                    | matches                   | Unchanged | skip                |
 | matches                    | differs                   | Stale     | copy (safe)         |
-| differs                    | —                         | Modified  | skip (or `--force`) |
-| not in `.manifest`         | —                         | New       | copy                |
+| differs                    | any                       | Modified  | skip (or `--force`) |
+| not in `.manifest`         | any                       | New       | copy                |
+| in `.manifest`             | not on disk               | Missing   | investigate         |
+| on disk                    | not in `.manifest`        | Untracked | flag unexpected     |
 
 Source-level staleness (has the source changed since last build?) is detected by comparing provenance sidecars against current source files. See ASSEMBLY-0002.
 
