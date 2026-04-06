@@ -57,6 +57,10 @@ Provider conventions are config-driven via `defaults.yaml`. Each provider has a 
 
 Variant resolution uses qualifier directories (`user/`, `claude/`, `claude-opus-4/`) that flatten at assembly time. `user/` has highest precedence.
 
+### Init Templates
+
+`templates/init/` mirrors the deploy target 1:1 — no remapping config. `forge init <path>` iterates the directory and writes each file at the same relative path, substituting `${MODULE_NAME}` and `${VERSION}`. Content `.mdschema` files live inside `templates/init/` at their deploy path (e.g. `agents/.mdschema`). Document schemas (README, CONTRIBUTING) live in `schemas/` — embedded for validation fallback only, never deployed.
+
 ### Validation
 
 `forge validate` runs structural checks only (module files, frontmatter, mdschema). External tool checks (shellcheck, cargo fmt/clippy, gitleaks, semgrep, ruff, tsc) run as fallback when prek is not installed. When prek is the orchestrator, `forge validate` skips external tools to avoid duplication.
