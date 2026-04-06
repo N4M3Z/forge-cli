@@ -1,5 +1,3 @@
-# forge module
-
 FORGE ?= forge
 
 .PHONY: help install validate clean

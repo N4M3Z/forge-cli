@@ -54,4 +54,48 @@ fn init_writes_manifest() {
 
     let manifest_content = std::fs::read_to_string(&manifest_path).unwrap();
     assert!(manifest_content.contains("fingerprint:"));
+    assert!(manifest_content.contains("provenance:"));
+}
+
+#[test]
+fn init_writes_provenance_sidecars() {
+    let temp_directory = TempDir::new().unwrap();
+    execute(&temp_directory.path().to_string_lossy()).unwrap();
+
+    let sidecar = temp_directory.path().join(".provenance/LICENSE.yaml");
+    assert!(sidecar.is_file());
+
+    let content = std::fs::read_to_string(&sidecar).unwrap();
+    assert!(content.contains("https://in-toto.io/Statement/v1"));
+    assert!(content.contains("templates/init/LICENSE"));
+}
+
+#[test]
+fn init_excludes_customized_files_from_manifest() {
+    let temp_directory = TempDir::new().unwrap();
+    std::fs::write(temp_directory.path().join("README.md"), "# Custom\n").unwrap();
+
+    execute(&temp_directory.path().to_string_lossy()).unwrap();
+
+    let manifest_content =
+        std::fs::read_to_string(temp_directory.path().join(".manifest")).unwrap();
+    assert!(
+        !manifest_content.contains("README.md"),
+        "customized pre-existing file should not be in manifest"
+    );
+}
+
+#[test]
+fn init_uses_already_exists_skip_reason() {
+    let temp_directory = TempDir::new().unwrap();
+    std::fs::write(temp_directory.path().join("LICENSE"), "custom\n").unwrap();
+
+    let result = execute(&temp_directory.path().to_string_lossy()).unwrap();
+
+    let license_skip = result
+        .skipped
+        .iter()
+        .find(|s| s.target.contains("LICENSE"))
+        .expect("LICENSE should be skipped");
+    assert!(matches!(license_skip.reason, SkipReason::AlreadyExists));
 }

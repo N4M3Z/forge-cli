@@ -58,6 +58,7 @@ fn group_by_provider_groups_installed_files() {
         ],
         skipped: Vec::new(),
         pruned: Vec::new(),
+        warnings: Vec::new(),
         errors: Vec::new(),
     };
 
@@ -77,6 +78,7 @@ fn group_by_provider_includes_skipped_files() {
             reason: SkipReason::Unchanged,
         }],
         pruned: Vec::new(),
+        warnings: Vec::new(),
         errors: Vec::new(),
     };
 
@@ -93,6 +95,7 @@ fn group_by_provider_includes_pruned_files() {
             target: ".claude/rules/Old.md".to_string(),
             provider: "claude".to_string(),
         }],
+        warnings: Vec::new(),
         errors: Vec::new(),
     };
 
