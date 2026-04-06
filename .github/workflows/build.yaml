@@ -47,8 +47,5 @@ jobs:
                   sudo apt-get install -y gitleaks
                   pip install semgrep
 
-            - name: Clear prek cache
-              run: rm -rf ~/.cache/prek
-
             - name: Validate
               uses: j178/prek-action@v2
