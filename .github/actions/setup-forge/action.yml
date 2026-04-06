@@ -1,0 +1,79 @@
+name: Setup Forge
+description: Download and cache the forge CLI binary from GitHub releases
+
+inputs:
+    version:
+        description: "Version to install (e.g., v0.3.0 or latest)"
+        default: "latest"
+    token:
+        description: "GitHub token for API requests (avoids rate limits)"
+        default: ${{ github.token }}
+
+outputs:
+    version:
+        description: "Installed forge version"
+        value: ${{ steps.resolve.outputs.version }}
+    cache-hit:
+        description: "Whether the binary was restored from cache"
+        value: ${{ steps.cache.outputs.cache-hit }}
+
+runs:
+    using: composite
+    steps:
+        - name: Resolve version
+          id: resolve
+          shell: bash
+          env:
+              GH_TOKEN: ${{ inputs.token }}
+              REQUESTED: ${{ inputs.version }}
+          run: |
+              if [ "$REQUESTED" = "latest" ]; then
+                  VERSION=$(gh api repos/N4M3Z/forge-cli/releases/latest --jq '.tag_name')
+              else
+                  VERSION="$REQUESTED"
+              fi
+              echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+              echo "Resolved forge version: $VERSION"
+
+        - name: Determine archive name
+          id: archive
+          shell: bash
+          run: |
+              case "$RUNNER_OS-$RUNNER_ARCH" in
+                  Linux-X64)   ARCHIVE="forge-cli-linux-x86_64.tar.gz" ;;
+                  macOS-ARM64) ARCHIVE="forge-cli-macos-aarch64.tar.gz" ;;
+                  Windows-X64) ARCHIVE="forge-cli-windows-x86_64.zip" ;;
+                  *) echo "Unsupported platform: $RUNNER_OS-$RUNNER_ARCH"; exit 1 ;;
+              esac
+              echo "archive=$ARCHIVE" >> "$GITHUB_OUTPUT"
+
+        - name: Cache forge binary
+          id: cache
+          uses: actions/cache@v4
+          with:
+              path: ~/.cache/forge-cli
+              key: forge-${{ steps.resolve.outputs.version }}-${{ runner.os }}-${{ runner.arch }}
+
+        - name: Download forge
+          if: steps.cache.outputs.cache-hit != 'true'
+          shell: bash
+          env:
+              GH_TOKEN: ${{ inputs.token }}
+              VERSION: ${{ steps.resolve.outputs.version }}
+              ARCHIVE: ${{ steps.archive.outputs.archive }}
+          run: |
+              mkdir -p ~/.cache/forge-cli
+              gh release download "$VERSION" \
+                  --repo N4M3Z/forge-cli \
+                  --pattern "$ARCHIVE" \
+                  --dir /tmp
+              if [[ "$ARCHIVE" == *.zip ]]; then
+                  unzip -o "/tmp/$ARCHIVE" -d ~/.cache/forge-cli
+              else
+                  tar xzf "/tmp/$ARCHIVE" -C ~/.cache/forge-cli
+              fi
+              chmod +x ~/.cache/forge-cli/forge*
+
+        - name: Add to PATH
+          shell: bash
+          run: echo "$HOME/.cache/forge-cli" >> "$GITHUB_PATH"
