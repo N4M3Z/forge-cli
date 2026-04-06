@@ -114,6 +114,7 @@ fn print_providers(groups: &BTreeMap<&str, ProviderGroup<'_>>, result: &ActionRe
                 SkipReason::UserModified => "user modified",
                 SkipReason::Unchanged => "unchanged",
                 SkipReason::TargetMismatch => "target mismatch",
+                SkipReason::AlreadyExists => "already exists",
             };
             println!(
                 "   {} {} {} {}",

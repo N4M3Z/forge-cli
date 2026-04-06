@@ -5,6 +5,7 @@ pub struct ActionResult {
     pub installed: Vec<DeployedFile>,
     pub skipped: Vec<SkippedFile>,
     pub pruned: Vec<PrunedFile>,
+    pub warnings: Vec<String>,
     pub errors: Vec<String>,
 }
 
@@ -43,6 +44,7 @@ pub enum SkipReason {
     UserModified,
     TargetMismatch,
     Unchanged,
+    AlreadyExists,
 }
 
 #[cfg(test)]
@@ -55,6 +57,7 @@ mod tests {
         assert!(result.installed.is_empty());
         assert!(result.skipped.is_empty());
         assert!(result.pruned.is_empty());
+        assert!(result.warnings.is_empty());
         assert!(result.errors.is_empty());
     }
 

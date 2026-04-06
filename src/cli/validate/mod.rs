@@ -1,4 +1,5 @@
 mod check;
+mod repository;
 mod schema;
 pub(crate) mod templates;
 mod tools;
@@ -29,6 +30,7 @@ pub fn execute(path: &str) -> Result<ActionResult, Error> {
 
     check_module_structure(module_root, &mut result);
     check_module_yaml(module_root, &mut result);
+    repository::check_template_drift(module_root, &mut result);
 
     for kind in &["agents", "rules"] {
         let dir = module_root.join(kind);
