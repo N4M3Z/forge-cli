@@ -1,10 +1,40 @@
 repos:
-    - repo: https://github.com/N4M3Z/forge-cli
-      rev: v0.2.0
-      hooks:
-          - id: forge-validate
-
     - repo: builtin
       hooks:
           - id: trailing-whitespace
           - id: check-yaml
+            exclude: ^templates/
+          - id: check-json
+
+    - repo: local
+      hooks:
+          - id: shellcheck
+            name: shellcheck
+            entry: shellcheck -S warning
+            language: system
+            types: [shell]
+
+          - id: ruff
+            name: ruff check
+            entry: ruff check .
+            language: system
+            pass_filenames: false
+            types: [python]
+
+          - id: gitleaks
+            name: gitleaks
+            entry: gitleaks detect --no-banner --no-git -s .
+            language: system
+            pass_filenames: false
+
+          - id: semgrep
+            name: semgrep OWASP
+            entry: semgrep scan --config=p/owasp-top-ten --metrics=off --quiet .
+            language: system
+            pass_filenames: false
+
+          - id: forge-validate
+            name: forge validate
+            entry: forge validate .
+            language: system
+            pass_filenames: false

@@ -1,4 +1,4 @@
-name: Validate
+name: Quality
 
 on:
     push:
@@ -7,7 +7,7 @@ on:
         branches: [main]
 
 jobs:
-    validate:
+    quality:
         runs-on: ubuntu-latest
         steps:
             - uses: actions/checkout@v6
@@ -24,17 +24,10 @@ jobs:
               with:
                   node-version: "22"
 
-            - name: Install prek
-              uses: j178/prek-action@v2
-
             - name: Install tools
               run: |
-                  pip install ruff
-                  GITLEAKS_URL=$(curl -s https://api.github.com/repos/gitleaks/gitleaks/releases/latest | grep -o 'https://.*linux_x64.tar.gz')
-                  curl -sSfL "$GITLEAKS_URL" | tar xz -C /usr/local/bin
-
-            - name: Lint
-              run: prek run --all-files
+                  pip install ruff semgrep
+                  sudo apt-get install -y gitleaks
 
             - name: Validate
-              run: make validate
+              uses: j178/prek-action@v2
