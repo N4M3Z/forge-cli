@@ -6,18 +6,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-04-06
+
 ### Added
 
+- `forge init` scaffolds new modules from embedded templates with SLSA provenance
+- `forge validate` manifest-based drift detection against current templates
+- `.pre-commit-hooks.yaml` makes forge-cli a valid prek hook source (`language: rust`)
 - prek as declarative validation entry point
 - Native YAML, JSON, and trailing whitespace checks in `forge validate`
 - `--source` filter on `forge provenance` command
-- `templates/` reorganized into `mdschema/`, `provenance/`, `init/`
 
-### Fixed
+### Changed
 
-- `load_models` path and error handling
-- `--show-orphans` flag name (was documented as `--orphans`)
-- Stale Makefile targets in README, CLAUDE.md, CONTRIBUTING.md
+- `templates/` reorganized: content schemas in `templates/init/`, build helpers in `templates/make/`
 
 ## [0.2.0] - 2026-04-04
 
@@ -65,3 +67,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - Incremental install with user modification detection
 - INSTALL.md following Mintlify install.md standard
 - 28 ADRs documenting architecture decisions
+
+[Unreleased]: https://github.com/N4M3Z/forge-cli/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/N4M3Z/forge-cli/compare/v0.2.0...v0.3.0
+[0.2.0]: https://github.com/N4M3Z/forge-cli/compare/v0.1.0...v0.2.0
+[0.1.0]: https://github.com/N4M3Z/forge-cli/releases/tag/v0.1.0
