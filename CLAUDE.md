@@ -63,7 +63,11 @@ Variant resolution uses qualifier directories (`user/`, `claude/`, `claude-opus-
 
 ### Validation
 
-`forge validate` runs structural checks only (module files, frontmatter, mdschema). External tool checks (shellcheck, cargo fmt/clippy, gitleaks, semgrep, ruff, tsc) run as fallback when prek is not installed. When prek is the orchestrator, `forge validate` skips external tools to avoid duplication.
+`forge validate` runs structural checks (module files, frontmatter, mdschema) plus manifest-based drift detection. If a `.manifest` exists, validate compares each tracked file's SHA-256 against the **current embedded template** — not the manifest fingerprint. The manifest indexes which files to check; the template is the source of truth for expected content. When forge-cli ships updated templates, validate catches modules that haven't updated.
+
+Only files whose on-disk content matched the template at `forge init` time enter the manifest. Customized files (README, Makefile, defaults.yaml) stay out — no false DRIFT, no separate infrastructure/content lists.
+
+External tool checks (shellcheck, cargo fmt/clippy, gitleaks, semgrep, ruff, tsc) run as fallback when prek is not installed. When prek is the orchestrator, `forge validate` skips external tools to avoid duplication.
 
 Configurable excludes in `defaults.yaml` under `validate.exclude` — glob patterns for files to skip during YAML/JSON/whitespace checks (e.g. `templates/*` for template files with placeholders).
 
