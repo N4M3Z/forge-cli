@@ -82,7 +82,7 @@ When a file exists in both `user/` and root, `user/` wins. Files only in `user/`
 
 ## Providers
 
-Provider conventions are config-driven via `defaults.yaml`:
+Provider conventions are config-driven via `defaults.yaml` (optional; falls back to embedded defaults if missing):
 
 ```yaml
 providers:
@@ -90,8 +90,10 @@ providers:
         target: ".claude"
     gemini:
         target: ".gemini"
+        aliases:
+            - geminicli
         assembly:
-            - kebab-case
+            - kebab-case-agents
             - remap-tools
             - strip-links
     codex:
@@ -104,7 +106,7 @@ providers:
     opencode:
         target: ".opencode"
         assembly:
-            - kebab-case
+            - kebab-case-agents
             - strip-links
 ```
 

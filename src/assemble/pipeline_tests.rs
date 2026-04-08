@@ -90,14 +90,24 @@ fn source_hashes_include_variant() {
 }
 
 #[test]
-fn kebab_case_rule_transforms_output_filename() {
+fn kebab_case_agents_rule_transforms_output_filename() {
     let source = make_source("agents/SecurityArchitect.md", "body\n", false);
-    let rules = vec![crate::provider::AssemblyRule::KebabCase];
+    let rules = vec![crate::provider::AssemblyRule::KebabCaseAgents];
     let mappings = HashMap::new();
 
     let result = pipeline::assemble_file(&source, "gemini", &rules, &[], &mappings).unwrap();
 
     assert_eq!(result.output_path, "gemini/agents/security-architect.md");
+}
+
+#[test]
+fn skill_with_subdirectory_preserves_path() {
+    let source = make_source("skills/MySkill/SKILL.md", "body\n", false);
+    let mappings = HashMap::new();
+
+    let result = pipeline::assemble_file(&source, "claude", &[], &[], &mappings).unwrap();
+
+    assert_eq!(result.output_path, "claude/skills/MySkill/SKILL.md");
 }
 
 // --- assemble_module ---
@@ -110,7 +120,7 @@ fn multi_provider_produces_separate_outputs() {
     providers.insert("claude".to_string(), make_provider(None));
     providers.insert(
         "gemini".to_string(),
-        make_provider(Some(vec!["kebab-case"])),
+        make_provider(Some(vec!["kebab-case-agents"])),
     );
 
     let tool_mappings: HashMap<String, HashMap<String, String>> = HashMap::new();
@@ -122,7 +132,7 @@ fn multi_provider_produces_separate_outputs() {
 
     let paths: Vec<&str> = results.iter().map(|r| r.output_path.as_str()).collect();
     assert!(paths.contains(&"claude/rules/Rule.md"));
-    assert!(paths.contains(&"gemini/rules/rule.md"));
+    assert!(paths.contains(&"gemini/rules/Rule.md"));
 }
 
 #[test]

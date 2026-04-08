@@ -32,10 +32,11 @@ fn load_merged_config_merges_config_over_defaults() {
 }
 
 #[test]
-fn load_merged_config_errors_on_missing_defaults() {
+fn load_merged_config_succeeds_on_missing_defaults() {
     let temp_directory = TempDir::new().unwrap();
     let result = load_merged_config(temp_directory.path());
-    assert!(result.is_err());
+    assert!(result.is_ok());
+    assert!(result.unwrap().is_empty());
 }
 
 #[test]

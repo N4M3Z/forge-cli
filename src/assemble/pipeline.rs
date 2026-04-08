@@ -42,8 +42,8 @@ pub fn assemble_file(
     keep_fields: &[&str],
     tool_mappings: &HashMap<String, String>,
 ) -> Result<AssembledFile, String> {
-    let filename = extract_filename(source.relative_path);
     let content_kind = extract_content_kind(source.relative_path);
+    let filename = extract_relative_within_kind(source.relative_path, content_kind);
 
     // Step 1: content assembly
     let assembled = if source.passthrough {
@@ -60,7 +60,7 @@ pub fn assemble_file(
 
     // Step 2: apply provider rules
     let (content, transformed_filename) =
-        transform::apply_rules(&assembled, filename, rules, tool_mappings)?;
+        transform::apply_rules(&assembled, filename, rules, tool_mappings, content_kind)?;
 
     // Step 3: input digests
     let mut source_hashes = vec![(
@@ -132,11 +132,19 @@ pub fn assemble_module(
     (results, errors)
 }
 
-/// Extract the filename from a relative path.
-fn extract_filename(relative_path: &str) -> &str {
+/// Extract the filename component from a relative path, stripping the kind prefix.
+///
+/// For `rules/MyRule.md`, returns `MyRule.md`.
+/// For `skills/Explain/SKILL.md`, returns `Explain/SKILL.md`.
+fn extract_relative_within_kind<'a>(relative_path: &'a str, kind: &str) -> &'a str {
+    if kind.is_empty() {
+        return relative_path;
+    }
+
     relative_path
-        .rsplit_once('/')
-        .map_or(relative_path, |(_, name)| name)
+        .strip_prefix(kind)
+        .and_then(|p| p.strip_prefix('/'))
+        .unwrap_or(relative_path)
 }
 
 /// Extract the content kind (first path segment) from a relative path.

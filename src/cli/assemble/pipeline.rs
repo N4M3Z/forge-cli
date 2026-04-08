@@ -27,8 +27,9 @@ pub fn assemble_source(
     module_root: &Path,
     provider_name: &str,
     keep_fields: &[String],
-    tool_mappings: &HashMap<String, String>,
-    model_tiers: &HashMap<String, String>,
+    _tool_mappings: &HashMap<String, String>,
+    model_tiers: &HashMap<String, Vec<String>>,
+
     strip_links: bool,
 ) -> Result<String, Error> {
     if source.passthrough {
@@ -54,12 +55,6 @@ pub fn assemble_source(
         strip_links,
     );
 
-    if !tool_mappings.is_empty() {
-        for (from, to) in tool_mappings {
-            output = output.replace(from, to);
-        }
-    }
-
     // Map abstract model tiers (strong/fast/light) to provider-specific values
     if source.kind == commands::provider::ContentKind::Agents && !model_tiers.is_empty() {
         output = map_model_tier(&output, model_tiers);
@@ -70,22 +65,16 @@ pub fn assemble_source(
 
 /// Replace `model: <tier>` in frontmatter with the provider-specific model name.
 ///
-/// Given `model: strong` and tier mapping `{strong: opus}`, produces `model: opus`.
+/// Given `model: strong` and tier mapping `{strong: [opus, sonnet]}`, produces `model: opus`.
 /// If the model value isn't a known tier, it passes through unchanged.
-fn map_model_tier(content: &str, tiers: &HashMap<String, String>) -> String {
-    let Some(current_value) = commands::parse::frontmatter_value(content, "model") else {
-        return content.to_string();
-    };
-
-    let Some(mapped_value) = tiers.get(current_value.trim()) else {
-        return content.to_string();
-    };
-
-    content.replacen(
-        &format!("model: {}", current_value.trim()),
-        &format!("model: {mapped_value}"),
-        1,
-    )
+fn map_model_tier(content: &str, tiers: &HashMap<String, Vec<String>>) -> String {
+    assemble::map_field(content, "model", |current_value| {
+        tiers
+            .get(current_value.trim())
+            .and_then(|models| models.first())
+            .cloned()
+            .unwrap_or_else(|| current_value.to_string())
+    })
 }
 
 /// Extract the filename component from a path string.

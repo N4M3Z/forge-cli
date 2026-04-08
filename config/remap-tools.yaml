@@ -8,10 +8,19 @@ gemini:
     Replace: replace
     Grep: grep_search
     Glob: glob
+    Ls: list_directory
+    List: list_directory
+    Directory: list_directory
     Bash: run_shell_command
     Shell: run_shell_command
     Run: run_shell_command
     WebSearch: google_web_search
     WebFetch: web_fetch
+    Plan: enter_plan_mode
+    Ask: ask_user
+    Investigate: codebase_investigator
+    Help: cli_help
+    Generalist: generalist
+    Save: save_memory
 
 # TODO add codex and copilot, no?
