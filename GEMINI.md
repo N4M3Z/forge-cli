@@ -82,3 +82,17 @@ The project uses a `Makefile` to orchestrate common development tasks.
 - All changes require PRs and must pass `make validate`.
 - Pre-commit hooks are mandatory and configured to use `forge` itself for validation.
 - **`defaults.yaml`** is the source of truth for configuration.
+
+## Transformation Guide
+
+When deploying to Gemini (`.gemini/`), `forge-cli` automatically transforms content to match Gemini CLI conventions:
+
+### 1. Tool Name Remapping
+`PascalCase` tool names in backticks are remapped to their `snake_case` equivalents using `config/remap-tools.yaml`.
+- `` `Read` `` becomes `` `read_file` ``
+- `` `Bash` `` becomes `` `run_shell_command` ``
+- `` `Complete` `` becomes `` `complete_task` ``
+
+### 2. Nested Pathing
+- **Agents:** Filenames are converted to kebab-case (e.g., `agents/SecurityArchitect.md` → `agents/security-architect.md`).
+- **Skills & Rules:** Directory structures are preserved to maintain module identity (e.g., `skills/MySkill/SKILL.md` → `skills/MySkill/SKILL.md`).

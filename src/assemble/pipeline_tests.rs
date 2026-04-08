@@ -110,6 +110,16 @@ fn skill_with_subdirectory_preserves_path() {
     assert_eq!(result.output_path, "claude/skills/MySkill/SKILL.md");
 }
 
+#[test]
+fn nested_rule_preserves_path() {
+    let source = make_source("rules/subdir/MyRule.md", "body\n", false);
+    let mappings = HashMap::new();
+
+    let result = pipeline::assemble_file(&source, "gemini", &[], &[], &mappings).unwrap();
+
+    assert_eq!(result.output_path, "gemini/rules/subdir/MyRule.md");
+}
+
 // --- assemble_module ---
 
 #[test]

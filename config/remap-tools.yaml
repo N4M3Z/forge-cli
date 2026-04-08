@@ -22,5 +22,7 @@ gemini:
     Help: cli_help
     Generalist: generalist
     Save: save_memory
+    Complete: complete_task
+    Activate: activate_skill
 
 # TODO add codex and copilot, no?
