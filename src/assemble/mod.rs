@@ -5,6 +5,7 @@ pub mod references;
 pub mod variants;
 
 pub use frontmatter::strip_frontmatter;
+pub use frontmatter::strip_heading;
 pub use references::{extract, strip};
 pub use variants::{Mode, apply, resolve};
 

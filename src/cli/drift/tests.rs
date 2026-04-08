@@ -136,6 +136,53 @@ fn parse_top_level_keys_returns_empty_for_invalid_yaml() {
 }
 
 #[test]
+fn compare_file_content_h1_heading_stripped_is_not_drift() {
+    // Upstream has H1 heading, deployed (module) has it stripped by assembly.
+    // Drift should NOT report body drift for this.
+    let module_content = "---\nname: test\n---\nBody after heading.";
+    let upstream_content = "---\nname: test\n---\n# TestSkill\nBody after heading.";
+    let entry = compare_file_content(
+        "SKILL.md",
+        module_content,
+        upstream_content,
+        "skills",
+        &HashSet::new(),
+    );
+    assert_eq!(entry.status, DriftStatus::Identical);
+}
+
+#[test]
+fn compare_file_content_h1_rename_is_invisible_to_drift() {
+    // Heading renames are intentionally invisible: headings are assembly
+    // artifacts derived from the `name` frontmatter field, not authored content.
+    let module_content = "---\nname: test\n---\n# OldName\nSame body.";
+    let upstream_content = "---\nname: test\n---\n# NewName\nSame body.";
+    let entry = compare_file_content(
+        "SKILL.md",
+        module_content,
+        upstream_content,
+        "skills",
+        &HashSet::new(),
+    );
+    assert_eq!(entry.status, DriftStatus::Identical);
+}
+
+#[test]
+fn compare_file_content_h1_stripped_but_body_modified_is_drift() {
+    // Heading normalization must NOT mask real body changes.
+    let module_content = "---\nname: test\n---\nModified body.";
+    let upstream_content = "---\nname: test\n---\n# TestSkill\nOriginal body.";
+    let entry = compare_file_content(
+        "SKILL.md",
+        module_content,
+        upstream_content,
+        "skills",
+        &HashSet::new(),
+    );
+    assert_eq!(entry.status, DriftStatus::BodyOnly);
+}
+
+#[test]
 fn collect_markdown_files_returns_empty_for_missing_directory() {
     let files = collect_markdown_files(Path::new("/nonexistent"));
     assert!(files.is_empty());

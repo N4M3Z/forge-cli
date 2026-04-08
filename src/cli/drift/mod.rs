@@ -1,3 +1,4 @@
+use commands::assemble::strip_heading;
 use commands::error::{Error, ErrorKind};
 use commands::manifest::content_sha256;
 use commands::parse::split_frontmatter;
@@ -198,11 +199,22 @@ fn compare_file_content(
     }
 
     let (module_frontmatter, module_body) = split_parts(module_content);
-    let (upstream_frontmatter, upstream_body) = split_parts(upstream_content);
+    let (upstream_frontmatter, raw_upstream_body) = split_parts(upstream_content);
+
+    // Assembly strips the leading `# Title` heading from deployed files.
+    // Normalize both sides through the same transformation so drift
+    // only fires on real content changes, not assembly artifacts.
+    // This intentionally makes heading-only differences invisible —
+    // including heading renames (e.g., `# OldName` → `# NewName`) —
+    // because headings are derived from the `name` frontmatter field
+    // during assembly, not authored body content.
+    let normalized_upstream_body = strip_heading(raw_upstream_body);
+    let normalized_module_body = strip_heading(module_body);
 
     let frontmatter_match =
         content_sha256(module_frontmatter) == content_sha256(upstream_frontmatter);
-    let body_match = content_sha256(module_body) == content_sha256(upstream_body);
+    let body_match =
+        content_sha256(&normalized_module_body) == content_sha256(&normalized_upstream_body);
 
     let changed_keys = if frontmatter_match {
         Vec::new()

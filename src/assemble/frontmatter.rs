@@ -59,7 +59,7 @@ pub fn strip_frontmatter(content: &str, keep_fields: &[&str]) -> String {
 }
 
 /// Strip a leading `# Title` heading if it's the first non-empty line.
-fn strip_heading(text: &str) -> String {
+pub fn strip_heading(text: &str) -> String {
     let mut lines = text.lines();
     let mut skipped_blanks: Vec<&str> = Vec::new();
 
