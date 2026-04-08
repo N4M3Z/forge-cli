@@ -1,10 +1,10 @@
 /// Remove reference-style link definitions (`[1]: url`, `[MADR]: url`) and
 /// inline reference markers (` [1]`, ` [MADR]`) from content.
 pub fn strip(content: &str) -> String {
-    let had_newline = content.ends_with('\n');
-
     static INLINE_RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
     static DEF_RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+
+    let had_newline = content.ends_with('\n');
 
     let inline_re =
         INLINE_RE.get_or_init(|| regex::Regex::new(r" \[[\w][\w-]*\]").expect("valid regex"));
