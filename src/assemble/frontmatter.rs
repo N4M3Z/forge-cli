@@ -60,6 +60,7 @@ pub fn strip_frontmatter(content: &str, keep_fields: &[&str]) -> String {
 
 /// Strip a leading `# Title` heading if it's the first non-empty line.
 fn strip_heading(text: &str) -> String {
+    let had_newline = text.ends_with('\n');
     let mut lines = text.lines();
     let mut skipped_blanks: Vec<&str> = Vec::new();
 
@@ -71,7 +72,9 @@ fn strip_heading(text: &str) -> String {
         if line.starts_with("# ") {
             let rest: String = lines.collect::<Vec<&str>>().join("\n");
             let trimmed = rest.strip_prefix('\n').unwrap_or(&rest);
-            return trimmed.to_string();
+            let mut result = trimmed.to_string();
+            super::restore_trailing_newline(&mut result, had_newline);
+            return result;
         }
         // First non-empty line is not a heading — return everything.
         let mut output = String::new();
@@ -84,8 +87,11 @@ fn strip_heading(text: &str) -> String {
             output.push('\n');
             output.push_str(remaining);
         }
+        super::restore_trailing_newline(&mut output, had_newline);
         return output;
     }
 
-    skipped_blanks.join("\n")
+    let mut result = skipped_blanks.join("\n");
+    super::restore_trailing_newline(&mut result, had_newline);
+    result
 }

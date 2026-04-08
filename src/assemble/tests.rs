@@ -92,19 +92,19 @@ fn strip_removes_inline_markers() {
 #[test]
 fn strip_removes_definition_lines() {
     let result = references::strip(REFS_DEFINITION_ONLY);
-    assert_eq!(result, "Body text.");
+    assert_eq!(result, "Body text.\n");
 }
 
 #[test]
 fn strip_removes_both_markers_and_definitions() {
     let result = references::strip(REFS_INLINE_AND_DEF);
-    assert_eq!(result, "Paragraph here.");
+    assert_eq!(result, "Paragraph here.\n");
 }
 
 #[test]
 fn strip_preserves_content_without_refs() {
     let result = references::strip(PLAIN_NO_REFS);
-    assert_eq!(result, PLAIN_NO_REFS.trim());
+    assert_eq!(result, PLAIN_NO_REFS);
 }
 
 // --- references::extract ---

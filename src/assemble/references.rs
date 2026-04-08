@@ -1,6 +1,8 @@
 /// Remove reference-style link definitions (`[1]: url`, `[MADR]: url`) and
 /// inline reference markers (` [1]`, ` [MADR]`) from content.
 pub fn strip(content: &str) -> String {
+    let had_newline = content.ends_with('\n');
+
     static INLINE_RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
     static DEF_RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
 
@@ -29,7 +31,9 @@ pub fn strip(content: &str) -> String {
         output_lines.pop();
     }
 
-    output_lines.join("\n")
+    let mut result = output_lines.join("\n");
+    super::restore_trailing_newline(&mut result, had_newline);
+    result
 }
 
 /// Extract reference-style link URLs from content.
