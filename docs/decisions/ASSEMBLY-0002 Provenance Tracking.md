@@ -9,7 +9,7 @@ tags:
     - tracking
 status: accepted
 created: 2026-03-23
-updated: 2026-03-23
+updated: 2026-04-17
 author: "@N4M3Z"
 project: forge-cli
 related:
@@ -44,9 +44,15 @@ When source files are transformed during assembly (frontmatter stripped, variant
 
 Chosen option: **in-toto/SLSA v1.0**, serialized as YAML. in-toto is the industry standard for build provenance [1], purpose-built for tracking "these inputs were transformed into this output by this builder." SLSA builds on in-toto with a structured `buildDefinition` that captures resolved dependencies with per-file digests [2].
 
-Provenance is a **build record** — it answers "what sources produced this built file?" Each assembled file in `build/` gets a `.yaml` sidecar containing the SLSA statement. Sidecars stay in `build/` and are never deployed to the target.
+Provenance is a **build record** — it answers "what sources produced this built file?" Each assembled file in `build/` gets a `.yaml` sidecar containing the SLSA statement.
+
+Sidecars deploy alongside content to per-directory `.provenance/` subdirectories at the target (e.g., `~/.claude/agents/.provenance/SystemArchitect.yaml`). The `.manifest` references each sidecar via its `provenance` field. `forge provenance` reads these to verify deployed integrity.
 
 Source-level staleness detection reads provenance sidecars to compare recorded source hashes against current source files. Deployment-level staleness is handled separately by `.manifest` at the target (see ASSEMBLY-0003).
+
+### Release tarballs
+
+`forge release` reuses install, so `.provenance/` subdirectories ship inside release tarballs alongside `.manifest`. Extracted tarballs preserve the full source-to-output chain, enabling `forge provenance` to verify a tarball's contents without re-running assembly.
 
 ```yaml
 _type: https://in-toto.io/Statement/v1
@@ -82,7 +88,7 @@ For standardized in-toto `.link` attestations, `in-toto-run` can wrap `forge ass
 - [+] Compact — one self-contained statement per output file
 - [+] Source hashes enable source-level staleness detection
 - [+] YAML serialization consistent with ecosystem
-- [+] Sidecars stay in build/ — no context pollution at target
+- [+] Sidecars deploy to `.provenance/` subdirs — referenced by `.manifest`, used by `forge provenance`
 - [-] in-toto envelope adds structural overhead vs flat hashes
 
 ## More Information
