@@ -4,6 +4,8 @@ pub fn strip(content: &str) -> String {
     static INLINE_RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
     static DEF_RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
 
+    let had_newline = content.ends_with('\n');
+
     let inline_re =
         INLINE_RE.get_or_init(|| regex::Regex::new(r" \[[\w][\w-]*\]").expect("valid regex"));
     let def_re =
@@ -29,7 +31,9 @@ pub fn strip(content: &str) -> String {
         output_lines.pop();
     }
 
-    output_lines.join("\n")
+    let mut result = output_lines.join("\n");
+    super::restore_trailing_newline(&mut result, had_newline);
+    result
 }
 
 /// Extract reference-style link URLs from content.

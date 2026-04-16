@@ -8,6 +8,15 @@ pub use frontmatter::{map_field, strip_frontmatter};
 pub use references::{extract, strip};
 pub use variants::{Mode, apply, resolve};
 
+/// Restore a trailing newline that `.lines()` silently drops.
+///
+/// Call with the flag saved *before* iterating and the reconstructed output.
+fn restore_trailing_newline(output: &mut String, had_newline: bool) {
+    if had_newline && !output.is_empty() && !output.ends_with('\n') {
+        output.push('\n');
+    }
+}
+
 use crate::parse;
 
 /// Full assembly pipeline: resolve variant, merge, strip frontmatter, strip refs.
