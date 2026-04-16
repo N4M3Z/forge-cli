@@ -31,7 +31,7 @@ pub fn strip_frontmatter(content: &str, keep_fields: &[&str]) -> String {
         }
         let mut matched = false;
         for field in keep_fields {
-            if key == *field {
+            if key.eq_ignore_ascii_case(field) {
                 matched = true;
                 break;
             }
@@ -56,6 +56,39 @@ pub fn strip_frontmatter(content: &str, keep_fields: &[&str]) -> String {
     output.push_str("---\n");
     output.push_str(&stripped_body);
     output
+}
+
+/// Replace a field value in YAML frontmatter via `serde_yaml` round-trip.
+///
+/// Handles quoted values, block scalars, and inline comments correctly.
+/// Key order is preserved (`serde_yaml::Mapping` uses `IndexMap`).
+pub fn map_field(content: &str, target_field: &str, mapper: impl Fn(&str) -> String) -> String {
+    let Some((yaml_text, body)) = crate::parse::split_frontmatter(content) else {
+        return content.to_string();
+    };
+
+    let Ok(mut parsed): Result<serde_yaml::Value, _> = serde_yaml::from_str(yaml_text) else {
+        return content.to_string();
+    };
+
+    let Some(mapping) = parsed.as_mapping_mut() else {
+        return content.to_string();
+    };
+
+    let key = serde_yaml::Value::String(target_field.to_string());
+    let Some(field_value) = mapping.get_mut(&key) else {
+        return content.to_string();
+    };
+
+    if let Some(current) = field_value.as_str() {
+        *field_value = serde_yaml::Value::String(mapper(current));
+    }
+
+    let Ok(new_yaml) = serde_yaml::to_string(&parsed) else {
+        return content.to_string();
+    };
+
+    format!("---\n{new_yaml}---\n{body}")
 }
 
 /// Strip a leading `# Title` heading if it's the first non-empty line.

@@ -35,7 +35,7 @@ fn load_providers_reads_assembly_steps() {
     let gemini = &providers["gemini"];
     let assembly = gemini.assembly.as_ref().unwrap();
     assert_eq!(assembly.len(), 2);
-    assert_eq!(assembly[0], "kebab-case");
+    assert_eq!(assembly[0], "kebab-case-agents");
     assert_eq!(assembly[1], "remap-tools");
 
     let claude = &providers["claude"];
@@ -71,6 +71,10 @@ fn assembly_rule_from_name_accepts_known_rules() {
     assert_eq!(
         AssemblyRule::from_name("kebab-case").unwrap(),
         AssemblyRule::KebabCase,
+    );
+    assert_eq!(
+        AssemblyRule::from_name("kebab-case-agents").unwrap(),
+        AssemblyRule::KebabCaseAgents,
     );
     assert_eq!(
         AssemblyRule::from_name("remap-tools").unwrap(),

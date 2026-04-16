@@ -28,7 +28,13 @@ pub fn read_file(path: &Path) -> Result<String, Error> {
 /// Read and deep-merge defaults.yaml with optional config.yaml.
 pub fn load_merged_config(module_root: &Path) -> Result<String, Error> {
     let defaults_path = module_root.join("defaults.yaml");
-    let defaults_content = read_file(&defaults_path)?;
+    // defaults.yaml is optional; if missing, we fall back to embedded defaults
+    // to allow modules without local configuration to install.
+    let defaults_content = if defaults_path.is_file() {
+        read_file(&defaults_path)?
+    } else {
+        String::new()
+    };
 
     let config_path = module_root.join("config.yaml");
     if config_path.is_file() {

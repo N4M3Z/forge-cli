@@ -33,6 +33,7 @@ impl std::fmt::Display for ContentKind {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AssemblyRule {
     KebabCase,
+    KebabCaseAgents,
     RemapTools,
     AgentsToToml,
     StripLinks,
@@ -42,6 +43,7 @@ impl AssemblyRule {
     pub fn from_name(name: &str) -> Result<Self, String> {
         match name {
             "kebab-case" => Ok(Self::KebabCase),
+            "kebab-case-agents" => Ok(Self::KebabCaseAgents),
             "remap-tools" => Ok(Self::RemapTools),
             "agents-to-toml" => Ok(Self::AgentsToToml),
             "strip-links" => Ok(Self::StripLinks),
@@ -56,7 +58,7 @@ pub struct ProviderConfig {
     pub assembly: Option<Vec<String>>,
     pub deploy: Option<Vec<String>>,
     pub keep_fields: Option<HashMap<String, Vec<String>>>,
-    pub models: Option<HashMap<String, String>>,
+    pub models: Option<HashMap<String, Vec<String>>>,
     pub aliases: Option<Vec<String>>,
 }
 

@@ -112,7 +112,7 @@ fn install_deploys_agent_to_all_providers() {
     assert!(
         target_directory
             .path()
-            .join(".codex/agents/TestAgent.md")
+            .join(".codex/agents/TestAgent.toml")
             .is_file()
     );
     assert!(
@@ -198,7 +198,7 @@ fn install_keeps_links_for_claude_strips_for_gemini() {
     let claude_rule =
         fs::read_to_string(target_directory.path().join(".claude/rules/LinkedRule.md")).unwrap();
     let gemini_rule =
-        fs::read_to_string(target_directory.path().join(".gemini/rules/linked-rule.md")).unwrap();
+        fs::read_to_string(target_directory.path().join(".gemini/rules/LinkedRule.md")).unwrap();
 
     assert!(claude_rule.contains("[1]: https://example.com"));
     assert!(!gemini_rule.contains("[1]:"));
@@ -515,7 +515,7 @@ fn install_respects_targets_frontmatter() {
     assert!(
         !target_directory
             .path()
-            .join(".gemini/rules/claude-only.md")
+            .join(".gemini/rules/ClaudeOnly.md")
             .is_file(),
         "ClaudeOnly should NOT deploy to gemini"
     );
@@ -531,7 +531,7 @@ fn install_respects_targets_frontmatter() {
     assert!(
         target_directory
             .path()
-            .join(".gemini/rules/universal.md")
+            .join(".gemini/rules/Universal.md")
             .is_file(),
         "Universal (no targets) should deploy to gemini too"
     );
@@ -570,7 +570,7 @@ fn install_targets_multiple_providers() {
     assert!(
         target_directory
             .path()
-            .join(".gemini/rules/two-providers.md")
+            .join(".gemini/rules/TwoProviders.md")
             .is_file(),
         "should deploy to gemini"
     );

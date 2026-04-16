@@ -4,7 +4,7 @@ pub mod pipeline;
 pub mod references;
 pub mod variants;
 
-pub use frontmatter::strip_frontmatter;
+pub use frontmatter::{map_field, strip_frontmatter};
 pub use references::{extract, strip};
 pub use variants::{Mode, apply, resolve};
 
