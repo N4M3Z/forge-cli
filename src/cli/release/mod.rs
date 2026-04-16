@@ -10,7 +10,7 @@ use commands::module;
 
 const MAKEFILE_TEMPLATE: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
-    "/templates/dist/Makefile"
+    "/templates/make/dist.mk"
 ));
 
 /// Assemble and package the module as self-contained release tarballs.
