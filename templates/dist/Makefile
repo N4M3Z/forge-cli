@@ -14,5 +14,10 @@ endif
 
 install:
 	@mkdir -p "$(TARGET)"
-	@cp -r .${PROVIDER}/* "$(TARGET)/"
-	@echo "Installed to $(TARGET)/"
+	@SRC="$$(cd .${PROVIDER} && pwd)"; \
+	 DST="$$(cd "$(TARGET)" && pwd)"; \
+	 if [ "$$SRC" = "$$DST" ]; then \
+	     echo "Already in $(TARGET)/ — nothing to do"; \
+	 else \
+	     cp -r .${PROVIDER}/* "$(TARGET)/" && echo "Installed to $(TARGET)/"; \
+	 fi
