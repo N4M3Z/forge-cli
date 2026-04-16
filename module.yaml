@@ -1,5 +1,5 @@
 name: forge-cli
-version: 0.3.0
+version: 0.3.1
 type: binary
 description: "Forge module toolkit — assemble, validate, and deploy skills, agents, and rules across AI coding providers."
 events: []

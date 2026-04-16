@@ -6,6 +6,28 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-04-16
+
+### Added
+
+- Gemini CLI compatibility: tool remapping, `kebab-case-agents` rule, skill path preservation
+- `GEMINI.md` provider overview for Gemini-side consumers
+- Composite GitHub Action for CI integration (`.github/actions/setup-forge/`)
+- `.gitleaks.toml` for excluding eval baselines from secret scanning
+- GitLab CI template in `templates/init/`
+
+### Changed
+
+- `map_field` uses `serde_yaml` round-trip (handles quoted values and block scalars)
+- Assembly transforms documented in README
+- Heavy scanners (gitleaks, semgrep) moved to `pre-push` stage in init template
+
+### Fixed
+
+- Trailing newlines preserved during assembly (`.lines()` drop fix)
+- Removed dead `_tool_mappings` parameter from assembly pipeline
+- Removed forge-core-specific `validate-adr` hook from init template
+
 ## [0.3.0] - 2026-04-06
 
 ### Added
@@ -68,7 +90,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - INSTALL.md following Mintlify install.md standard
 - 28 ADRs documenting architecture decisions
 
-[Unreleased]: https://github.com/N4M3Z/forge-cli/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/N4M3Z/forge-cli/compare/v0.3.1...HEAD
+[0.3.1]: https://github.com/N4M3Z/forge-cli/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/N4M3Z/forge-cli/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/N4M3Z/forge-cli/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/N4M3Z/forge-cli/releases/tag/v0.1.0
