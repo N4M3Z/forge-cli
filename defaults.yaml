@@ -15,16 +15,16 @@ providers:
             skills: [name, description, version]
             rules: []
         models:
-            strong: opus
-            fast: sonnet
-            light: haiku
+            strong: [opus]
+            fast: [sonnet]
+            light: [haiku]
 
     gemini:
         target: ".gemini"
         aliases:
             - geminicli
         assembly:
-            - kebab-case
+            - kebab-case-agents
             - remap-tools
             - strip-links
         keep_fields:
@@ -32,9 +32,9 @@ providers:
             skills: [name, description, version]
             rules: []
         models:
-            strong: gemini-2.5-pro
-            fast: gemini-2.5-flash
-            light: gemini-2.0-flash
+            strong: [gemini-2.5-pro]
+            fast: [gemini-2.5-flash]
+            light: [gemini-2.0-flash]
 
     codex:
         target: ".codex"
@@ -50,20 +50,20 @@ providers:
             skills: [name, description, version]
             rules: []
         models:
-            strong: o3
-            fast: o4-mini
-            light: o4-mini
+            strong: [o3]
+            fast: [o4-mini]
+            light: [o4-mini]
 
     opencode:
         target: ".opencode"
         assembly:
-            - kebab-case
+            - kebab-case-agents
             - strip-links
         keep_fields:
             agents: [name, description]
             skills: [name, description, version]
             rules: []
         models:
-            strong: claude-opus-4-6
-            fast: claude-sonnet-4-6
-            light: claude-sonnet-4-6
+            strong: [claude-opus-4-6]
+            fast: [claude-sonnet-4-6]
+            light: [claude-sonnet-4-6]

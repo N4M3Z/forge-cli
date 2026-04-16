@@ -36,6 +36,12 @@ use crate::cli::config;
 /// ```
 pub fn execute(path: &str) -> Result<ActionResult, Error> {
     let module_root = Path::new(path);
+    if !module_root.is_dir() {
+        return Err(Error::new(
+            commands::error::ErrorKind::Io,
+            format!("module directory not found: {}", module_root.display()),
+        ));
+    }
     let mut result = ActionResult::new();
 
     let merged_config = config::load_merged_config(module_root)?;
@@ -72,107 +78,122 @@ pub fn execute(path: &str) -> Result<ActionResult, Error> {
             .filter_map(|name| commands::provider::AssemblyRule::from_name(name).ok())
             .collect();
 
-        let has_kebab_case = assembly_rules.contains(&commands::provider::AssemblyRule::KebabCase);
-        let has_strip_links =
-            assembly_rules.contains(&commands::provider::AssemblyRule::StripLinks);
-
         let model_tiers = provider_config.models.clone().unwrap_or_default();
 
         for source in &source_files {
-            if source.qualifier.as_ref().is_some_and(|qualifier| {
-                !qualifier_matches_provider(qualifier, provider_name, &models)
-            }) {
-                continue;
-            }
-
-            if source.targets.as_ref().is_some_and(|file_targets| {
-                !file_targets
-                    .iter()
-                    .any(|target| provider_config.matches_target(target, provider_name))
-            }) {
-                continue;
-            }
-
-            let kind_keep_fields = provider_config
-                .keep_fields
-                .as_ref()
-                .and_then(|fields_by_kind| fields_by_kind.get(source.kind.as_str()))
-                .cloned()
-                .unwrap_or_default();
-
-            let assembled = pipeline::assemble_source(
+            if let Some(deployed) = assemble_source_for_provider(
                 source,
                 module_root,
                 provider_name,
-                &kind_keep_fields,
+                provider_config,
+                &provider_build_dir,
                 &tool_mappings,
+                &assembly_rules,
                 &model_tiers,
-                has_strip_links,
-            )?;
-
-            // For skills, preserve the skill directory: skills/SceneReview/SKILL.md
-            // For agents/rules, use just the filename: agents/GameMaster.md
-            // For qualifier-only files, strip the qualifier directory too:
-            //   rules/sonnet/ReviewDiscipline.md → ReviewDiscipline.md
-            let stripped_kind = source
-                .relative_path
-                .strip_prefix(&format!("{}/", source.kind))
-                .unwrap_or(&source.relative_path);
-            let relative_within_kind = if source.qualifier.is_some() {
-                stripped_kind
-                    .split_once('/')
-                    .map_or(stripped_kind, |(_, filename)| filename)
-            } else {
-                stripped_kind
-            };
-
-            // Apply filename transforms (kebab-case for gemini/opencode)
-            let transformed_path = if has_kebab_case {
-                apply_kebab_case_to_path(relative_within_kind)
-            } else {
-                relative_within_kind.to_string()
-            };
-
-            let output_path = provider_build_dir
-                .join(source.kind.as_str())
-                .join(&transformed_path);
-            let manifest_key = format!("{}/{}/{}", provider_name, source.kind, transformed_path);
-
-            output::write_file(&output_path, &assembled)?;
-
-            let statement =
-                provenance::build_statement(&manifest_key, &assembled, source, &source_uri);
-            provenance::write_sidecar(&output_path, &statement)?;
-
-            result.installed.push(DeployedFile {
-                source: source.relative_path.clone(),
-                target: output_path.to_string_lossy().to_string(),
-                provider: provider_name.clone(),
-            });
+                &models,
+                &source_uri,
+            )? {
+                result.installed.push(deployed);
+            }
         }
     }
 
     Ok(result)
 }
 
-/// Apply kebab-case conversion to path segments (directory names and filenames).
-///
-/// "SceneReview/SKILL.md" → "scene-review/SKILL.md"
-/// "GameMaster.md" → "game-master.md"
-fn apply_kebab_case_to_path(path: &str) -> String {
-    let parts: Vec<&str> = path.split('/').collect();
-    let mut result = Vec::new();
-
-    for part in &parts {
-        if let Some((stem, ext)) = part.rsplit_once('.') {
-            let kebab_stem = commands::transform::to_kebab_case(stem);
-            result.push(format!("{kebab_stem}.{ext}"));
-        } else {
-            result.push(commands::transform::to_kebab_case(part));
-        }
+#[allow(clippy::too_many_arguments)]
+fn assemble_source_for_provider(
+    source: &sources::SourceFile,
+    module_root: &Path,
+    provider_name: &str,
+    provider_config: &commands::provider::ProviderConfig,
+    provider_build_dir: &Path,
+    tool_mappings: &std::collections::HashMap<String, String>,
+    assembly_rules: &[commands::provider::AssemblyRule],
+    model_tiers: &std::collections::HashMap<String, Vec<String>>,
+    models: &std::collections::HashMap<String, Vec<String>>,
+    source_uri: &str,
+) -> Result<Option<DeployedFile>, Error> {
+    if source
+        .qualifier
+        .as_ref()
+        .is_some_and(|qualifier| !qualifier_matches_provider(qualifier, provider_name, models))
+    {
+        return Ok(None);
     }
 
-    result.join("/")
+    if source.targets.as_ref().is_some_and(|file_targets| {
+        !file_targets
+            .iter()
+            .any(|target| provider_config.matches_target(target, provider_name))
+    }) {
+        return Ok(None);
+    }
+
+    let kind_keep_fields = provider_config
+        .keep_fields
+        .as_ref()
+        .and_then(|fields_by_kind| fields_by_kind.get(source.kind.as_str()))
+        .cloned()
+        .unwrap_or_default();
+
+    let mut assembled = pipeline::assemble_source(
+        source,
+        module_root,
+        provider_name,
+        &kind_keep_fields,
+        model_tiers,
+        assembly_rules.contains(&commands::provider::AssemblyRule::StripLinks),
+    )?;
+    // For skills, preserve the skill directory: skills/SceneReview/SKILL.md
+    // For agents/rules, use just the filename: agents/GameMaster.md
+    // For qualifier-only files, strip the qualifier directory too:
+    //   rules/sonnet/ReviewDiscipline.md → ReviewDiscipline.md
+    let stripped_kind = source
+        .relative_path
+        .strip_prefix(&format!("{}/", source.kind))
+        .unwrap_or(&source.relative_path);
+    let relative_within_kind = if source.qualifier.is_some() {
+        stripped_kind
+            .split_once('/')
+            .map_or(stripped_kind, |(_, filename)| filename)
+    } else {
+        stripped_kind
+    };
+
+    // Apply transformation rules (kebab-case, kebab-case-agents, remap-tools, etc.)
+    let (transformed_content, transformed_filename) = commands::transform::apply_rules(
+        &assembled,
+        relative_within_kind,
+        assembly_rules,
+        tool_mappings,
+        source.kind.as_str(),
+    )
+    .map_err(|e| commands::error::Error::new(commands::error::ErrorKind::Validate, e))?;
+
+    assembled = transformed_content;
+
+    // Always ensure a trailing newline for POSIX text file convention
+    // before calculating the hash for provenance and writing to disk.
+    if !assembled.is_empty() && !assembled.ends_with('\n') {
+        assembled.push('\n');
+    }
+
+    let output_path = provider_build_dir
+        .join(source.kind.as_str())
+        .join(&transformed_filename);
+    let manifest_key = format!("{}/{}/{}", provider_name, source.kind, transformed_filename);
+
+    output::write_file(&output_path, &assembled)?;
+
+    let statement = provenance::build_statement(&manifest_key, &assembled, source, source_uri);
+    provenance::write_sidecar(&output_path, &statement)?;
+
+    Ok(Some(DeployedFile {
+        source: source.relative_path.clone(),
+        target: output_path.to_string_lossy().to_string(),
+        provider: provider_name.to_string(),
+    }))
 }
 
 /// Check whether a qualifier directory matches a given provider.
@@ -191,6 +212,15 @@ fn qualifier_matches_provider(
         return model_ids.iter().any(|id| id.contains(qualifier));
     }
     false
+}
+
+/// Apply kebab-case transformation to each segment of a path.
+#[cfg(test)]
+fn apply_kebab_case_to_path(path: &str) -> String {
+    path.split('/')
+        .map(commands::transform::to_kebab_case)
+        .collect::<Vec<String>>()
+        .join("/")
 }
 
 #[cfg(test)]

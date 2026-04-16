@@ -183,15 +183,87 @@ fn to_toml_with_agent_fixture() {
 // --- apply_rules ---
 
 #[test]
-fn apply_rules_kebab_case_transforms_filename() {
+fn apply_rules_kebab_case_transforms_filename_for_agents() {
     let rules = vec![AssemblyRule::KebabCase];
     let mappings = HashMap::new();
 
     let (content, filename) =
-        apply_rules("body", "SecurityArchitect.md", &rules, &mappings).unwrap();
+        apply_rules("body", "SecurityArchitect.md", &rules, &mappings, "agents").unwrap();
 
     assert_eq!(filename, "security-architect.md");
     assert_eq!(content, "body");
+}
+
+#[test]
+fn apply_rules_kebab_case_transforms_filename_for_skills() {
+    let rules = vec![AssemblyRule::KebabCase];
+    let mappings = HashMap::new();
+
+    let (_content, filename) =
+        apply_rules("body", "SecurityArchitect.md", &rules, &mappings, "skills").unwrap();
+
+    assert_eq!(filename, "security-architect.md");
+}
+
+#[test]
+fn apply_rules_kebab_case_transforms_filename_for_rules() {
+    let rules = vec![AssemblyRule::KebabCase];
+    let mappings = HashMap::new();
+
+    let (_content, filename) =
+        apply_rules("body", "SecurityArchitect.md", &rules, &mappings, "rules").unwrap();
+
+    assert_eq!(filename, "security-architect.md");
+}
+
+#[test]
+fn apply_rules_kebab_case_agents_transforms_filename_for_agents() {
+    let rules = vec![AssemblyRule::KebabCaseAgents];
+    let mappings = HashMap::new();
+
+    let (_content, filename) =
+        apply_rules("body", "SecurityArchitect.md", &rules, &mappings, "agents").unwrap();
+
+    assert_eq!(filename, "security-architect.md");
+}
+
+#[test]
+fn apply_rules_kebab_case_agents_skips_filename_for_skills() {
+    let rules = vec![AssemblyRule::KebabCaseAgents];
+    let mappings = HashMap::new();
+
+    let (_content, filename) =
+        apply_rules("body", "SecurityArchitect.md", &rules, &mappings, "skills").unwrap();
+
+    assert_eq!(filename, "SecurityArchitect.md");
+}
+
+#[test]
+fn apply_rules_kebab_case_agents_skips_filename_for_rules() {
+    let rules = vec![AssemblyRule::KebabCaseAgents];
+    let mappings = HashMap::new();
+
+    let (_content, filename) =
+        apply_rules("body", "SecurityArchitect.md", &rules, &mappings, "rules").unwrap();
+
+    assert_eq!(filename, "SecurityArchitect.md");
+}
+
+#[test]
+fn kebab_case_converts_tax_advisor() {
+    assert_eq!(to_kebab_case("TaxAdvisor"), "tax-advisor");
+}
+
+#[test]
+fn apply_rules_kebab_case_transforms_name_field_for_agents() {
+    let rules = vec![AssemblyRule::KebabCase];
+    let mappings = HashMap::new();
+    let content = "---\nname: SecurityArchitect\n---";
+
+    let (result_content, _filename) =
+        apply_rules(content, "SecurityArchitect.md", &rules, &mappings, "agents").unwrap();
+
+    assert!(result_content.contains("name: security-architect"));
 }
 
 #[test]
@@ -201,7 +273,7 @@ fn apply_rules_remap_transforms_content() {
     mappings.insert("Read".to_string(), "read_file".to_string());
 
     let (content, filename) =
-        apply_rules("Use `Read` tool.", "file.md", &rules, &mappings).unwrap();
+        apply_rules("Use `Read` tool.", "file.md", &rules, &mappings, "rules").unwrap();
 
     assert_eq!(content, "Use `read_file` tool.");
     assert_eq!(filename, "file.md");
@@ -214,7 +286,7 @@ fn apply_rules_agents_to_toml_transforms_both() {
     let content = "---\ndescription: Helper\n---\n\nInstructions here.";
 
     let (result_content, result_filename) =
-        apply_rules(content, "Helper.md", &rules, &mappings).unwrap();
+        apply_rules(content, "Helper.md", &rules, &mappings, "agents").unwrap();
 
     assert!(result_content.contains("description = \"Helper\""));
     assert_eq!(result_filename, "Helper.toml");
@@ -226,7 +298,8 @@ fn apply_rules_executes_in_order() {
     let mut mappings = HashMap::new();
     mappings.insert("Read".to_string(), "read_file".to_string());
 
-    let (content, filename) = apply_rules("Use `Read`.", "MyAgent.md", &rules, &mappings).unwrap();
+    let (content, filename) =
+        apply_rules("Use `Read`.", "MyAgent.md", &rules, &mappings, "agents").unwrap();
 
     assert_eq!(filename, "my-agent.md");
     assert_eq!(content, "Use `read_file`.");
@@ -237,7 +310,7 @@ fn apply_rules_empty_rules_returns_unchanged() {
     let rules: Vec<AssemblyRule> = vec![];
     let mappings = HashMap::new();
 
-    let (content, filename) = apply_rules("body", "file.md", &rules, &mappings).unwrap();
+    let (content, filename) = apply_rules("body", "file.md", &rules, &mappings, "rules").unwrap();
 
     assert_eq!(content, "body");
     assert_eq!(filename, "file.md");

@@ -15,7 +15,7 @@ use crate::provider::AssemblyRule;
 /// Returns the transformed `(content, filename)` pair.
 ///
 /// Rules are applied sequentially:
-///   - `KebabCase` — transforms filename from `PascalCase` to kebab-case
+///   - `KebabCase` — transforms filename from `PascalCase` to kebab-case (only for agents)
 ///   - `RemapTools` — replaces tool names in backtick spans
 ///   - `AgentsToToml` — converts markdown body to TOML, changes `.md` to `.toml`
 pub fn apply_rules(
@@ -23,6 +23,7 @@ pub fn apply_rules(
     filename: &str,
     rules: &[AssemblyRule],
     tool_mappings: &HashMap<String, String>,
+    kind: &str,
 ) -> Result<(String, String), String> {
     let mut current_content = content.to_string();
     let mut current_filename = filename.to_string();
@@ -33,6 +34,17 @@ pub fn apply_rules(
                 let (stem, extension) = split_extension(&current_filename);
                 let kebab = to_kebab_case(&stem);
                 current_filename = format!("{kebab}{extension}");
+                current_content =
+                    crate::assemble::map_field(&current_content, "name", to_kebab_case);
+            }
+            AssemblyRule::KebabCaseAgents => {
+                if kind == "agents" {
+                    let (stem, extension) = split_extension(&current_filename);
+                    let kebab = to_kebab_case(&stem);
+                    current_filename = format!("{kebab}{extension}");
+                    current_content =
+                        crate::assemble::map_field(&current_content, "name", to_kebab_case);
+                }
             }
             AssemblyRule::RemapTools => {
                 current_content = remap_tools(&current_content, tool_mappings);

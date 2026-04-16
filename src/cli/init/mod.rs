@@ -17,6 +17,13 @@ pub fn execute(path: &str) -> Result<ActionResult, Error> {
         .map_err(|error| Error::new(ErrorKind::Io, format!("cannot create {path}: {error}")))?;
 
     for filename in InitTemplates::iter() {
+        // Skip hidden files like .DS_Store that might be in the templates directory
+        if filename.starts_with('.')
+            && !filename.starts_with(".githooks")
+            && !filename.starts_with(".github")
+        {
+            continue;
+        }
         let Some(data) = InitTemplates::get(&filename) else {
             continue;
         };
