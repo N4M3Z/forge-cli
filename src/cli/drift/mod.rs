@@ -388,7 +388,7 @@ fn print_drift_entry(entry: &DriftEntry) {
             println!("   {} {}", green.apply_to("✓"), dim.apply_to(&entry.name));
         }
         DriftStatus::Expected => {
-            println!("   {} {}", dim.apply_to("≈"), dim.apply_to(&entry.name),);
+            println!("   {} {}", dim.apply_to("≈"), dim.apply_to(&entry.name));
         }
         DriftStatus::FrontmatterOnly | DriftStatus::BodyOnly | DriftStatus::Both => {
             print_drift_card(entry);

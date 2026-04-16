@@ -4,38 +4,38 @@ use tempfile::TempDir;
 #[test]
 fn create_tarball_produces_archive() {
     let temp_directory = TempDir::new().unwrap();
-    let source_directory = temp_directory.path().join("source");
-    std::fs::create_dir_all(&source_directory).unwrap();
-    std::fs::write(source_directory.join("file.md"), "content").unwrap();
+    let wrapper = temp_directory.path().join("my-module");
+    std::fs::create_dir_all(&wrapper).unwrap();
+    std::fs::write(wrapper.join("file.md"), "content").unwrap();
 
     let tarball_path = temp_directory.path().join("output.tar.gz");
-    create_tarball(&source_directory, &tarball_path, "test").unwrap();
+    create_tarball(temp_directory.path(), &tarball_path, "my-module", "test").unwrap();
 
     assert!(tarball_path.exists());
     assert!(tarball_path.metadata().unwrap().len() > 0);
 }
 
 #[test]
-fn create_tarball_creates_parent_directories() {
-    let temp_directory = TempDir::new().unwrap();
-    let source_directory = temp_directory.path().join("source");
-    std::fs::create_dir_all(&source_directory).unwrap();
-    std::fs::write(source_directory.join("file.md"), "content").unwrap();
-
-    let tarball_path = temp_directory.path().join("nested/dir/output.tar.gz");
-    create_tarball(&source_directory, &tarball_path, "test").unwrap();
-
-    assert!(tarball_path.exists());
-}
-
-#[test]
 fn create_tarball_errors_on_missing_source() {
     let temp_directory = TempDir::new().unwrap();
     let tarball_path = temp_directory.path().join("output.tar.gz");
-    let result = create_tarball(
-        &temp_directory.path().join("nonexistent"),
-        &tarball_path,
-        "test",
-    );
+    let result = create_tarball(temp_directory.path(), &tarball_path, "nonexistent", "test");
     assert!(result.is_err());
+}
+
+#[test]
+fn makefile_template_substitutes_provider() {
+    let content = MAKEFILE_TEMPLATE.replace("${PROVIDER}", "claude");
+    assert!(content.contains(".claude"));
+    assert!(!content.contains("${PROVIDER}"));
+}
+
+#[test]
+fn makefile_template_uses_tabs_for_recipes() {
+    let content = MAKEFILE_TEMPLATE.replace("${PROVIDER}", "claude");
+    let recipe_lines: Vec<&str> = content
+        .lines()
+        .filter(|line| line.starts_with('\t'))
+        .collect();
+    assert!(!recipe_lines.is_empty(), "Makefile recipes must use tabs");
 }
