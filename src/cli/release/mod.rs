@@ -1,64 +1,84 @@
 use commands::error::{Error, ErrorKind};
+use commands::module;
 use commands::result::{ActionResult, DeployedFile};
 use std::fs;
 use std::path::Path;
 use std::process::Command;
 
-use super::assemble;
+use super::install;
 use crate::cli::config;
-use commands::module;
 
 const MAKEFILE_TEMPLATE: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/templates/make/dist.mk"
 ));
 
-/// Assemble and package the module as self-contained release tarballs.
+/// Assemble, install to a staging directory, then package each provider's
+/// output as a self-contained release tarball in `dist/`.
 ///
 /// ```text
-/// module/build/
-///   claude/...     → forge-core-claude-v0.5.0.tar.gz
-///   gemini/...     → forge-core-gemini-v0.5.0.tar.gz
+/// module/
+///   build/staging/.claude/...   ← install output (with .manifest)
+///   dist/{name}-claude-v{version}.tar.gz
 /// ```
+///
+/// Each tarball wraps `.{provider}/` (with `.manifest` inside, written by
+/// install), a generated `Makefile`, and the module `README.md`.
 pub fn execute(path: &str, embed: bool) -> Result<ActionResult, Error> {
-    let mut result = assemble::execute(path)?;
-
     let module_root = Path::new(path);
-    let build_dir = module_root.join("build");
-
-    if !build_dir.is_dir() {
-        return Ok(result);
-    }
-
-    let manifest = module::load(module_root).map_err(|error| {
+    let module_manifest = module::load(module_root).map_err(|error| {
         Error::new(
             ErrorKind::Config,
             format!("cannot load module.yaml: {error}"),
         )
     })?;
 
+    // Stage everything via install (assemble + deploy + .manifest)
+    let staging_dir = module_root.join("build").join("staging");
+    let _ = fs::remove_dir_all(&staging_dir);
+    let mut result = install::execute(
+        path,
+        Some(&staging_dir.to_string_lossy()),
+        true,
+        false,
+        false,
+    )?;
+    result.installed.clear();
+    result.skipped.clear();
+
     let merged_config = config::load_merged_config(module_root)?;
     let providers = config::load_providers(&merged_config)?;
     let readme_path = module_root.join("README.md");
+    let dist_dir = module_root.join("dist");
+    fs::create_dir_all(&dist_dir).map_err(|error| {
+        Error::new(
+            ErrorKind::Io,
+            format!("cannot create {}: {error}", dist_dir.display()),
+        )
+    })?;
 
-    for provider_name in providers.keys() {
-        let provider_dir = build_dir.join(provider_name);
-        if !provider_dir.is_dir() {
+    for (provider_name, provider_config) in &providers {
+        let staged_provider = staging_dir.join(&provider_config.target);
+        if !staged_provider.is_dir() {
             continue;
         }
 
-        let wrapper_name = format!("{}-{provider_name}-v{}", manifest.name, manifest.version);
-        let wrapper_dir = build_dir.join(&wrapper_name);
-        let dotfolder = wrapper_dir.join(format!(".{provider_name}"));
-
-        // Move assembled content into .{provider}/ inside wrapper
+        let wrapper_name = format!(
+            "{}-{provider_name}-v{}",
+            module_manifest.name, module_manifest.version
+        );
+        let wrapper_dir = module_root.join("build").join(&wrapper_name);
+        let _ = fs::remove_dir_all(&wrapper_dir);
         fs::create_dir_all(&wrapper_dir).map_err(|error| {
             Error::new(
                 ErrorKind::Io,
                 format!("cannot create {}: {error}", wrapper_dir.display()),
             )
         })?;
-        fs::rename(&provider_dir, &dotfolder).map_err(|error| {
+
+        // Move installed provider tree (including .manifest) into wrapper
+        let dotfolder = wrapper_dir.join(&provider_config.target);
+        fs::rename(&staged_provider, &dotfolder).map_err(|error| {
             Error::new(
                 ErrorKind::Io,
                 format!("cannot move {provider_name}: {error}"),
@@ -74,17 +94,24 @@ pub fn execute(path: &str, embed: bool) -> Result<ActionResult, Error> {
             let _ = fs::copy(&readme_path, wrapper_dir.join("README.md"));
         }
 
-        // Tar and clean up
-        let tarball_path = build_dir.join(format!("{wrapper_name}.tar.gz"));
-        create_tarball(&build_dir, &tarball_path, &wrapper_name, provider_name)?;
+        // Tar to dist/ and clean staging
+        let tarball_path = dist_dir.join(format!("{wrapper_name}.tar.gz"));
+        create_tarball(
+            &module_root.join("build"),
+            &tarball_path,
+            &wrapper_name,
+            provider_name,
+        )?;
         let _ = fs::remove_dir_all(&wrapper_dir);
 
         result.installed.push(DeployedFile {
-            source: format!(".{provider_name}"),
+            source: provider_config.target.clone(),
             target: tarball_path.to_string_lossy().to_string(),
             provider: provider_name.clone(),
         });
     }
+
+    let _ = fs::remove_dir_all(&staging_dir);
 
     if embed {
         eprintln!("warning: --embed is not yet implemented");

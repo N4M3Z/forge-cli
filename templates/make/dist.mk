@@ -19,5 +19,5 @@ install:
 	 if [ "$$SRC" = "$$DST" ]; then \
 	     echo "Already in $(TARGET)/ — nothing to do"; \
 	 else \
-	     cp -r .${PROVIDER}/* "$(TARGET)/" && echo "Installed to $(TARGET)/"; \
+	     cp -R .${PROVIDER}/. "$(TARGET)/" && echo "Installed to $(TARGET)/"; \
 	 fi
