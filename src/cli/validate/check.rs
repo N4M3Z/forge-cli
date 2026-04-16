@@ -51,6 +51,51 @@ pub fn flat_directory(
             &relative,
             schema_content.as_ref(),
             mdschema_content.as_ref(),
+            None,
+            result,
+        );
+    }
+
+    Ok(())
+}
+
+pub fn flat_directory_with_json_schema(
+    dir: &Path,
+    module_root: &Path,
+    kind: &str,
+    json_schema_content: Option<&String>,
+    result: &mut ActionResult,
+) -> Result<(), Error> {
+    let schema_content =
+        schema::load_schema(dir).or_else(|| schema::embedded_schema(kind).map(String::from));
+    let mdschema_content = schema::load_mdschema_or_fallback(dir, kind)
+        .map_err(|error| Error::new(ErrorKind::Io, error))?;
+
+    let entries = fs::read_dir(dir)
+        .map_err(|e| Error::new(ErrorKind::Io, format!("cannot read {}: {e}", dir.display())))?;
+
+    for entry in entries {
+        let entry =
+            entry.map_err(|e| Error::new(ErrorKind::Io, format!("directory entry error: {e}")))?;
+
+        let path = entry.path();
+        if path.is_dir() || path.extension().unwrap_or_default() != "md" {
+            continue;
+        }
+
+        let content = read_file(&path)?;
+        let relative = path
+            .strip_prefix(module_root)
+            .unwrap_or(&path)
+            .to_string_lossy()
+            .to_string();
+
+        collect_diagnostics(
+            &content,
+            &relative,
+            schema_content.as_ref(),
+            mdschema_content.as_ref(),
+            json_schema_content,
             result,
         );
     }
@@ -92,6 +137,7 @@ pub fn skill_directory(dir: &Path, result: &mut ActionResult) -> Result<(), Erro
             &display_path,
             skill_schema.as_ref(),
             mdschema_content.as_ref(),
+            None,
             result,
         );
     }
@@ -105,6 +151,7 @@ fn collect_diagnostics(
     file_path: &str,
     schema_content: Option<&String>,
     mdschema_content: Option<&String>,
+    json_schema_content: Option<&String>,
     result: &mut ActionResult,
 ) {
     if let Some(schema) = schema_content {
@@ -119,6 +166,17 @@ fn collect_diagnostics(
 
     if let Some(mdschema) = mdschema_content {
         let diagnostics = validate::mdschema::check(content, file_path, mdschema);
+        for diag in diagnostics {
+            result.errors.push(format!(
+                "{}: {} ({:?})",
+                diag.file, diag.message, diag.severity
+            ));
+        }
+    }
+
+    if let Some(json_schema) = json_schema_content {
+        let diagnostics =
+            validate::validate_frontmatter_against_json_schema(content, json_schema, file_path);
         for diag in diagnostics {
             result.errors.push(format!(
                 "{}: {} ({:?})",

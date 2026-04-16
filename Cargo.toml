@@ -1,6 +1,6 @@
 [package]
 name = "forge-cli"
-version = "0.3.0"
+version = "0.3.1"
 edition = "2024"
 license = "EUPL-1.2"
 repository = "https://github.com/N4M3Z/forge-cli"
@@ -43,6 +43,7 @@ console = "0.15"
 
 # optional
 rust-embed = { version = "8", optional = true }
+jsonschema = { version = "0.46.0", default-features = false }
 
 [dev-dependencies]
 assert_cmd = "2"
