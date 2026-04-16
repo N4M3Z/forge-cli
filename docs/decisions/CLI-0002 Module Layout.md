@@ -8,7 +8,7 @@ tags:
     - architecture
 status: accepted
 created: 2026-03-19
-updated: 2026-04-04
+updated: 2026-04-17
 author: "@N4M3Z"
 project: forge-cli
 related:
@@ -63,16 +63,16 @@ src/
 
     cli/                CLI command handlers (binary-only, owns I/O)
         mod.rs          clap definitions, dispatch
-        install.rs      assemble + deploy
+        install/        assemble + deploy
         assemble/       assembly orchestration (sources, pipeline, provenance, output)
-        deploy.rs       build/ → provider dirs with manifest tracking
-        copy.rs         raw source → target (no assembly)
+        deploy/         build/ → provider dirs with manifest tracking
+        copy/           raw source → target (no assembly)
         validate/       structure + mdschema + external tools
-        drift.rs        upstream comparison with frontmatter key diffing
+        drift/          upstream comparison with frontmatter key diffing
         provenance/     provenance chain display and directory scanning
-        release.rs      assemble + package tarballs
-        config.rs       module config loading and merging
-        output.rs       turbo-style CLI output formatting
+        release/        install to staging + package tarballs in dist/
+        config/         module config loading and merging
+        output/         turbo-style CLI output formatting
 
 tests/
     fixtures/

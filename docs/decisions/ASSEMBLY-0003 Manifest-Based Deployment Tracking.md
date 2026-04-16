@@ -9,7 +9,7 @@ tags:
     - deployment
 status: accepted
 created: 2026-03-23
-updated: 2026-04-04
+updated: 2026-04-17
 author: "@N4M3Z"
 project: forge-cli
 related:
@@ -74,10 +74,15 @@ On subsequent installs, copy reads `.manifest` from the target and compares:
 
 Source-level staleness (has the source changed since last build?) is detected by comparing provenance sidecars against current source files. See ASSEMBLY-0002.
 
+### Release tarballs
+
+`forge release` reuses install to stage content, so each provider's `.manifest` lands inside the release tarball at `.{provider}/.manifest`. When end users extract a tarball and `make install`, the manifest copies to `~/.{provider}/.manifest` — exactly where install would have placed it. Round-trip consistent: a tarball is byte-identical to a fresh install of the same module version.
+
 ## Consequences
 
 - [+] Simple format — nested YAML with `fingerprint` and `provenance`, human-readable
 - [+] Lives at the target — survives `build/` cleanup
 - [+] Per-provider — each target directory tracks its own deployments
 - [+] No spec overhead — this is not an attestation, just a cache
+- [+] Ships inside release tarballs — `forge provenance` works against extracted tarballs
 - [-] Manifest corruption means full reinstall (acceptable risk)
