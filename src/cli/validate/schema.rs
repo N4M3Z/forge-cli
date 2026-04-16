@@ -19,6 +19,10 @@ const MODULE_SCHEMA: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/schemas/module.schema.yaml"
 ));
+const ADR_JSON_SCHEMA: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/schemas/forge-adr.schema.json"
+));
 
 pub fn embedded_schema(kind: &str) -> Option<&'static str> {
     match kind {
@@ -85,4 +89,12 @@ pub fn load_mdschema_or_fallback(directory: &Path, kind: &str) -> Result<Option<
         Some(content) => Ok(Some(content)),
         None => Ok(templates::embedded_mdschema(kind)),
     }
+}
+
+pub fn load_json_schema(directory: &Path) -> String {
+    let schema_path = directory.join(".schema.json");
+    if let Ok(content) = fs::read_to_string(&schema_path) {
+        return content;
+    }
+    ADR_JSON_SCHEMA.to_string()
 }

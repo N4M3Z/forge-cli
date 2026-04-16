@@ -43,6 +43,7 @@ console = "0.15"
 
 # optional
 rust-embed = { version = "8", optional = true }
+jsonschema = { version = "0.46.0", default-features = false }
 
 [dev-dependencies]
 assert_cmd = "2"

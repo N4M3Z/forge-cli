@@ -39,10 +39,17 @@ pub fn execute(path: &str) -> Result<ActionResult, Error> {
         }
     }
 
-    // ADR directory
+    // ADR directory — validate against JSON schema if available
     let decisions_dir = module_root.join("docs").join("decisions");
     if decisions_dir.is_dir() {
-        check::flat_directory(&decisions_dir, module_root, "decisions", &mut result)?;
+        let json_schema = schema::load_json_schema(&decisions_dir);
+        check::flat_directory_with_json_schema(
+            &decisions_dir,
+            module_root,
+            "decisions",
+            Some(&json_schema),
+            &mut result,
+        )?;
     }
 
     // Skills have subdirectories — iterate and validate each

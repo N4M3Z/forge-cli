@@ -2,10 +2,12 @@ use serde::Serialize;
 
 mod agent;
 mod frontmatter;
+pub mod json_schema;
 pub mod mdschema;
 
 pub use agent::validate;
 pub use frontmatter::validate_frontmatter;
+pub use json_schema::validate_frontmatter_against_json_schema;
 
 // --- Types ---
 
