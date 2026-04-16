@@ -142,7 +142,6 @@ fn assemble_source_for_provider(
         module_root,
         provider_name,
         &kind_keep_fields,
-        tool_mappings,
         model_tiers,
         assembly_rules.contains(&commands::provider::AssemblyRule::StripLinks),
     )?;

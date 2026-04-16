@@ -93,6 +93,6 @@ When deploying to Gemini (`.gemini/`), `forge-cli` automatically transforms cont
 - `` `Bash` `` becomes `` `run_shell_command` ``
 - `` `Complete` `` becomes `` `complete_task` ``
 
-### 2. Nested Pathing
-- **Agents:** Filenames are converted to kebab-case (e.g., `agents/SecurityArchitect.md` → `agents/security-architect.md`).
-- **Skills & Rules:** Directory structures are preserved to maintain module identity (e.g., `skills/MySkill/SKILL.md` → `skills/MySkill/SKILL.md`).
+### 2. Agent Kebab-Case (`kebab-case-agents` rule)
+- Agent filenames and `name:` frontmatter are converted to kebab-case (e.g., `SecurityArchitect.md` → `security-architect.md`, `name: SecurityArchitect` → `name: security-architect`).
+- Skills and rules retain their PascalCase filenames and nested paths (e.g., `skills/MySkill/SKILL.md` stays as-is).

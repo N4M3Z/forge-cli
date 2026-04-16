@@ -192,6 +192,18 @@ forge release path/to/module
 
 All commands support `--json` for machine-readable output.
 
+## Assembly Transforms
+
+Assembly rules transform content for each provider. Configured in `defaults.yaml` under `assembly:`.
+
+| Rule                 | Scope          | Effect                                                             |
+| -------------------- | -------------- | ------------------------------------------------------------------ |
+| `kebab-case`         | all kinds      | Filenames to kebab-case, `name:` frontmatter to kebab-case         |
+| `kebab-case-agents`  | agents only    | Same as `kebab-case` but restricted to agent files                 |
+| `remap-tools`        | all kinds      | Replace tool names in backtick spans (e.g. `Read` to `read_file`) |
+| `strip-links`        | all kinds      | Remove GFM reference-style link definitions                        |
+| `agents-to-toml`     | agents only    | Convert markdown agent to TOML format                              |
+
 ## Build
 
 ```sh

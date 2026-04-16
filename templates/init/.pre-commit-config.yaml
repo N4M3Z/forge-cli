@@ -23,21 +23,17 @@ repos:
 
           - id: gitleaks
             name: gitleaks
-            entry: gitleaks detect --no-banner --no-git -s .
+            entry: gitleaks detect --no-banner
             language: system
             pass_filenames: false
+            stages: [pre-push]
 
           - id: semgrep
             name: semgrep OWASP
             entry: semgrep scan --config=p/owasp-top-ten --metrics=off --quiet .
             language: system
             pass_filenames: false
-
-          - id: validate-adr
-            name: validate-adr
-            entry: scripts/validate-adr.py --test
-            language: system
-            pass_filenames: false
+            stages: [pre-push]
 
           - id: forge-validate
             name: forge validate

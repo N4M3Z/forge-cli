@@ -27,9 +27,7 @@ pub fn assemble_source(
     module_root: &Path,
     provider_name: &str,
     keep_fields: &[String],
-    _tool_mappings: &HashMap<String, String>,
     model_tiers: &HashMap<String, Vec<String>>,
-
     strip_links: bool,
 ) -> Result<String, Error> {
     if source.passthrough {
