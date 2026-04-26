@@ -81,6 +81,10 @@ enum Command {
         /// Target directory to copy into
         #[arg(long)]
         target: String,
+
+        /// Skip SLSA provenance sidecar generation
+        #[arg(long)]
+        skip_provenance: bool,
     },
 
     /// Validate module files against schemas
@@ -164,7 +168,11 @@ pub fn run() -> i32 {
             deploy::execute(&path, target.as_deref(), force, false, interactive),
             "deployed",
         ),
-        Command::Copy { path, target } => (copy::execute(&path, &target), "copied"),
+        Command::Copy {
+            path,
+            target,
+            skip_provenance,
+        } => (copy::execute(&path, &target, skip_provenance), "copied"),
         Command::Validate { path } => (validate::execute(&path), "validated"),
         Command::Provenance {
             path,
