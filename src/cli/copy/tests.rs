@@ -205,3 +205,129 @@ fn execute_provenance_digest_matches_content() {
         expected_digest
     );
 }
+
+#[test]
+fn execute_resists_yaml_injection() {
+    let source = TempDir::new().unwrap();
+    let target = TempDir::new().unwrap();
+
+    let hostile_module_yaml = "name: hostile\nversion: 0.1.0\ndescription: pwn\nevents: []\nrepository: \"https://x.test/repo\\nbogus_root_key: pwned\"\n";
+    std::fs::write(source.path().join("module.yaml"), hostile_module_yaml).unwrap();
+
+    let rules_directory = source.path().join("rules");
+    std::fs::create_dir_all(&rules_directory).unwrap();
+    std::fs::write(rules_directory.join("Foo.md"), "# Foo").unwrap();
+
+    execute(
+        &source.path().to_string_lossy(),
+        &target.path().to_string_lossy(),
+        false,
+    )
+    .unwrap();
+
+    let sidecar_text = std::fs::read_to_string(target.path().join("rules/.provenance/Foo.yaml"))
+        .expect("sidecar must exist");
+    let mapping: serde_yaml::Mapping = serde_yaml::from_str(&sidecar_text).expect("valid YAML");
+
+    let top_level_keys: Vec<String> = mapping
+        .keys()
+        .map(|k| k.as_str().unwrap_or_default().to_string())
+        .collect();
+    assert_eq!(
+        top_level_keys,
+        vec!["provenance".to_string()],
+        "injection inserted top-level keys: {top_level_keys:?}"
+    );
+
+    let sidecar = commands::manifest::provenance::parse(&sidecar_text).expect("typed parse");
+    assert_eq!(
+        sidecar
+            .provenance
+            .predicate
+            .build_definition
+            .external_parameters
+            .source,
+        "https://x.test/repo\nbogus_root_key: pwned",
+        "hostile string must round-trip as opaque scalar"
+    );
+}
+
+#[test]
+fn execute_writes_posix_paths() {
+    let source = TempDir::new().unwrap();
+    let target = TempDir::new().unwrap();
+
+    write_module_yaml(source.path());
+    let nested = source.path().join("rules").join("cz");
+    std::fs::create_dir_all(&nested).unwrap();
+    std::fs::write(nested.join("Tax.md"), "# Tax rule").unwrap();
+
+    execute(
+        &source.path().to_string_lossy(),
+        &target.path().to_string_lossy(),
+        false,
+    )
+    .unwrap();
+
+    let sidecar_text =
+        std::fs::read_to_string(target.path().join("rules/cz/.provenance/Tax.yaml")).unwrap();
+    let sidecar = commands::manifest::provenance::parse(&sidecar_text).unwrap();
+
+    assert_eq!(sidecar.provenance.subject[0].name, "rules/cz/Tax.md");
+    assert_eq!(
+        sidecar
+            .provenance
+            .predicate
+            .build_definition
+            .resolved_dependencies[0]
+            .uri,
+        "rules/cz/Tax.md"
+    );
+}
+
+#[test]
+fn execute_sidecar_round_trips_typed() {
+    let source = TempDir::new().unwrap();
+    let target = TempDir::new().unwrap();
+
+    write_module_yaml(source.path());
+    let rules_directory = source.path().join("rules");
+    std::fs::create_dir_all(&rules_directory).unwrap();
+    std::fs::write(rules_directory.join("Roundtrip.md"), "# body\n").unwrap();
+
+    execute(
+        &source.path().to_string_lossy(),
+        &target.path().to_string_lossy(),
+        false,
+    )
+    .unwrap();
+
+    let sidecar_path = target.path().join("rules/.provenance/Roundtrip.yaml");
+    let sidecar = commands::manifest::provenance::read(&sidecar_path).expect("typed parse");
+
+    assert_eq!(
+        sidecar.provenance.statement_type,
+        "https://in-toto.io/Statement/v1"
+    );
+    assert_eq!(sidecar.provenance.subject.len(), 1);
+    assert_eq!(sidecar.provenance.subject[0].name, "rules/Roundtrip.md");
+    assert!(!sidecar.provenance.subject[0].digest.sha256.is_empty());
+
+    let build = &sidecar.provenance.predicate.build_definition;
+    assert!(build.build_type.ends_with("/copy/v1"));
+    assert_eq!(
+        build.external_parameters.source,
+        "https://github.com/test/repo"
+    );
+    assert_eq!(build.resolved_dependencies.len(), 1);
+    assert_eq!(build.resolved_dependencies[0].uri, "rules/Roundtrip.md");
+    assert_eq!(
+        build.resolved_dependencies[0].digest.sha256,
+        sidecar.provenance.subject[0].digest.sha256
+    );
+
+    let runner = &sidecar.provenance.predicate.run_details;
+    assert_eq!(runner.builder.id, env!("CARGO_PKG_NAME"));
+    assert_eq!(runner.builder.version.forge, env!("CARGO_PKG_VERSION"));
+    assert!(!runner.metadata.started_on.is_empty());
+}

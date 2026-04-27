@@ -138,11 +138,7 @@ fn write_copy_provenance(
     content: &str,
     source_uri: &str,
 ) -> Result<(), Error> {
-    let relative_source = source_path
-        .strip_prefix(module_root)
-        .unwrap_or(source_path)
-        .to_string_lossy()
-        .to_string();
+    let relative_source = to_posix(source_path.strip_prefix(module_root).unwrap_or(source_path));
 
     let content_digest = manifest::content_sha256(content);
 
@@ -187,6 +183,25 @@ fn write_copy_provenance(
     })?;
 
     Ok(())
+}
+
+/// Render a relative path with forward-slash separators regardless of host OS.
+///
+/// Uses `Path::components()` so the OS path parser identifies real separators —
+/// a literal `\` in a Linux filename stays intact in its component, while a
+/// Windows `\` separator is recognized and replaced with `/`.
+fn to_posix(path: &Path) -> String {
+    use std::path::Component;
+    let mut parts: Vec<String> = Vec::new();
+    for component in path.components() {
+        match component {
+            Component::Normal(segment) => parts.push(segment.to_string_lossy().into_owned()),
+            Component::ParentDir => parts.push("..".to_string()),
+            Component::CurDir => parts.push(".".to_string()),
+            Component::RootDir | Component::Prefix(_) => {}
+        }
+    }
+    parts.join("/")
 }
 
 #[cfg(test)]
