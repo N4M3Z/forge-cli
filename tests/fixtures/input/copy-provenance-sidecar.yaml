@@ -1,0 +1,22 @@
+provenance:
+    _type: https://in-toto.io/Statement/v1
+    subject:
+        - name: rules/Example.md
+          digest:
+              sha256: deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef
+    predicate:
+        buildDefinition:
+            buildType: https://example.test/copy/v1
+            externalParameters:
+                source: https://example.test/upstream
+            resolvedDependencies:
+                - uri: rules/Example.md
+                  digest:
+                      sha256: deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef
+        runDetails:
+            builder:
+                id: forge-cli
+                version:
+                    forge: 0.0.0-fixture
+            metadata:
+                startedOn: "2026-01-01T00:00:00Z"

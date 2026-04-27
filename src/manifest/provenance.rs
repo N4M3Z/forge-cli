@@ -1,4 +1,6 @@
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
+
+pub const STATEMENT_TYPE: &str = "https://in-toto.io/Statement/v1";
 
 /// Typed representation of an in-toto/SLSA v1.0 provenance statement.
 ///
@@ -28,12 +30,12 @@ use serde::Deserialize;
 ///                 sourceModule: forge-gm
 ///                 startedOn: "2026-03-29T10:00:00Z"
 /// ```
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct ProvenanceSidecar {
     pub provenance: ProvenanceStatement,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct ProvenanceStatement {
     #[serde(rename = "_type")]
     pub statement_type: String,
@@ -41,25 +43,25 @@ pub struct ProvenanceStatement {
     pub predicate: Predicate,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct Subject {
     pub name: String,
     pub digest: DigestMap,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct DigestMap {
     pub sha256: String,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Predicate {
     pub build_definition: BuildDefinition,
     pub run_details: RunDetails,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BuildDefinition {
     pub build_type: String,
@@ -67,35 +69,35 @@ pub struct BuildDefinition {
     pub resolved_dependencies: Vec<Dependency>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct ExternalParameters {
     pub source: String,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct Dependency {
     pub uri: String,
     pub digest: DigestMap,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct RunDetails {
     pub builder: Builder,
     pub metadata: Metadata,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct Builder {
     pub id: String,
     pub version: BuilderVersion,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct BuilderVersion {
     pub forge: String,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Metadata {
     pub started_on: String,

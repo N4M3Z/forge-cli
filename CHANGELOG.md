@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+
+- `forge copy` writes SLSA provenance sidecars to `.provenance/` in the target tree (opt-out via `--skip-provenance`)
+- `forge drift` consumes copy provenance sidecars to surface source URI on same-name matches and pair files across renames
+
+### Changed
+
+- `manifest::generate_statement` builds the SLSA statement via typed `serde_yaml::to_string` (eliminates YAML injection risk in interpolated fields)
+- Copy provenance subject names and dependency URIs use POSIX path separators regardless of host OS
+
 ## [0.3.1] - 2026-04-16
 
 ### Added
