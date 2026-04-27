@@ -140,3 +140,95 @@ fn collect_markdown_files_returns_empty_for_missing_directory() {
     let files = collect_markdown_files(Path::new("/nonexistent"));
     assert!(files.is_empty());
 }
+
+fn write_sidecar(directory: &Path, stem: &str, subject: &str, source: &str) {
+    let provenance_directory = directory.join(".provenance");
+    std::fs::create_dir_all(&provenance_directory).unwrap();
+    let sidecar = format!(
+        "provenance:\n    _type: https://in-toto.io/Statement/v1\n    subject:\n        - name: {subject}\n          digest:\n              sha256: deadbeef\n    predicate:\n        buildDefinition:\n            buildType: https://example.test/copy/v1\n            externalParameters:\n                source: {source}\n            resolvedDependencies:\n                - uri: {subject}\n                  digest:\n                      sha256: deadbeef\n        runDetails:\n            builder:\n                id: forge-cli\n                version:\n                    forge: 0.0.0-test\n            metadata:\n                startedOn: \"2026-01-01T00:00:00Z\"\n"
+    );
+    std::fs::write(provenance_directory.join(format!("{stem}.yaml")), sidecar).unwrap();
+}
+
+#[test]
+fn drift_surfaces_source_uri_on_same_name_match() {
+    let module = tempfile::TempDir::new().unwrap();
+    let upstream = tempfile::TempDir::new().unwrap();
+
+    let module_rules = module.path().join("rules");
+    let upstream_rules = upstream.path().join("rules");
+    std::fs::create_dir_all(&module_rules).unwrap();
+    std::fs::create_dir_all(&upstream_rules).unwrap();
+    std::fs::write(module_rules.join("AgentTeams.md"), "# Agent teams\n").unwrap();
+    std::fs::write(upstream_rules.join("AgentTeams.md"), "# Agent teams\n").unwrap();
+    write_sidecar(
+        &module_rules,
+        "AgentTeams",
+        "rules/AgentTeams.md",
+        "https://github.com/N4M3Z/forge-core",
+    );
+
+    let mut result = DriftResult::default();
+    compare_directory_pair(
+        &mut result,
+        &module_rules,
+        &upstream_rules,
+        "rules",
+        "rules",
+        &HashSet::new(),
+    );
+
+    assert_eq!(result.entries.len(), 1, "expected one entry");
+    let entry = &result.entries[0];
+    assert_eq!(entry.name, "AgentTeams.md");
+    assert_eq!(entry.status, DriftStatus::Identical);
+    assert_eq!(
+        entry.source_uri.as_deref(),
+        Some("https://github.com/N4M3Z/forge-core")
+    );
+    assert!(entry.renamed_from.is_none());
+}
+
+#[test]
+fn drift_resolves_renamed_adoption() {
+    let module = tempfile::TempDir::new().unwrap();
+    let upstream = tempfile::TempDir::new().unwrap();
+
+    let module_rules = module.path().join("rules");
+    let upstream_rules = upstream.path().join("rules");
+    std::fs::create_dir_all(&module_rules).unwrap();
+    std::fs::create_dir_all(&upstream_rules).unwrap();
+    std::fs::write(module_rules.join("SecretsScan.md"), "# Scanner\n").unwrap();
+    std::fs::write(upstream_rules.join("SecretScan.md"), "# Scanner\n").unwrap();
+    write_sidecar(
+        &module_rules,
+        "SecretsScan",
+        "SecretScan.md",
+        "https://github.com/N4M3Z/forge-core",
+    );
+
+    let mut result = DriftResult::default();
+    compare_directory_pair(
+        &mut result,
+        &module_rules,
+        &upstream_rules,
+        "rules",
+        "rules",
+        &HashSet::new(),
+    );
+
+    assert_eq!(
+        result.entries.len(),
+        1,
+        "rename should collapse two names into one entry, got {:?}",
+        result.entries
+    );
+    let entry = &result.entries[0];
+    assert_eq!(entry.name, "SecretsScan.md");
+    assert_eq!(entry.status, DriftStatus::Identical);
+    assert_eq!(entry.renamed_from.as_deref(), Some("SecretScan.md"));
+    assert_eq!(
+        entry.source_uri.as_deref(),
+        Some("https://github.com/N4M3Z/forge-core")
+    );
+}
