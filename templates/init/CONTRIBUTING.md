@@ -22,7 +22,7 @@ Types: `feat`, `fix`, `docs`, `chore`, `refactor`, `test`.
 
 1. Fork and create a branch
 2. Make changes following the conventions above
-3. `make test`
+3. `make validate`
 4. Open a PR against `main`
 
 CI runs validation on every PR. The `main` branch requires passing CI before merge.
