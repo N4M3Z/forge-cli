@@ -86,6 +86,45 @@ fn init_excludes_customized_files_from_manifest() {
 }
 
 #[test]
+fn init_deploys_hidden_template_files() {
+    let temp_directory = TempDir::new().unwrap();
+    execute(&temp_directory.path().to_string_lossy()).unwrap();
+
+    for required in [
+        ".pre-commit-config.yaml",
+        ".gitattributes",
+        ".gitleaks.toml",
+        ".gitlab-ci.yml",
+    ] {
+        let path = temp_directory.path().join(required);
+        assert!(
+            path.is_file(),
+            "expected hidden template file to be deployed: {required}"
+        );
+    }
+}
+
+#[test]
+fn is_os_junk_blocks_macos_and_windows_artifacts() {
+    assert!(is_os_junk(".DS_Store"));
+    assert!(is_os_junk("subdir/.DS_Store"));
+    assert!(is_os_junk("Thumbs.db"));
+    assert!(is_os_junk("Desktop.ini"));
+    assert!(is_os_junk("._hidden_macos_resource_fork"));
+}
+
+#[test]
+fn is_os_junk_does_not_block_legitimate_dotfiles() {
+    assert!(!is_os_junk(".pre-commit-config.yaml"));
+    assert!(!is_os_junk(".gitattributes"));
+    assert!(!is_os_junk(".gitleaks.toml"));
+    assert!(!is_os_junk(".gitlab-ci.yml"));
+    assert!(!is_os_junk(".githooks/pre-commit"));
+    assert!(!is_os_junk(".github/workflows/release.yml"));
+    assert!(!is_os_junk("agents/.mdschema"));
+}
+
+#[test]
 fn init_uses_already_exists_skip_reason() {
     let temp_directory = TempDir::new().unwrap();
     std::fs::write(temp_directory.path().join("LICENSE"), "custom\n").unwrap();
