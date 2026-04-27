@@ -6,15 +6,7 @@ use std::fs;
 use std::path::Path;
 
 pub fn print_summary(directory: &Path, source_filter: Option<&str>, show_orphans: bool) -> i32 {
-    let mut by_source: BTreeMap<String, (usize, usize)> = BTreeMap::new();
-    let mut orphans: Vec<String> = Vec::new();
-
-    for kind in commands::provider::ContentKind::ALL {
-        let kind_directory = directory.join(kind.as_str());
-        if kind_directory.is_dir() {
-            collect_recursive(&kind_directory, directory, &mut by_source, &mut orphans);
-        }
-    }
+    let (mut by_source, orphans) = collect(directory);
 
     if let Some(filter) = source_filter {
         by_source.retain(|source, _| source.contains(filter));
@@ -66,6 +58,22 @@ pub fn print_summary(directory: &Path, source_filter: Option<&str>, show_orphans
     i32::from(show_orphans && has_problems)
 }
 
+/// Walk the deployed content kinds under `directory`, returning per-source
+/// verification counts and the list of files without a matching sidecar.
+fn collect(directory: &Path) -> (BTreeMap<String, (usize, usize)>, Vec<String>) {
+    let mut by_source: BTreeMap<String, (usize, usize)> = BTreeMap::new();
+    let mut orphans: Vec<String> = Vec::new();
+
+    for kind in commands::provider::ContentKind::ALL {
+        let kind_directory = directory.join(kind.as_str());
+        if kind_directory.is_dir() {
+            collect_recursive(&kind_directory, directory, &mut by_source, &mut orphans);
+        }
+    }
+
+    (by_source, orphans)
+}
+
 fn collect_recursive(
     directory: &Path,
     target_root: &Path,
@@ -87,7 +95,16 @@ fn collect_recursive(
             continue;
         }
 
-        if path.extension().unwrap_or_default() != "md" {
+        // Walk every deployed content file regardless of extension. Codex
+        // assembly turns agent .md files into .toml; previously only .md
+        // was inspected, so codex sidecars were never matched against
+        // their files (issue #29). Skip our own .yaml sidecars and any
+        // dotfile (e.g. .DS_Store, .manifest).
+        let basename = path.file_name().unwrap_or_default().to_string_lossy();
+        if basename.starts_with('.') {
+            continue;
+        }
+        if path.extension().unwrap_or_default() == manifest::SIDECAR_EXTENSION {
             continue;
         }
 
@@ -119,5 +136,116 @@ fn collect_recursive(
         if deployed_hash == *output_hash {
             counts.0 += 1;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::TempDir;
+
+    fn write_sidecar_for(
+        target_root: &Path,
+        kind: &str,
+        deployed_filename: &str,
+        sidecar_subject: &str,
+        digest: &str,
+        source_uri: &str,
+    ) {
+        let kind_dir = target_root.join(kind);
+        let provenance_dir = kind_dir.join(".provenance");
+        std::fs::create_dir_all(&provenance_dir).unwrap();
+        let stem = std::path::Path::new(deployed_filename)
+            .file_stem()
+            .unwrap()
+            .to_string_lossy();
+        let yaml = format!(
+            "provenance:\n    _type: https://in-toto.io/Statement/v1\n    subject:\n        - name: {sidecar_subject}\n          digest:\n              sha256: {digest}\n    predicate:\n        buildDefinition:\n            buildType: https://example.test/copy/v1\n            externalParameters:\n                source: {source_uri}\n            resolvedDependencies:\n                - uri: {sidecar_subject}\n                  digest:\n                      sha256: {digest}\n        runDetails:\n            builder:\n                id: forge-cli\n                version:\n                    forge: 0.0.0-test\n            metadata:\n                startedOn: \"2026-01-01T00:00:00Z\"\n"
+        );
+        std::fs::write(provenance_dir.join(format!("{stem}.yaml")), yaml).unwrap();
+    }
+
+    #[test]
+    fn collect_walks_toml_files_for_codex_provider() {
+        let target = TempDir::new().unwrap();
+        let agents_dir = target.path().join("agents");
+        std::fs::create_dir_all(&agents_dir).unwrap();
+        let toml_content = "name = \"GameMaster\"\n";
+        std::fs::write(agents_dir.join("GameMaster.toml"), toml_content).unwrap();
+        let digest = manifest::content_sha256(toml_content);
+        write_sidecar_for(
+            target.path(),
+            "agents",
+            "GameMaster.toml",
+            "codex/agents/GameMaster.toml",
+            &digest,
+            "https://example.test/upstream",
+        );
+
+        let (by_source, orphans) = collect(target.path());
+
+        assert!(
+            orphans.is_empty(),
+            "toml file with sidecar must not be orphaned"
+        );
+        assert_eq!(by_source.len(), 1, "one source bucket expected");
+        let (verified, total) = by_source["https://example.test/upstream"];
+        assert_eq!(total, 1, "the toml file should be counted");
+        assert_eq!(verified, 1, "matching sha256 should verify");
+    }
+
+    #[test]
+    fn collect_still_walks_md_files_for_other_providers() {
+        let target = TempDir::new().unwrap();
+        let agents_dir = target.path().join("agents");
+        std::fs::create_dir_all(&agents_dir).unwrap();
+        let md_content = "# Agent body\n";
+        std::fs::write(agents_dir.join("ClaudeAgent.md"), md_content).unwrap();
+        let digest = manifest::content_sha256(md_content);
+        write_sidecar_for(
+            target.path(),
+            "agents",
+            "ClaudeAgent.md",
+            "claude/agents/ClaudeAgent.md",
+            &digest,
+            "https://example.test/upstream",
+        );
+
+        let (by_source, orphans) = collect(target.path());
+
+        assert!(orphans.is_empty());
+        let (verified, total) = by_source["https://example.test/upstream"];
+        assert_eq!(total, 1);
+        assert_eq!(verified, 1);
+    }
+
+    #[test]
+    fn collect_skips_dotfiles_and_sidecars() {
+        let target = TempDir::new().unwrap();
+        let agents_dir = target.path().join("agents");
+        std::fs::create_dir_all(&agents_dir).unwrap();
+        std::fs::write(agents_dir.join(".DS_Store"), b"").unwrap();
+        std::fs::write(target.path().join(".manifest"), "").unwrap();
+
+        let (by_source, orphans) = collect(target.path());
+
+        assert!(
+            by_source.is_empty(),
+            ".DS_Store and .manifest must not appear"
+        );
+        assert!(orphans.is_empty());
+    }
+
+    #[test]
+    fn collect_reports_files_without_sidecars_as_orphans() {
+        let target = TempDir::new().unwrap();
+        let agents_dir = target.path().join("agents");
+        std::fs::create_dir_all(&agents_dir).unwrap();
+        std::fs::write(agents_dir.join("Lonely.md"), "no sidecar").unwrap();
+
+        let (by_source, orphans) = collect(target.path());
+
+        assert!(by_source.is_empty());
+        assert_eq!(orphans, vec!["agents/Lonely.md".to_string()]);
     }
 }
