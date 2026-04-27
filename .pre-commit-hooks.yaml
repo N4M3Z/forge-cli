@@ -1,5 +1,5 @@
 - id: forge-validate
   name: forge validate
-  entry: forge validate .
+  entry: forge validate
   language: rust
   pass_filenames: false

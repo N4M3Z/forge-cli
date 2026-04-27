@@ -23,7 +23,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Removed
 
-- `forge install`, `forge deploy`, `forge clean` no longer accept the source path as a positional argument; pass it via `--source <DIR>` instead (defaults to `.`)
+- All commands drop their positional path arguments. Same positional meant different things across verbs (`forge init <PATH>` wrote into PATH, `forge install <PATH>` read from PATH); every command now uses named flags (`--source`, `--target`, `--upstream`).
+    - `install`, `deploy`, `clean`, `assemble`, `validate`, `release`: source is `--source <DIR>`, defaults to `.`
+    - `init`: target is `--target <DIR>`, no default (scaffolding requires explicit destination)
+    - `copy`: both `--source <DIR>` and `--target <DIR>` are required
+    - `provenance`: inspection target is `--target <DIR_OR_FILE>` (defaults to `.`); the existing source-URI filter is renamed from `--source` to `--source-uri` to avoid name collision
+    - `drift`: source defaults to `.` via `--source`; the second positional is now `--upstream <DIR>` (renamed from `target` since semantically it is the upstream reference)
 
 ## [0.3.1] - 2026-04-16
 

@@ -436,7 +436,11 @@ fn validate_reports_missing_required_files() {
     .unwrap();
 
     forge()
-        .args(["validate", module_directory.path().to_str().unwrap()])
+        .args([
+            "validate",
+            "--source",
+            module_directory.path().to_str().unwrap(),
+        ])
         .assert()
         .failure()
         .stdout(predicates::str::contains("MISSING README.md"))
@@ -452,7 +456,11 @@ fn validate_passes_complete_module() {
     fs::write(module_directory.path().join("LICENSE"), "EUPL-1.2\n").unwrap();
 
     forge()
-        .args(["validate", module_directory.path().to_str().unwrap()])
+        .args([
+            "validate",
+            "--source",
+            module_directory.path().to_str().unwrap(),
+        ])
         .assert()
         .success();
 }
@@ -470,6 +478,7 @@ fn copy_preserves_frontmatter() {
     forge()
         .args([
             "copy",
+            "--source",
             module_directory.path().to_str().unwrap(),
             "--target",
             target_directory.path().to_str().unwrap(),
@@ -659,7 +668,11 @@ fn validate_catches_mdschema_violation() {
     .unwrap();
 
     forge()
-        .args(["validate", module_directory.path().to_str().unwrap()])
+        .args([
+            "validate",
+            "--source",
+            module_directory.path().to_str().unwrap(),
+        ])
         .assert()
         .failure();
 }

@@ -112,82 +112,102 @@ providers:
 
 ## Usage
 
-Assemble and deploy a module to all provider directories:
+Every command takes its inputs as named flags. Source modules use `--source <DIR>` (defaults to `.` for in-tree commands), targets use `--target <DIR>`, upstreams use `--upstream <DIR>`. There are no positional path arguments.
+
+Assemble and deploy the current module to all provider directories:
 
 ```sh
-forge install path/to/module
+forge install
 ```
 
-Deploy to a specific directory:
+Deploy under a specific base directory (claude → `<DIR>/.claude`, opencode → `<DIR>/.opencode`, etc.):
 
 ```sh
-forge install path/to/module --target ~/project
+forge install --target ~/project
+```
+
+Deploy only one provider:
+
+```sh
+forge install --target ~/project --provider opencode
+```
+
+Install from a different module:
+
+```sh
+forge install --source path/to/module --target ~/project
 ```
 
 Overwrite user-modified files:
 
 ```sh
-forge install path/to/module --force
+forge install --force
 ```
 
 Remove stale files from previous installs:
 
 ```sh
-forge clean path/to/module
+forge clean
 ```
 
 Build only, no deployment:
 
 ```sh
-forge assemble path/to/module
+forge assemble
 ```
 
 Deploy from an existing build/ directory:
 
 ```sh
-forge deploy path/to/module
+forge deploy
 ```
 
 Validate module structure, schemas, linters, and tests:
 
 ```sh
-forge validate path/to/module
+forge validate
 ```
 
 Compare a module against an upstream reference:
 
 ```sh
-forge drift . ../forge-core
+forge drift --upstream ../forge-core
 ```
 
 Suppress expected per-project frontmatter keys:
 
 ```sh
-forge drift . ../forge-core --ignore project,author
+forge drift --upstream ../forge-core --ignore project,author
 ```
 
 Show provenance chain for a deployed file:
 
 ```sh
-forge provenance ~/.claude/rules/UseRTK.md
+forge provenance --target ~/.claude/rules/UseRTK.md
 ```
 
 Scan a directory for files without provenance:
 
 ```sh
-forge provenance ~/.claude --show-orphans
+forge provenance --target ~/.claude --show-orphans
 ```
 
 Copy source files directly without assembly:
 
 ```sh
-forge copy path/to/module --target ~/project
+forge copy --source path/to/module --target ~/project
 ```
 
 Package assembled content as tarballs:
 
 ```sh
-forge release path/to/module
+forge release
+```
+
+Scaffold a new module:
+
+```sh
+forge init --target path/to/new-module
 ```
 
 All commands support `--json` for machine-readable output.

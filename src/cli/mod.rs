@@ -27,8 +27,9 @@ struct Cli {
 enum Command {
     /// Initialize a new forge module with required files and schemas
     Init {
-        /// Path to the module root (created if missing)
-        path: String,
+        /// Directory to scaffold the new module into (created if missing).
+        #[arg(long, value_name = "DIR")]
+        target: String,
     },
 
     /// Assemble and deploy module content to provider directories
@@ -71,8 +72,9 @@ enum Command {
 
     /// Assemble module content into build/
     Assemble {
-        /// Path to the module root
-        path: String,
+        /// Module root to assemble (must contain module.yaml). Defaults to `.`.
+        #[arg(long, value_name = "DIR", default_value = ".")]
+        source: String,
     },
 
     /// Deploy assembled files from build/ to provider directories
@@ -102,11 +104,12 @@ enum Command {
 
     /// Copy source files directly to a target directory (no assembly, no transforms)
     Copy {
-        /// Path to the module root
-        path: String,
+        /// Module root to copy from.
+        #[arg(long, value_name = "DIR")]
+        source: String,
 
-        /// Target directory to copy into
-        #[arg(long)]
+        /// Directory to copy into.
+        #[arg(long, value_name = "DIR")]
         target: String,
 
         /// Skip SLSA provenance sidecar generation
@@ -116,18 +119,20 @@ enum Command {
 
     /// Validate module files against schemas
     Validate {
-        /// Path to the module root
-        path: String,
+        /// Module root to validate (must contain module.yaml). Defaults to `.`.
+        #[arg(long, value_name = "DIR", default_value = ".")]
+        source: String,
     },
 
     /// Show provenance information for a deployed file or directory
     Provenance {
-        /// Path to a deployed file or provider directory
-        path: String,
+        /// Deployed file or provider directory to inspect. Defaults to `.`.
+        #[arg(long, value_name = "DIR_OR_FILE", default_value = ".")]
+        target: String,
 
-        /// Filter by source module URI
-        #[arg(long)]
-        source: Option<String>,
+        /// Filter by source module URI (e.g. <https://github.com/...>)
+        #[arg(long, value_name = "URI")]
+        source_uri: Option<String>,
 
         /// Show files without provenance
         #[arg(long)]
@@ -136,11 +141,13 @@ enum Command {
 
     /// Compare module content against an upstream reference
     Drift {
-        /// Path to the module root (source)
+        /// Module root to compare. Defaults to `.`.
+        #[arg(long, value_name = "DIR", default_value = ".")]
         source: String,
 
-        /// Path to the upstream reference module
-        target: Option<String>,
+        /// Upstream reference module to compare against.
+        #[arg(long, value_name = "DIR")]
+        upstream: String,
 
         /// Comma-separated keys to ignore (use "body" to ignore body drift)
         #[arg(long, value_delimiter = ',')]
@@ -161,8 +168,9 @@ enum Command {
 
     /// Assemble and package module as release tarballs
     Release {
-        /// Path to the module root
-        path: String,
+        /// Module root to package (must contain module.yaml). Defaults to `.`.
+        #[arg(long, value_name = "DIR", default_value = ".")]
+        source: String,
 
         /// Embed assets into the binary
         #[arg(long)]
@@ -177,7 +185,7 @@ pub fn run() -> i32 {
     let args = Cli::parse();
 
     let (result, verb) = match args.command {
-        Command::Init { path } => (init::execute(&path), "initialized"),
+        Command::Init { target } => (init::execute(&target), "initialized"),
         Command::Install {
             source,
             target,
@@ -195,7 +203,7 @@ pub fn run() -> i32 {
             ),
             "deployed",
         ),
-        Command::Assemble { path } => (assemble::execute(&path), "assembled"),
+        Command::Assemble { source } => (assemble::execute(&source), "assembled"),
         Command::Deploy {
             source,
             target,
@@ -214,17 +222,22 @@ pub fn run() -> i32 {
             "deployed",
         ),
         Command::Copy {
-            path,
+            source,
             target,
             skip_provenance,
-        } => (copy::execute(&path, &target, skip_provenance), "copied"),
-        Command::Validate { path } => (validate::execute(&path), "validated"),
+        } => (copy::execute(&source, &target, skip_provenance), "copied"),
+        Command::Validate { source } => (validate::execute(&source), "validated"),
         Command::Provenance {
-            path,
-            source,
+            target,
+            source_uri,
             show_orphans,
         } => {
-            return match provenance::execute(&path, source.as_deref(), show_orphans, args.json) {
+            return match provenance::execute(
+                &target,
+                source_uri.as_deref(),
+                show_orphans,
+                args.json,
+            ) {
                 Ok(code) => code,
                 Err(error) => {
                     eprintln!("fatal: {error}");
@@ -234,11 +247,10 @@ pub fn run() -> i32 {
         }
         Command::Drift {
             source,
-            target,
+            upstream,
             ignore,
         } => {
-            let upstream = target.as_deref().unwrap_or(".");
-            return match drift::execute(&source, upstream, &ignore, args.json) {
+            return match drift::execute(&source, &upstream, &ignore, args.json) {
                 Ok(code) => code,
                 Err(error) => {
                     eprintln!("fatal: {error}");
@@ -250,7 +262,7 @@ pub fn run() -> i32 {
             deploy::execute(&source, target.as_deref(), &[], false, true, false),
             "cleaned",
         ),
-        Command::Release { path, embed } => (release::execute(&path, embed), "released"),
+        Command::Release { source, embed } => (release::execute(&source, embed), "released"),
     };
 
     match result {

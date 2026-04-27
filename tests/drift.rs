@@ -44,7 +44,9 @@ fn drift_identical_rules_reports_zero_exit() {
     forge()
         .args([
             "drift",
+            "--source",
             module_directory.path().to_str().unwrap(),
+            "--upstream",
             upstream_directory.path().to_str().unwrap(),
         ])
         .assert()
@@ -64,7 +66,9 @@ fn drift_identical_files_shown_in_json() {
     let output = forge()
         .args([
             "drift",
+            "--source",
             module_directory.path().to_str().unwrap(),
+            "--upstream",
             upstream_directory.path().to_str().unwrap(),
             "--json",
         ])
@@ -102,7 +106,9 @@ fn drift_body_difference_detected() {
     let output = forge()
         .args([
             "drift",
+            "--source",
             module_directory.path().to_str().unwrap(),
+            "--upstream",
             upstream_directory.path().to_str().unwrap(),
             "--json",
         ])
@@ -151,7 +157,9 @@ fn drift_frontmatter_difference_detected() {
     let output = forge()
         .args([
             "drift",
+            "--source",
             module_directory.path().to_str().unwrap(),
+            "--upstream",
             upstream_directory.path().to_str().unwrap(),
             "--json",
         ])
@@ -206,7 +214,9 @@ fn drift_both_frontmatter_and_body_difference() {
     let output = forge()
         .args([
             "drift",
+            "--source",
             module_directory.path().to_str().unwrap(),
+            "--upstream",
             upstream_directory.path().to_str().unwrap(),
             "--json",
         ])
@@ -239,7 +249,9 @@ fn drift_local_only_file_detected() {
     let output = forge()
         .args([
             "drift",
+            "--source",
             module_directory.path().to_str().unwrap(),
+            "--upstream",
             upstream_directory.path().to_str().unwrap(),
             "--json",
         ])
@@ -277,7 +289,9 @@ fn drift_upstream_only_file_detected() {
     let output = forge()
         .args([
             "drift",
+            "--source",
             module_directory.path().to_str().unwrap(),
+            "--upstream",
             upstream_directory.path().to_str().unwrap(),
             "--json",
         ])
@@ -316,7 +330,9 @@ fn drift_skill_body_difference() {
     let output = forge()
         .args([
             "drift",
+            "--source",
             module_directory.path().to_str().unwrap(),
+            "--upstream",
             upstream_directory.path().to_str().unwrap(),
             "--json",
         ])
@@ -357,7 +373,9 @@ fn drift_agent_model_difference_is_frontmatter() {
     let output = forge()
         .args([
             "drift",
+            "--source",
             module_directory.path().to_str().unwrap(),
+            "--upstream",
             upstream_directory.path().to_str().unwrap(),
             "--json",
         ])
@@ -394,7 +412,9 @@ fn drift_decisions_compared() {
     let output = forge()
         .args([
             "drift",
+            "--source",
             module_directory.path().to_str().unwrap(),
+            "--upstream",
             upstream_directory.path().to_str().unwrap(),
             "--json",
         ])
@@ -433,7 +453,9 @@ fn drift_files_without_frontmatter_compared_as_full_body() {
     let output = forge()
         .args([
             "drift",
+            "--source",
             module_directory.path().to_str().unwrap(),
+            "--upstream",
             upstream_directory.path().to_str().unwrap(),
             "--json",
         ])
@@ -470,7 +492,9 @@ fn drift_nested_rules_compared() {
     let output = forge()
         .args([
             "drift",
+            "--source",
             module_directory.path().to_str().unwrap(),
+            "--upstream",
             upstream_directory.path().to_str().unwrap(),
             "--json",
         ])
@@ -504,7 +528,9 @@ fn drift_empty_module_against_populated_upstream() {
     let output = forge()
         .args([
             "drift",
+            "--source",
             module_directory.path().to_str().unwrap(),
+            "--upstream",
             upstream_directory.path().to_str().unwrap(),
             "--json",
         ])
@@ -566,7 +592,9 @@ fn drift_reports_all_content_kinds() {
     let output = forge()
         .args([
             "drift",
+            "--source",
             module_directory.path().to_str().unwrap(),
+            "--upstream",
             upstream_directory.path().to_str().unwrap(),
             "--json",
         ])
@@ -611,7 +639,9 @@ fn ignore_frontmatter_keys_marks_expected() {
     let output = forge()
         .args([
             "drift",
+            "--source",
             module_directory.path().to_str().unwrap(),
+            "--upstream",
             upstream_directory.path().to_str().unwrap(),
             "--ignore",
             "project,author",
@@ -650,7 +680,9 @@ fn ignore_body_marks_expected() {
     let output = forge()
         .args([
             "drift",
+            "--source",
             module_directory.path().to_str().unwrap(),
+            "--upstream",
             upstream_directory.path().to_str().unwrap(),
             "--ignore",
             "body",
@@ -687,7 +719,9 @@ fn ignore_partial_keys_keeps_drift() {
     let output = forge()
         .args([
             "drift",
+            "--source",
             module_directory.path().to_str().unwrap(),
+            "--upstream",
             upstream_directory.path().to_str().unwrap(),
             "--ignore",
             "project",
@@ -722,7 +756,9 @@ fn ignore_both_frontmatter_and_body() {
     let output = forge()
         .args([
             "drift",
+            "--source",
             module_directory.path().to_str().unwrap(),
+            "--upstream",
             upstream_directory.path().to_str().unwrap(),
             "--ignore",
             "project,body",
@@ -757,7 +793,9 @@ fn ignore_body_on_both_drift_keeps_frontmatter() {
     let output = forge()
         .args([
             "drift",
+            "--source",
             module_directory.path().to_str().unwrap(),
+            "--upstream",
             upstream_directory.path().to_str().unwrap(),
             "--ignore",
             "body",
