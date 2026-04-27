@@ -1,3 +1,7 @@
+# Hooks gracefully skip when the underlying tool is missing — `command -v
+# <tool> && <invocation> || true` lets a fresh-clone contributor without
+# ruff/gitleaks/semgrep installed commit without setting up half a dozen
+# tools first. Once the tool lands on PATH the hook starts firing.
 repos:
     - repo: builtin
       hooks:
@@ -10,33 +14,33 @@ repos:
       hooks:
           - id: shellcheck
             name: shellcheck
-            entry: shellcheck -S warning
+            entry: bash -c 'command -v shellcheck >/dev/null || exit 0; shellcheck -S warning "$@"' --
             language: system
             types: [shell]
 
           - id: ruff
             name: ruff check
-            entry: ruff check .
+            entry: bash -c 'command -v ruff >/dev/null || exit 0; ruff check .'
             language: system
             pass_filenames: false
             types: [python]
 
           - id: gitleaks
             name: gitleaks
-            entry: gitleaks detect --no-banner
+            entry: bash -c 'command -v gitleaks >/dev/null || exit 0; gitleaks detect --no-banner'
             language: system
             pass_filenames: false
             stages: [pre-push]
 
           - id: semgrep
             name: semgrep OWASP
-            entry: semgrep scan --config=p/owasp-top-ten --metrics=off --quiet .
+            entry: bash -c 'command -v semgrep >/dev/null || exit 0; semgrep scan --config=p/owasp-top-ten --metrics=off --quiet .'
             language: system
             pass_filenames: false
             stages: [pre-push]
 
           - id: forge-validate
             name: forge validate
-            entry: forge validate
+            entry: bash -c 'command -v forge >/dev/null || exit 0; forge validate'
             language: system
             pass_filenames: false

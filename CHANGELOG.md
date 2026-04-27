@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Fixed
+
+- `templates/init/.pre-commit-config.yaml` hooks now skip gracefully when the underlying tool isn't installed. Each `entry:` is wrapped in `command -v <tool> >/dev/null || exit 0; <tool> ...` so a fresh-clone contributor without ruff/gitleaks/semgrep/shellcheck can commit immediately; the hook starts firing once the tool lands on PATH. (#33)
+
 ### Added
 
 - `forge copy` writes SLSA provenance sidecars to `.provenance/` in the target tree (opt-out via `--skip-provenance`)
