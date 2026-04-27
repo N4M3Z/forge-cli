@@ -141,13 +141,30 @@ fn collect_markdown_files_returns_empty_for_missing_directory() {
     assert!(files.is_empty());
 }
 
+const SIDECAR_FIXTURE: &str =
+    include_str!("../../../tests/fixtures/input/copy-provenance-sidecar.yaml");
+
 fn write_sidecar(directory: &Path, stem: &str, subject: &str, source: &str) {
     let provenance_directory = directory.join(".provenance");
     std::fs::create_dir_all(&provenance_directory).unwrap();
-    let sidecar = format!(
-        "provenance:\n    _type: https://in-toto.io/Statement/v1\n    subject:\n        - name: {subject}\n          digest:\n              sha256: deadbeef\n    predicate:\n        buildDefinition:\n            buildType: https://example.test/copy/v1\n            externalParameters:\n                source: {source}\n            resolvedDependencies:\n                - uri: {subject}\n                  digest:\n                      sha256: deadbeef\n        runDetails:\n            builder:\n                id: forge-cli\n                version:\n                    forge: 0.0.0-test\n            metadata:\n                startedOn: \"2026-01-01T00:00:00Z\"\n"
-    );
-    std::fs::write(provenance_directory.join(format!("{stem}.yaml")), sidecar).unwrap();
+
+    let mut sidecar = manifest::provenance::parse(SIDECAR_FIXTURE).expect("fixture parses");
+    sidecar.provenance.subject[0].name = subject.to_string();
+    sidecar
+        .provenance
+        .predicate
+        .build_definition
+        .resolved_dependencies[0]
+        .uri = subject.to_string();
+    sidecar
+        .provenance
+        .predicate
+        .build_definition
+        .external_parameters
+        .source = source.to_string();
+
+    let yaml = serde_yaml::to_string(&sidecar).expect("sidecar serializes");
+    std::fs::write(provenance_directory.join(format!("{stem}.yaml")), yaml).unwrap();
 }
 
 #[test]
