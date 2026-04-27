@@ -25,7 +25,7 @@ jobs:
               run: make validate
 
             - name: Release
-              run: forge release .
+              run: forge release
 
             - name: Create GitHub release
               env:

@@ -52,7 +52,7 @@ impl AssemblyRule {
     }
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct ProviderConfig {
     pub target: String,
     pub assembly: Option<Vec<String>>,

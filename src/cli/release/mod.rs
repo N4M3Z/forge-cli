@@ -39,6 +39,7 @@ pub fn execute(path: &str, embed: bool) -> Result<ActionResult, Error> {
     let mut result = install::execute(
         path,
         Some(&staging_dir.to_string_lossy()),
+        &[],
         true,
         false,
         false,

@@ -90,6 +90,7 @@ fn install_deploys_agent_to_all_providers() {
     forge()
         .args([
             "install",
+            "--source",
             module_directory.path().to_str().unwrap(),
             "--target",
             target_directory.path().to_str().unwrap(),
@@ -134,6 +135,7 @@ fn install_maps_model_tier_for_claude() {
     forge()
         .args([
             "install",
+            "--source",
             module_directory.path().to_str().unwrap(),
             "--target",
             target_directory.path().to_str().unwrap(),
@@ -163,6 +165,7 @@ fn install_strips_rule_frontmatter_for_claude() {
     forge()
         .args([
             "install",
+            "--source",
             module_directory.path().to_str().unwrap(),
             "--target",
             target_directory.path().to_str().unwrap(),
@@ -188,6 +191,7 @@ fn install_keeps_links_for_claude_strips_for_gemini() {
     forge()
         .args([
             "install",
+            "--source",
             module_directory.path().to_str().unwrap(),
             "--target",
             target_directory.path().to_str().unwrap(),
@@ -215,6 +219,7 @@ fn install_deploys_nested_rules() {
     forge()
         .args([
             "install",
+            "--source",
             module_directory.path().to_str().unwrap(),
             "--target",
             target_directory.path().to_str().unwrap(),
@@ -241,6 +246,7 @@ fn install_deploys_skill_with_companion() {
     forge()
         .args([
             "install",
+            "--source",
             module_directory.path().to_str().unwrap(),
             "--target",
             target_directory.path().to_str().unwrap(),
@@ -276,6 +282,7 @@ fn install_creates_nested_manifest() {
     forge()
         .args([
             "install",
+            "--source",
             module_directory.path().to_str().unwrap(),
             "--target",
             target_directory.path().to_str().unwrap(),
@@ -305,6 +312,7 @@ fn install_deploys_provenance_sidecars() {
     forge()
         .args([
             "install",
+            "--source",
             module_directory.path().to_str().unwrap(),
             "--target",
             target_directory.path().to_str().unwrap(),
@@ -335,6 +343,7 @@ fn install_deploys_nested_provenance() {
     forge()
         .args([
             "install",
+            "--source",
             module_directory.path().to_str().unwrap(),
             "--target",
             target_directory.path().to_str().unwrap(),
@@ -364,6 +373,7 @@ fn install_is_idempotent() {
     forge()
         .args([
             "install",
+            "--source",
             module_directory.path().to_str().unwrap(),
             "--target",
             target_directory.path().to_str().unwrap(),
@@ -376,6 +386,7 @@ fn install_is_idempotent() {
     forge()
         .args([
             "install",
+            "--source",
             module_directory.path().to_str().unwrap(),
             "--target",
             target_directory.path().to_str().unwrap(),
@@ -397,6 +408,7 @@ fn install_empty_module_succeeds() {
     forge()
         .args([
             "install",
+            "--source",
             module_directory.path().to_str().unwrap(),
             "--target",
             target_directory.path().to_str().unwrap(),
@@ -424,7 +436,11 @@ fn validate_reports_missing_required_files() {
     .unwrap();
 
     forge()
-        .args(["validate", module_directory.path().to_str().unwrap()])
+        .args([
+            "validate",
+            "--source",
+            module_directory.path().to_str().unwrap(),
+        ])
         .assert()
         .failure()
         .stdout(predicates::str::contains("MISSING README.md"))
@@ -440,7 +456,11 @@ fn validate_passes_complete_module() {
     fs::write(module_directory.path().join("LICENSE"), "EUPL-1.2\n").unwrap();
 
     forge()
-        .args(["validate", module_directory.path().to_str().unwrap()])
+        .args([
+            "validate",
+            "--source",
+            module_directory.path().to_str().unwrap(),
+        ])
         .assert()
         .success();
 }
@@ -458,6 +478,7 @@ fn copy_preserves_frontmatter() {
     forge()
         .args([
             "copy",
+            "--source",
             module_directory.path().to_str().unwrap(),
             "--target",
             target_directory.path().to_str().unwrap(),
@@ -497,6 +518,7 @@ fn install_respects_targets_frontmatter() {
     forge()
         .args([
             "install",
+            "--source",
             module_directory.path().to_str().unwrap(),
             "--target",
             target_directory.path().to_str().unwrap(),
@@ -552,6 +574,7 @@ fn install_targets_multiple_providers() {
     forge()
         .args([
             "install",
+            "--source",
             module_directory.path().to_str().unwrap(),
             "--target",
             target_directory.path().to_str().unwrap(),
@@ -597,6 +620,7 @@ fn install_target_writes_manifest_with_correct_fingerprints() {
     forge()
         .args([
             "install",
+            "--source",
             module_directory.path().to_str().unwrap(),
             "--target",
             target_directory.path().to_str().unwrap(),
@@ -644,7 +668,11 @@ fn validate_catches_mdschema_violation() {
     .unwrap();
 
     forge()
-        .args(["validate", module_directory.path().to_str().unwrap()])
+        .args([
+            "validate",
+            "--source",
+            module_directory.path().to_str().unwrap(),
+        ])
         .assert()
         .failure();
 }

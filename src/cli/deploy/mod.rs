@@ -21,15 +21,22 @@ use crate::cli::config;
 pub fn execute(
     path: &str,
     target: Option<&str>,
+    requested_providers: &[String],
     force: bool,
     prune: bool,
     _interactive: bool,
 ) -> Result<ActionResult, Error> {
     let module_root = Path::new(path);
+    require_module_root(module_root)?;
     let mut result = ActionResult::new();
 
     let merged_config = config::load_merged_config(module_root)?;
-    let providers = config::load_providers(&merged_config)?;
+    let mut providers = config::load_providers(&merged_config)?;
+
+    if !requested_providers.is_empty() {
+        providers = filter_requested_providers(&providers, requested_providers)?;
+    }
+
     let module_source_uri = config::load_source_uri(module_root);
     let module_name = if module_source_uri.is_empty() {
         None
@@ -209,6 +216,74 @@ fn deploy_provider_files(
                 }
             }
         }
+    }
+    Ok(())
+}
+
+/// Keep only the provider entries the user requested. Each requested name is
+/// matched against provider keys, target directories, and aliases (the same
+/// rules `ProviderConfig::matches_target` uses elsewhere). Unknown names
+/// produce a single error listing all available choices.
+fn filter_requested_providers(
+    providers: &HashMap<String, commands::provider::ProviderConfig>,
+    requested: &[String],
+) -> Result<HashMap<String, commands::provider::ProviderConfig>, Error> {
+    let mut matched: HashMap<String, commands::provider::ProviderConfig> = HashMap::new();
+    let mut unknown: Vec<String> = Vec::new();
+
+    for requested_name in requested {
+        let hit = providers
+            .iter()
+            .find(|(key, config)| config.matches_target(requested_name, key));
+
+        match hit {
+            Some((key, config)) => {
+                matched.entry(key.clone()).or_insert_with(|| config.clone());
+            }
+            None => unknown.push(requested_name.clone()),
+        }
+    }
+
+    if !unknown.is_empty() {
+        let mut available: Vec<&String> = providers.keys().collect();
+        available.sort();
+        return Err(Error::new(
+            ErrorKind::Config,
+            format!(
+                "unknown provider(s): {}. Available: {}",
+                unknown.join(", "),
+                available
+                    .into_iter()
+                    .map(String::as_str)
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
+        ));
+    }
+
+    Ok(matched)
+}
+
+/// Refuse to operate on a path that isn't a forge module root.
+fn require_module_root(module_root: &Path) -> Result<(), Error> {
+    if !module_root.is_dir() {
+        return Err(Error::new(
+            ErrorKind::Io,
+            format!("source directory not found: {}", module_root.display()),
+        ));
+    }
+    let manifest_path = module_root.join("module.yaml");
+    if !manifest_path.is_file() {
+        return Err(Error::new(
+            ErrorKind::Config,
+            format!(
+                "no module.yaml found at {} \
+                 \n\nThe --source argument must point to a forge module root. \
+                 \nRun `forge init {}` to scaffold one, or pass --source <module-path>.",
+                manifest_path.display(),
+                module_root.display(),
+            ),
+        ));
     }
     Ok(())
 }

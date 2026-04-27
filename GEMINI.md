@@ -35,11 +35,11 @@ The project uses a `Makefile` to orchestrate common development tasks.
 - **Clean:** `make clean` (removes build artifacts)
 
 ### CLI Usage Examples
-- **Full Install:** `forge install <module_path>`
-- **Assemble Only:** `forge assemble <module_path>`
-- **Deploy Only:** `forge deploy <module_path>`
-- **Validate Module:** `forge validate <module_path>`
-- **Check for Drift:** `forge drift <local_path> <upstream_path>`
+- **Full Install:** `forge install [--source <module_path>]` (defaults to `.`)
+- **Assemble Only:** `forge assemble [--source <module_path>]`
+- **Deploy Only:** `forge deploy [--source <module_path>]`
+- **Validate Module:** `forge validate [--source <module_path>]`
+- **Check for Drift:** `forge drift [--source <local_path>] --upstream <upstream_path>`
 
 ---
 

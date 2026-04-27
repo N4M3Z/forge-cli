@@ -10,11 +10,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 - `forge copy` writes SLSA provenance sidecars to `.provenance/` in the target tree (opt-out via `--skip-provenance`)
 - `forge drift` consumes copy provenance sidecars to surface source URI on same-name matches and pair files across renames
+- `forge install` and `forge deploy` accept `--provider <NAME>` (repeatable) to deploy only the named provider(s); unknown names error with the available list
+- `forge install`, `forge deploy`, and `forge clean` default the source path to `.` when `--source` is omitted
 
 ### Changed
 
 - `manifest::generate_statement` builds the SLSA statement via typed `serde_yaml::to_string` (eliminates YAML injection risk in interpolated fields)
 - Copy provenance subject names and dependency URIs use POSIX path separators regardless of host OS
+- `forge install`, `forge deploy`, `forge clean` refuse to operate on a directory without `module.yaml`; the error names the missing file and the corrective `--source` invocation
+- The YAML deep-merge "type conflict" warning now identifies the conflicting key path and the involved YAML types
+- `forge install --help` lists the available providers, explains the `--target` per-provider join, and shows two example invocations
+
+### Removed
+
+- All commands drop their positional path arguments. Same positional meant different things across verbs (`forge init <PATH>` wrote into PATH, `forge install <PATH>` read from PATH); every command now uses named flags (`--source`, `--target`, `--upstream`).
+    - `install`, `deploy`, `clean`, `assemble`, `validate`, `release`: source is `--source <DIR>`, defaults to `.`
+    - `init`: target is `--target <DIR>`, no default (scaffolding requires explicit destination)
+    - `copy`: both `--source <DIR>` and `--target <DIR>` are required
+    - `provenance`: inspection target is `--target <DIR_OR_FILE>` (defaults to `.`); the existing source-URI filter is renamed from `--source` to `--source-uri` to avoid name collision
+    - `drift`: source defaults to `.` via `--source`; the second positional is now `--upstream <DIR>` (renamed from `target` since semantically it is the upstream reference)
 
 ## [0.3.1] - 2026-04-16
 
