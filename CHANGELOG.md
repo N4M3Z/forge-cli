@@ -9,6 +9,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 ### Fixed
 
 - `templates/init/.pre-commit-config.yaml` hooks now skip gracefully when the underlying tool isn't installed. Each `entry:` is wrapped in `command -v <tool> >/dev/null || exit 0; <tool> ...` so a fresh-clone contributor without ruff/gitleaks/semgrep/shellcheck can commit immediately; the hook starts firing once the tool lands on PATH. (#33)
+- `forge provenance <file>` now resolves both extension-less (`<stem>.yaml`) and extension-preserving (`<basename>.yaml`) sidecar conventions. Skill companion files using the `<file>.md.yaml` form were previously unreachable. (#31)
 
 ### Added
 

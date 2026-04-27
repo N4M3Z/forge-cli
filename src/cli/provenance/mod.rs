@@ -113,12 +113,35 @@ pub fn execute(
     Ok(0)
 }
 
+/// Resolve a deployed file's provenance sidecar path.
+///
+/// Two naming conventions coexist across forge modules:
+///
+/// | Convention | Example sidecar |
+/// |---|---|
+/// | Extension-less | `agents/.provenance/CodeReviewer.yaml` (for `CodeReviewer.md`) |
+/// | Extension-preserving | `skills/.provenance/CleanCode.md.yaml` (for `CleanCode.md`) |
+///
+/// Returns the first path that exists on disk; falls back to the
+/// extension-less form when neither exists (for clearer error messages).
 pub(crate) fn resolve_sidecar_path(file_path: &Path) -> std::path::PathBuf {
     let parent = file_path.parent().unwrap_or(Path::new("."));
+    let provenance_directory = parent.join(manifest::PROVENANCE_DIRECTORY);
+
     let stem = file_path.file_stem().unwrap_or_default().to_string_lossy();
-    parent
-        .join(manifest::PROVENANCE_DIRECTORY)
-        .join(format!("{stem}.{}", manifest::SIDECAR_EXTENSION))
+    let stem_path = provenance_directory.join(format!("{stem}.{}", manifest::SIDECAR_EXTENSION));
+
+    let basename = file_path.file_name().unwrap_or_default().to_string_lossy();
+    let extension_preserving_path =
+        provenance_directory.join(format!("{basename}.{}", manifest::SIDECAR_EXTENSION));
+
+    if stem_path.is_file() {
+        return stem_path;
+    }
+    if extension_preserving_path.is_file() {
+        return extension_preserving_path;
+    }
+    stem_path
 }
 
 #[cfg(test)]
