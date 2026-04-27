@@ -32,13 +32,33 @@ enum Command {
     },
 
     /// Assemble and deploy module content to provider directories
+    #[command(after_help = "EXAMPLES:\n  \
+        # Install the current directory's module for all providers under ~/\n  \
+        cd ~/Modules/forge-core && forge install --target ~\n  \
+        \n  \
+        # Install a specific module for opencode only\n  \
+        forge install --source ~/Modules/forge-core --target ~ --provider opencode\n\n\
+        TARGET LAYOUT:\n  \
+        --target <DIR> deploys each provider to <DIR>/<provider-target>:\n    \
+        claude   → <DIR>/.claude\n    \
+        codex    → <DIR>/.codex\n    \
+        gemini   → <DIR>/.gemini\n    \
+        opencode → <DIR>/.opencode\n  \
+        Without --target, providers deploy to those paths under the current directory.")]
     Install {
-        /// Path to the module root
-        path: String,
+        /// Module root to install from (must contain module.yaml). Defaults to `.`.
+        #[arg(long, value_name = "DIR", default_value = ".")]
+        source: String,
 
-        /// Deploy to a specific directory instead of default scope
-        #[arg(long)]
+        /// Base directory under which each provider gets its own subdirectory.
+        /// Without this flag, providers deploy under the current directory.
+        #[arg(long, value_name = "DIR")]
         target: Option<String>,
+
+        /// Deploy only the named provider(s). Repeatable.
+        /// Available: claude, codex, gemini, opencode.
+        #[arg(long, value_name = "NAME")]
+        provider: Vec<String>,
 
         /// Overwrite user-modified files
         #[arg(long)]
@@ -57,12 +77,19 @@ enum Command {
 
     /// Deploy assembled files from build/ to provider directories
     Deploy {
-        /// Path to the module root
-        path: String,
+        /// Module root containing build/ to deploy from. Defaults to `.`.
+        #[arg(long, value_name = "DIR", default_value = ".")]
+        source: String,
 
-        /// Deploy to a specific directory instead of default scope
-        #[arg(long)]
+        /// Base directory under which each provider gets its own subdirectory.
+        /// Without this flag, providers deploy under the current directory.
+        #[arg(long, value_name = "DIR")]
         target: Option<String>,
+
+        /// Deploy only the named provider(s). Repeatable.
+        /// Available: claude, codex, gemini, opencode.
+        #[arg(long, value_name = "NAME")]
+        provider: Vec<String>,
 
         /// Overwrite user-modified files
         #[arg(long)]
@@ -122,11 +149,13 @@ enum Command {
 
     /// Remove stale files from previous installs
     Clean {
-        /// Path to the module root
-        path: String,
+        /// Module root whose manifests drive the cleanup. Defaults to `.`.
+        #[arg(long, value_name = "DIR", default_value = ".")]
+        source: String,
 
-        /// Clean a specific directory instead of default scope
-        #[arg(long)]
+        /// Base directory under which each provider's files were deployed.
+        /// Without this flag, the current directory is used.
+        #[arg(long, value_name = "DIR")]
         target: Option<String>,
     },
 
@@ -150,22 +179,38 @@ pub fn run() -> i32 {
     let (result, verb) = match args.command {
         Command::Init { path } => (init::execute(&path), "initialized"),
         Command::Install {
-            path,
+            source,
             target,
+            provider,
             force,
             interactive,
         } => (
-            install::execute(&path, target.as_deref(), force, false, interactive),
+            install::execute(
+                &source,
+                target.as_deref(),
+                &provider,
+                force,
+                false,
+                interactive,
+            ),
             "deployed",
         ),
         Command::Assemble { path } => (assemble::execute(&path), "assembled"),
         Command::Deploy {
-            path,
+            source,
             target,
+            provider,
             force,
             interactive,
         } => (
-            deploy::execute(&path, target.as_deref(), force, false, interactive),
+            deploy::execute(
+                &source,
+                target.as_deref(),
+                &provider,
+                force,
+                false,
+                interactive,
+            ),
             "deployed",
         ),
         Command::Copy {
@@ -201,8 +246,8 @@ pub fn run() -> i32 {
                 }
             };
         }
-        Command::Clean { path, target } => (
-            deploy::execute(&path, target.as_deref(), false, true, false),
+        Command::Clean { source, target } => (
+            deploy::execute(&source, target.as_deref(), &[], false, true, false),
             "cleaned",
         ),
         Command::Release { path, embed } => (release::execute(&path, embed), "released"),

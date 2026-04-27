@@ -10,11 +10,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 - `forge copy` writes SLSA provenance sidecars to `.provenance/` in the target tree (opt-out via `--skip-provenance`)
 - `forge drift` consumes copy provenance sidecars to surface source URI on same-name matches and pair files across renames
+- `forge install` and `forge deploy` accept `--provider <NAME>` (repeatable) to deploy only the named provider(s); unknown names error with the available list
+- `forge install`, `forge deploy`, and `forge clean` default the source path to `.` when `--source` is omitted
 
 ### Changed
 
 - `manifest::generate_statement` builds the SLSA statement via typed `serde_yaml::to_string` (eliminates YAML injection risk in interpolated fields)
 - Copy provenance subject names and dependency URIs use POSIX path separators regardless of host OS
+- `forge install`, `forge deploy`, `forge clean` refuse to operate on a directory without `module.yaml`; the error names the missing file and the corrective `--source` invocation
+- The YAML deep-merge "type conflict" warning now identifies the conflicting key path and the involved YAML types
+- `forge install --help` lists the available providers, explains the `--target` per-provider join, and shows two example invocations
+
+### Removed
+
+- `forge install`, `forge deploy`, `forge clean` no longer accept the source path as a positional argument; pass it via `--source <DIR>` instead (defaults to `.`)
 
 ## [0.3.1] - 2026-04-16
 

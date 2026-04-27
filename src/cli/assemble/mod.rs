@@ -42,6 +42,19 @@ pub fn execute(path: &str) -> Result<ActionResult, Error> {
             format!("module directory not found: {}", module_root.display()),
         ));
     }
+    let module_manifest = module_root.join("module.yaml");
+    if !module_manifest.is_file() {
+        return Err(Error::new(
+            commands::error::ErrorKind::Config,
+            format!(
+                "no module.yaml found at {} \
+                 \n\nThe --source argument must point to a forge module root. \
+                 \nRun `forge init {}` to scaffold one, or pass --source <module-path>.",
+                module_manifest.display(),
+                module_root.display(),
+            ),
+        ));
+    }
     let mut result = ActionResult::new();
 
     let merged_config = config::load_merged_config(module_root)?;

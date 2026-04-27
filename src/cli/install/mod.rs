@@ -15,12 +15,13 @@ use super::deploy;
 pub fn execute(
     path: &str,
     target: Option<&str>,
+    requested_providers: &[String],
     force: bool,
     prune: bool,
     interactive: bool,
 ) -> Result<ActionResult, Error> {
     assemble::execute(path)?;
-    deploy::execute(path, target, force, prune, interactive)
+    deploy::execute(path, target, requested_providers, force, prune, interactive)
 }
 
 #[cfg(test)]
