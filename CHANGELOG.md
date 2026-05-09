@@ -9,6 +9,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 ### Fixed
 
 - `forge provenance --target <DIR>` now walks every deployed content file regardless of extension instead of only `.md`. The codex provider produces `.toml` agent files, so the previous `.md`-only filter caused `forge provenance --target ~/.codex` to report "No provenance found" even when every sidecar matched. Sidecars (`.yaml`) and dotfiles (`.DS_Store`, `.manifest`) are still skipped. (#29)
+- `forge init` now deploys all hidden template files (`.pre-commit-config.yaml`, `.gitattributes`, `.gitleaks.toml`, `.gitlab-ci.yml`). The previous near-total dotfile allowlist silently dropped them; replaced with an OS-junk blocklist (`.DS_Store`, `Thumbs.db`, `Desktop.ini`, `._*` resource forks). (#28)
 
 ### Added
 

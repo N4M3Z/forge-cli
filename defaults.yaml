@@ -50,9 +50,9 @@ providers:
             skills: [name, description, version]
             rules: []
         models:
-            strong: [o3]
-            fast: [o4-mini]
-            light: [o4-mini]
+            strong: [gpt-5.5]
+            fast: [gpt-5.4]
+            light: [gpt-5.3-codex]
 
     opencode:
         target: ".opencode"

@@ -17,11 +17,7 @@ pub fn execute(path: &str) -> Result<ActionResult, Error> {
         .map_err(|error| Error::new(ErrorKind::Io, format!("cannot create {path}: {error}")))?;
 
     for filename in InitTemplates::iter() {
-        // Skip hidden files like .DS_Store that might be in the templates directory
-        if filename.starts_with('.')
-            && !filename.starts_with(".githooks")
-            && !filename.starts_with(".github")
-        {
+        if is_os_junk(&filename) {
             continue;
         }
         let Some(data) = InitTemplates::get(&filename) else {
@@ -112,6 +108,19 @@ pub fn execute(path: &str) -> Result<ActionResult, Error> {
     }
 
     Ok(result)
+}
+
+/// Drop OS-junk files that find their way into the templates directory but
+/// should not land in scaffolded modules. Everything else (including dotfiles
+/// like `.pre-commit-config.yaml`, `.gitattributes`, `.gitleaks.toml`) is
+/// deployed.
+fn is_os_junk(filename: &str) -> bool {
+    const SKIP: &[&str] = &[".DS_Store", "Thumbs.db", "Desktop.ini"];
+    let basename = std::path::Path::new(filename)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or(filename);
+    SKIP.contains(&basename) || basename.starts_with("._")
 }
 
 fn resolve_module_name(module_root: &Path) -> String {
