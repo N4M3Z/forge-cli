@@ -74,6 +74,12 @@ fn collect(directory: &Path) -> (BTreeMap<String, (usize, usize)>, Vec<String>) 
     (by_source, orphans)
 }
 
+/// Files in the same category directory (`agents/`, `rules/`, ...) must
+/// have unique names ignoring extension. If `Foo.md` and `Foo.toml` ever
+/// land side by side, both look up the same sidecar at
+/// `.provenance/Foo.yaml` and one will be reported as a digest mismatch
+/// with no name attached. Co-installed providers should deploy into
+/// separate targets.
 fn collect_recursive(
     directory: &Path,
     target_root: &Path,
@@ -95,15 +101,13 @@ fn collect_recursive(
             continue;
         }
 
-        // Walk every deployed content file regardless of extension. Codex
-        // assembly turns agent .md files into .toml; previously only .md
-        // was inspected, so codex sidecars were never matched against
-        // their files (issue #29). Skip our own .yaml sidecars and any
-        // dotfile (e.g. .DS_Store, .manifest).
         let basename = path.file_name().unwrap_or_default().to_string_lossy();
         if basename.starts_with('.') {
             continue;
         }
+        // Defensive: sidecars live under `.provenance/`, which the
+        // directory walk already skips. This guards against future raw
+        // `.yaml` content placed alongside `.md`/`.toml`.
         if path.extension().unwrap_or_default() == manifest::SIDECAR_EXTENSION {
             continue;
         }
@@ -225,13 +229,13 @@ mod tests {
         let agents_dir = target.path().join("agents");
         std::fs::create_dir_all(&agents_dir).unwrap();
         std::fs::write(agents_dir.join(".DS_Store"), b"").unwrap();
-        std::fs::write(target.path().join(".manifest"), "").unwrap();
+        std::fs::write(agents_dir.join("stray.yaml"), b"").unwrap();
 
         let (by_source, orphans) = collect(target.path());
 
         assert!(
             by_source.is_empty(),
-            ".DS_Store and .manifest must not appear"
+            "dotfile and stray .yaml must not appear"
         );
         assert!(orphans.is_empty());
     }
