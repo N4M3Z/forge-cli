@@ -49,6 +49,7 @@ pub fn markdown_to_toml(source_name: &str, content: &str) -> Result<String, Stri
         model_reasoning_effort,
         developer_instructions: body.trim().to_string(),
     })
+    .map(|toml| format!("# source: {source_name}\n{toml}"))
     .map_err(|error| format!("failed to serialize TOML for {source_name}: {error}"))
 }
 

@@ -157,7 +157,7 @@ fn to_toml_includes_body_as_instructions() {
 fn to_toml_includes_source_comment() {
     let content = "---\nname: TestAgent\ndescription: Test agent\nmodel: gpt-5.4\n---\n\nBody.";
     let result = markdown_to_toml("Helper.md", content).unwrap();
-    assert!(result.contains("name = \"TestAgent\""));
+    assert!(result.starts_with("# source: Helper.md\n"));
 }
 
 #[test]
@@ -182,7 +182,7 @@ fn to_toml_escapes_quotes_in_description() {
 #[test]
 fn to_toml_with_agent_fixture() {
     let result = markdown_to_toml("TestAgent.md", AGENT_FIXTURE).unwrap();
-    assert!(result.contains("name = \"TestAgent\""));
+    assert!(result.starts_with("# source: TestAgent.md\n"));
     assert!(result.contains("Test fixture agent"));
     assert!(result.contains("developer_instructions = "));
 }

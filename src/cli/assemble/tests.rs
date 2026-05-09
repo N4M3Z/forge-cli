@@ -112,3 +112,42 @@ fn assemble_source_maps_agent_model_and_effort_tiers() {
     assert!(result.contains("model: o3"));
     assert!(result.contains("effort: medium"));
 }
+
+#[test]
+fn assemble_source_keeps_explicit_effort_over_tier_effort() {
+    let source = sources::SourceFile {
+        kind: commands::provider::ContentKind::Agents,
+        relative_path: "agents/TestAgent.md".to_string(),
+        full_path: "/tmp/TestAgent.md".to_string(),
+        qualifier: None,
+        passthrough: false,
+        targets: None,
+        content:
+            "---\nname: TestAgent\ndescription: test\nmodel: strong\neffort: high\n---\n\nBody.\n"
+                .to_string(),
+    };
+    let mut model_tiers = HashMap::new();
+    model_tiers.insert("strong".to_string(), vec!["o3".to_string()]);
+    let mut effort_tiers = HashMap::new();
+    effort_tiers.insert("strong".to_string(), "medium".to_string());
+
+    let result = pipeline::assemble_source(
+        &source,
+        std::path::Path::new("/tmp"),
+        "codex",
+        &[
+            "name".to_string(),
+            "description".to_string(),
+            "model".to_string(),
+            "effort".to_string(),
+        ],
+        &model_tiers,
+        &effort_tiers,
+        false,
+    )
+    .unwrap();
+
+    assert!(result.contains("model: o3"));
+    assert!(result.contains("effort: high"));
+    assert!(!result.contains("effort: medium"));
+}
