@@ -59,6 +59,7 @@ pub struct ProviderConfig {
     pub deploy: Option<Vec<String>>,
     pub keep_fields: Option<HashMap<String, Vec<String>>>,
     pub models: Option<HashMap<String, Vec<String>>>,
+    pub effort: Option<HashMap<String, String>>,
     pub aliases: Option<Vec<String>>,
 }
 

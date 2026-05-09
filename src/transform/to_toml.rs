@@ -1,7 +1,9 @@
 /// Convert markdown with frontmatter to TOML configuration format.
 ///
-/// Extracts `description` from frontmatter. The body (everything after
-/// frontmatter) becomes the `instructions` field in a TOML multi-line string.
+use serde::Serialize;
+
+/// Extracts agent metadata from frontmatter. The body (everything after
+/// frontmatter) becomes the `developer_instructions` TOML string field.
 ///
 /// Input (markdown):
 /// ```md
@@ -16,7 +18,7 @@
 /// ```toml
 /// # source: Helper.md
 /// description = "A helper agent"
-/// instructions = """
+/// developer_instructions = """
 /// Do helpful things.
 /// """
 /// ```
@@ -29,37 +31,34 @@
 /// assert!(toml.contains("Do helpful things."));
 /// ```
 pub fn markdown_to_toml(source_name: &str, content: &str) -> Result<String, String> {
-    use std::fmt::Write;
-
+    let name = crate::parse::frontmatter_value(content, "name").unwrap_or_else(|| {
+        source_name
+            .strip_suffix(".md")
+            .unwrap_or(source_name)
+            .to_string()
+    });
     let description = crate::parse::frontmatter_value(content, "description").unwrap_or_default();
+    let model = crate::parse::frontmatter_value(content, "model");
+    let model_reasoning_effort = crate::parse::frontmatter_value(content, "effort");
     let body = crate::parse::frontmatter_body(content);
 
-    let mut output = String::new();
-    writeln!(output, "# source: {source_name}").expect("writing to String");
-    writeln!(
-        output,
-        "description = \"{}\"",
-        escape_toml_string(&description)
-    )
-    .expect("writing to String");
-    write!(output, "instructions = \"\"\"\n{}\"\"\"\n", body.trim()).expect("writing to String");
-
-    Ok(output)
+    toml::to_string(&CodexAgentToml {
+        name,
+        description,
+        model,
+        model_reasoning_effort,
+        developer_instructions: body.trim().to_string(),
+    })
+    .map_err(|error| format!("failed to serialize TOML for {source_name}: {error}"))
 }
 
-/// Escape double quotes and backslashes for TOML basic string values.
-///
-/// `"A \"quoted\" path\\to\\file"` becomes valid inside TOML double quotes.
-fn escape_toml_string(value: &str) -> String {
-    let mut escaped = String::with_capacity(value.len());
-
-    for character in value.chars() {
-        match character {
-            '"' => escaped.push_str("\\\""),
-            '\\' => escaped.push_str("\\\\"),
-            _ => escaped.push(character),
-        }
-    }
-
-    escaped
+#[derive(Serialize)]
+struct CodexAgentToml {
+    name: String,
+    description: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    model: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    model_reasoning_effort: Option<String>,
+    developer_instructions: String,
 }

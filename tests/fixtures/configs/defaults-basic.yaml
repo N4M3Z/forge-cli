@@ -14,6 +14,10 @@ providers:
             - agents-to-toml
         deploy:
             - rulesync
+        effort:
+            strong: medium
+            fast: low
+            light: low
 
     opencode:
         target: ".opencode"

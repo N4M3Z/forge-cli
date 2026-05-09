@@ -28,6 +28,7 @@ pub fn assemble_source(
     provider_name: &str,
     keep_fields: &[String],
     model_tiers: &HashMap<String, Vec<String>>,
+    effort_tiers: &HashMap<String, String>,
     strip_links: bool,
 ) -> Result<String, Error> {
     if source.passthrough {
@@ -55,7 +56,7 @@ pub fn assemble_source(
 
     // Map abstract model tiers (strong/fast/light) to provider-specific values
     if source.kind == commands::provider::ContentKind::Agents && !model_tiers.is_empty() {
-        output = map_model_tier(&output, model_tiers);
+        output = map_agent_model_settings(&output, model_tiers, effort_tiers);
     }
 
     Ok(output)
@@ -65,14 +66,34 @@ pub fn assemble_source(
 ///
 /// Given `model: strong` and tier mapping `{strong: [opus, sonnet]}`, produces `model: opus`.
 /// If the model value isn't a known tier, it passes through unchanged.
-fn map_model_tier(content: &str, tiers: &HashMap<String, Vec<String>>) -> String {
-    assemble::map_field(content, "model", |current_value| {
-        tiers
-            .get(current_value.trim())
-            .and_then(|models| models.first())
-            .cloned()
-            .unwrap_or_else(|| current_value.to_string())
-    })
+fn map_agent_model_settings(
+    content: &str,
+    model_tiers: &HashMap<String, Vec<String>>,
+    effort_tiers: &HashMap<String, String>,
+) -> String {
+    let Some(original_model) = commands::parse::frontmatter_value(content, "model") else {
+        return content.to_string();
+    };
+    let model_key = original_model.trim();
+    let resolved_model = model_tiers
+        .get(model_key)
+        .and_then(|models| models.first())
+        .cloned();
+
+    let mut output = if let Some(model) = resolved_model {
+        assemble::map_field(content, "model", |_| model.clone())
+    } else {
+        content.to_string()
+    };
+
+    let explicit_effort = commands::parse::frontmatter_value(&output, "effort");
+    if explicit_effort.is_none()
+        && let Some(effort) = effort_tiers.get(model_key)
+    {
+        output = assemble::set_field(&output, "effort", effort);
+    }
+
+    output
 }
 
 /// Extract the filename component from a path string.
