@@ -187,7 +187,7 @@ fn install_generates_valid_codex_toml_with_effort() {
     );
     assert_eq!(
         parsed.get("model").and_then(toml::Value::as_str),
-        Some("o3")
+        Some("gpt-5.5")
     );
     assert_eq!(
         parsed
