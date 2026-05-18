@@ -1,9 +1,11 @@
 use commands::error::{Error, ErrorKind};
 use commands::manifest;
 use commands::result::{ActionResult, DeployedFile, PrunedFile, SkipReason, SkippedFile};
+use regex::Regex;
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::Path;
+use std::sync::OnceLock;
 
 use crate::cli::config;
 
@@ -18,6 +20,7 @@ use crate::cli::config;
 /// Stale     → copy (source changed since last build)
 /// Modified  → skip (unless --force)
 /// ```
+#[allow(clippy::fn_params_excessive_bools, clippy::too_many_lines)]
 pub fn execute(
     path: &str,
     target: Option<&str>,
@@ -25,6 +28,7 @@ pub fn execute(
     force: bool,
     prune: bool,
     _interactive: bool,
+    dry_run: bool,
 ) -> Result<ActionResult, Error> {
     let module_root = Path::new(path);
     require_module_root(module_root)?;
@@ -72,8 +76,9 @@ pub fn execute(
             force,
         )?;
 
-        // Stale detection only with --prune (shared manifests across
-        // modules make automatic detection unreliable without module ownership)
+        // Stale detection only when prune enabled. Pruned files are
+        // quarantined to <target>/.trash/<UTC-ts>/ rather than deleted so
+        // accidental prunes are recoverable with a single mv.
         if prune {
             let stale_keys: Vec<String> = existing_manifest
                 .iter()
@@ -89,20 +94,108 @@ pub fn execute(
                 .map(|(key, _)| key.clone())
                 .collect();
 
-            for stale_key in &stale_keys {
-                let stale_path = target_base.join(stale_key);
-                if stale_path.is_file() && fs::remove_file(&stale_path).is_err() {
-                    eprintln!("warning: cannot remove {}", stale_path.display());
-                }
-                // Also remove provenance sidecar
-                let provenance_path = target_base.join(manifest::provenance_path(stale_key));
-                let _ = fs::remove_file(&provenance_path);
+            if !stale_keys.is_empty() {
+                let stamp = chrono::Utc::now().format("%Y-%m-%d-%H%MZ").to_string();
+                let trash_root = target_base.join(".trash").join(&stamp);
 
-                existing_manifest.remove(stale_key);
-                result.pruned.push(PrunedFile {
-                    target: stale_path.to_string_lossy().to_string(),
-                    provider: provider_name.to_owned(),
-                });
+                let mut skipped_modified = 0;
+                for stale_key in &stale_keys {
+                    let stale_path = target_base.join(stale_key);
+                    let trash_dest = trash_root.join(stale_key);
+
+                    // Refuse to prune a file whose on-disk content no longer
+                    // matches the fingerprint forge recorded — that signals
+                    // local edits the user might want to keep. Same semantic as
+                    // the deploy path uses to skip overwriting modified files;
+                    // --force overrides both.
+                    if !force
+                        && stale_path.is_file()
+                        && let Some(expected) = existing_manifest
+                            .get(stale_key)
+                            .map(|entry| entry.fingerprint.clone())
+                        && let Ok(current) = fs::read_to_string(&stale_path)
+                        && manifest::content_sha256(&current) != expected
+                    {
+                        eprintln!(
+                            "forge prune: skipping {} (modified locally; pass --force to prune)",
+                            stale_path.display()
+                        );
+                        skipped_modified += 1;
+                        continue;
+                    }
+
+                    if dry_run {
+                        eprintln!(
+                            "forge prune: would move {} -> {}",
+                            stale_path.display(),
+                            trash_dest.display()
+                        );
+                        continue;
+                    }
+
+                    if let Some(parent) = trash_dest.parent()
+                        && let Err(error) = fs::create_dir_all(parent)
+                    {
+                        eprintln!(
+                            "warning: cannot create quarantine dir {}: {error}",
+                            parent.display()
+                        );
+                        continue;
+                    }
+
+                    if stale_path.is_file() {
+                        if let Err(error) = fs::rename(&stale_path, &trash_dest) {
+                            eprintln!(
+                                "warning: cannot quarantine {}: {error}",
+                                stale_path.display()
+                            );
+                            continue;
+                        }
+                        prune_empty_parents(stale_path.parent(), &target_base);
+                    }
+
+                    let provenance_rel = manifest::provenance_path(stale_key);
+                    let provenance_path = target_base.join(&provenance_rel);
+                    if provenance_path.is_file() {
+                        let provenance_trash = trash_root.join(&provenance_rel);
+                        if let Some(parent) = provenance_trash.parent() {
+                            let _ = fs::create_dir_all(parent);
+                        }
+                        let _ = fs::rename(&provenance_path, &provenance_trash);
+                        prune_empty_parents(provenance_path.parent(), &target_base);
+                    }
+
+                    existing_manifest.remove(stale_key);
+                    result.pruned.push(PrunedFile {
+                        target: stale_path.to_string_lossy().to_string(),
+                        provider: provider_name.to_owned(),
+                    });
+                }
+
+                let action = if dry_run { "would move" } else { "moved" };
+                let pruned_count = stale_keys.len() - skipped_modified;
+                if pruned_count > 0 {
+                    let entry_label = if pruned_count == 1 {
+                        "entry"
+                    } else {
+                        "entries"
+                    };
+                    eprintln!(
+                        "forge prune: {action} {pruned_count} stale {entry_label} to {}/.trash/{}/; recoverable via mv",
+                        target_base.display(),
+                        stamp
+                    );
+                }
+                if skipped_modified > 0 {
+                    let entry_label = if skipped_modified == 1 {
+                        "entry"
+                    } else {
+                        "entries"
+                    };
+                    eprintln!(
+                        "forge prune: skipped {skipped_modified} modified {entry_label}; pass --force to prune"
+                    );
+                }
             }
         }
 
@@ -408,8 +501,15 @@ fn collect_files_recursive(dir: &Path) -> Result<Vec<std::path::PathBuf>, Error>
 
 /// Check if a stale manifest entry was installed by the current module.
 ///
-/// Reads the provenance sidecar and checks the builder ID against the module name.
-/// If no provenance exists or can't be read, assumes ownership (prune it).
+/// Reads the provenance sidecar and compares the recorded source URI to the
+/// current module's identity. If no provenance exists or can't be read,
+/// assumes ownership (prune it).
+///
+/// Matching is structured: both source URIs are parsed into `(host, owner, repo)`
+/// tuples and compared as tuples. Bare-name equality is used only when both
+/// inputs fail to parse as URLs. This prevents two modules named `forge-core`
+/// at different repositories from incorrectly pruning each other's deployed
+/// files, and stops `Prompts` from matching `PublishPrompts` via a substring.
 fn is_owned_by_module(
     entry: &manifest::ManifestEntry,
     target_base: &Path,
@@ -434,7 +534,54 @@ fn is_owned_by_module(
         .build_definition
         .external_parameters
         .source;
-    source_uri == module || source_uri.ends_with(&format!("/{module}"))
+
+    match (parse_repo(source_uri), parse_repo(module)) {
+        (Some(a), Some(b)) => a == b,
+        (None, None) => source_uri == module,
+        _ => false,
+    }
+}
+
+/// Remove empty parent directories walking up from `start` toward `stop`.
+///
+/// Stops as soon as a non-empty directory is encountered or the walk reaches
+/// `stop` (or escapes the `stop` subtree). The `stop` directory itself is
+/// never removed, so this cannot delete the provider target root.
+fn prune_empty_parents(start: Option<&Path>, stop: &Path) {
+    let mut current = start;
+    while let Some(directory) = current {
+        if directory == stop || !directory.starts_with(stop) {
+            break;
+        }
+        let is_empty = fs::read_dir(directory).is_ok_and(|mut iter| iter.next().is_none());
+        if !is_empty {
+            break;
+        }
+        if fs::remove_dir(directory).is_err() {
+            break;
+        }
+        current = directory.parent();
+    }
+}
+
+/// Parse a GitHub-style repository URI into `(host, owner, repo)`.
+///
+/// Accepts `https://host/owner/repo`, `https://host/owner/repo.git`,
+/// `git@host:owner/repo`, `git@host:owner/repo.git`, with or without a
+/// trailing slash. Returns `None` for bare-name strings, which the caller
+/// then compares with literal equality.
+fn parse_repo(s: &str) -> Option<(String, String, String)> {
+    static REPO_RE: OnceLock<Regex> = OnceLock::new();
+    let re = REPO_RE.get_or_init(|| {
+        Regex::new(r"^(?:https?://|git@)([^/:]+)[:/]([^/]+)/([^/.]+?)(?:\.git)?/?$")
+            .expect("repo regex compiles")
+    });
+    let captures = re.captures(s)?;
+    Some((
+        captures.get(1)?.as_str().to_string(),
+        captures.get(2)?.as_str().to_string(),
+        captures.get(3)?.as_str().to_string(),
+    ))
 }
 
 #[cfg(test)]

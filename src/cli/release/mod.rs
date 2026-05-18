@@ -43,6 +43,7 @@ pub fn execute(path: &str, embed: bool) -> Result<ActionResult, Error> {
         true,
         false,
         false,
+        false,
     )?;
     result.installed.clear();
     result.skipped.clear();

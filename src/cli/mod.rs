@@ -71,6 +71,16 @@ enum Command {
         /// Prompt before overwriting each file (not yet implemented, see CLI-0007)
         #[arg(long, short, hide = true)]
         interactive: bool,
+
+        /// Skip pruning deployed files absent from source. By default, install
+        /// prunes stale agents/skills/rules and quarantines them to
+        /// <target>/.trash/<UTC-ts>/ for recoverability.
+        #[arg(long)]
+        no_prune: bool,
+
+        /// Show what would be pruned without moving files.
+        #[arg(long)]
+        dry_run: bool,
     },
 
     /// Assemble module content into build/
@@ -103,6 +113,16 @@ enum Command {
         /// Prompt before overwriting each file (not yet implemented, see CLI-0007)
         #[arg(long, short, hide = true)]
         interactive: bool,
+
+        /// Skip pruning deployed files absent from source. By default, deploy
+        /// prunes stale agents/skills/rules and quarantines them to
+        /// <target>/.trash/<UTC-ts>/ for recoverability.
+        #[arg(long)]
+        no_prune: bool,
+
+        /// Show what would be pruned without moving files.
+        #[arg(long)]
+        dry_run: bool,
     },
 
     /// Copy source files directly to a target directory (no assembly, no transforms)
@@ -195,14 +215,17 @@ pub fn run() -> i32 {
             provider,
             force,
             interactive,
+            no_prune,
+            dry_run,
         } => (
             install::execute(
                 &source,
                 target.as_deref(),
                 &provider,
                 force,
-                false,
+                !no_prune,
                 interactive,
+                dry_run,
             ),
             "deployed",
         ),
@@ -213,14 +236,17 @@ pub fn run() -> i32 {
             provider,
             force,
             interactive,
+            no_prune,
+            dry_run,
         } => (
             deploy::execute(
                 &source,
                 target.as_deref(),
                 &provider,
                 force,
-                false,
+                !no_prune,
                 interactive,
+                dry_run,
             ),
             "deployed",
         ),
@@ -262,7 +288,7 @@ pub fn run() -> i32 {
             };
         }
         Command::Clean { source, target } => (
-            deploy::execute(&source, target.as_deref(), &[], false, true, false),
+            deploy::execute(&source, target.as_deref(), &[], false, true, false, false),
             "cleaned",
         ),
         Command::Release { source, embed } => (release::execute(&source, embed), "released"),

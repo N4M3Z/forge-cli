@@ -12,6 +12,7 @@ use super::deploy;
 /// ```
 ///
 /// Returns only the deployment result — assembly is an internal step.
+#[allow(clippy::fn_params_excessive_bools)]
 pub fn execute(
     path: &str,
     target: Option<&str>,
@@ -19,9 +20,18 @@ pub fn execute(
     force: bool,
     prune: bool,
     interactive: bool,
+    dry_run: bool,
 ) -> Result<ActionResult, Error> {
     assemble::execute(path)?;
-    deploy::execute(path, target, requested_providers, force, prune, interactive)
+    deploy::execute(
+        path,
+        target,
+        requested_providers,
+        force,
+        prune,
+        interactive,
+        dry_run,
+    )
 }
 
 #[cfg(test)]
