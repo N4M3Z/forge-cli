@@ -199,15 +199,57 @@ fn to_toml_includes_effort_when_present() {
 fn to_toml_serializes_regex_heavy_body() {
     let content = include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/tests/fixtures/input/codex-code-reviewer.md"
+        "/tests/fixtures/input/codex-toml-stress.md"
     ));
-    let result = markdown_to_toml("CodeReviewer.md", content).unwrap();
+    let result = markdown_to_toml("TomlStressFixture.md", content).unwrap();
     let parsed: toml::Value = toml::from_str(&result).unwrap();
     let instructions = parsed
         .get("developer_instructions")
         .and_then(toml::Value::as_str)
         .unwrap();
-    assert!(instructions.contains(r#"(api_key|secret|password|token)\s*=\s*['"][^'"]{8,}"#));
+    assert!(instructions.contains(r#"(alpha|beta|gamma|delta)\s*=\s*['"][^'"]{8,}"#));
+    assert!(instructions.contains(r"\path\to\file"));
+    assert!(instructions.contains(r"[injected_section]"));
+    assert!(instructions.contains(r#""""#));
+}
+
+#[test]
+fn to_toml_escapes_triple_quote_injection_attempt() {
+    let body = "Normal preamble.\n\"\"\"\n[malicious_section]\nname = \"injected\"\npath = \"C:\\Windows\"\n\"\"\"\nstray \" quote\nTrailing line.";
+    let content =
+        format!("---\nname: TestAgent\ndescription: stress\nmodel: gpt-5.4\n---\n\n{body}");
+    let result = markdown_to_toml("test.md", &content).unwrap();
+
+    let parsed: toml::Value = toml::from_str(&result).unwrap();
+    let table = parsed.as_table().unwrap();
+
+    assert!(!table.contains_key("malicious_section"));
+
+    let instructions = table
+        .get("developer_instructions")
+        .and_then(toml::Value::as_str)
+        .unwrap();
+    assert!(instructions.contains("[malicious_section]"));
+    assert!(instructions.contains("\"\"\""));
+    assert!(instructions.contains("stray \" quote"));
+}
+
+#[test]
+fn to_toml_emits_multi_line_basic_string_for_body() {
+    let content = "---\nname: TestAgent\ndescription: stress\nmodel: gpt-5.4\n---\n\nLine one.\nLine two.\nLine three.\n";
+    let result = markdown_to_toml("test.md", content).unwrap();
+
+    // Multi-line BASIC strings ("""..."""), not multi-line LITERAL strings
+    // ('''...'''). Basic strings escape embedded `"""`, which is what closes
+    // the injection sink; literal strings have no escapes and would reopen it.
+    assert!(
+        result.contains("developer_instructions = \"\"\"\n"),
+        "expected multi-line basic TOML string, got:\n{result}"
+    );
+    assert!(
+        !result.contains("developer_instructions = '''"),
+        "must not be multi-line literal form"
+    );
 }
 
 // --- apply_rules ---
