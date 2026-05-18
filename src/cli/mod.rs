@@ -10,6 +10,9 @@ mod provenance;
 mod release;
 mod validate;
 
+#[cfg(test)]
+mod tests;
+
 use clap::{Parser, Subcommand};
 
 #[derive(Parser)]

@@ -49,3 +49,33 @@ jobs:
 
             - name: Validate
               uses: j178/prek-action@v2
+
+    # End-to-end guard: scaffold a fresh module via `forge init` and run
+    # `make validate` against it. Catches any change that produces a broken
+    # init template (CLI-shape drift, stale SHA pins, Makefile typos, etc.).
+    scaffold:
+        needs: build
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v6
+
+            - name: Download forge
+              uses: actions/download-artifact@v8
+              with:
+                  name: forge
+                  path: /usr/local/bin
+
+            - name: Install prek
+              uses: taiki-e/install-action@v2
+              with:
+                  tool: prek
+
+            - name: Scaffold and validate generated module
+              shell: bash
+              run: |
+                  set -euo pipefail
+                  chmod +x /usr/local/bin/forge
+                  /usr/local/bin/forge init --target /tmp/module
+                  cd /tmp/module
+                  git init -q
+                  make validate

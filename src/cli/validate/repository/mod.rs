@@ -73,7 +73,7 @@ pub fn check_template_drift(module_root: &Path, result: &mut ActionResult) {
 fn template_hash(filename: &str, module_name: &str) -> Option<String> {
     let data = InitTemplates::get(filename)?;
     let template_content = std::str::from_utf8(data.data.as_ref()).ok()?;
-    let content = template_content.replace("${MODULE_NAME}", module_name);
+    let content = super::templates::substitute(template_content, module_name);
     Some(manifest::content_sha256(&content))
 }
 
