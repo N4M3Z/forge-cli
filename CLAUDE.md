@@ -59,7 +59,7 @@ Variant resolution uses qualifier directories (`user/`, `claude/`, `claude-opus-
 
 ### Init Templates
 
-`templates/init/` mirrors the deploy target 1:1 — no remapping config. `forge init <path>` iterates the directory and writes each file at the same relative path, substituting `${MODULE_NAME}` and `${VERSION}`. Content `.mdschema` files live inside `templates/init/` at their deploy path (e.g. `agents/.mdschema`). Document schemas (README, CONTRIBUTING) live in `schemas/` — embedded for validation fallback only, never deployed.
+`templates/init/` mirrors the deploy target 1:1 — no remapping config. `forge init <path>` iterates the directory and writes each file at the same relative path, substituting `${MODULE_NAME}`, `${VERSION}`, and `${VALIDATE_SH_SHA}` (the latter computed by `build.rs` from `scripts/validate.sh` and exposed as `commands::VALIDATE_SH_SHA`). Content `.mdschema` files live inside `templates/init/` at their deploy path (e.g. `agents/.mdschema`). Document schemas (README, CONTRIBUTING) live in `schemas/` — embedded for validation fallback only, never deployed.
 
 ### Validation
 

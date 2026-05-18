@@ -25,9 +25,7 @@ pub fn execute(path: &str) -> Result<ActionResult, Error> {
         };
         let template_content = std::str::from_utf8(data.data.as_ref())
             .map_err(|error| Error::new(ErrorKind::Io, format!("{filename}: {error}")))?;
-        let content = template_content
-            .replace("${MODULE_NAME}", &module_name)
-            .replace("${VERSION}", "0.1.0");
+        let content = super::validate::templates::substitute(template_content, &module_name);
 
         let target_path = module_root.join(filename.as_ref());
         let template_hash = manifest::content_sha256(&content);

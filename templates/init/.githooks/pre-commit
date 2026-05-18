@@ -5,7 +5,7 @@ set -euo pipefail
 # Canonical source: https://github.com/N4M3Z/forge-cli/blob/main/templates/init/.githooks/pre-commit
 
 SCRIPT_URL="https://raw.githubusercontent.com/N4M3Z/forge-cli/main/scripts/validate.sh"
-SCRIPT_SHA="62cdb4b53f6eb503db919dd2c0f484ec8b38fc2dd943a4e339a5e59b6a9720fa"
+SCRIPT_SHA="${VALIDATE_SH_SHA}"
 
 if command -v prek >/dev/null 2>&1; then
     prek run --all-files
