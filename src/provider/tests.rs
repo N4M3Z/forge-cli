@@ -165,6 +165,7 @@ fn provider_with_aliases(target: &str, aliases: Vec<&str>) -> ProviderConfig {
         deploy: None,
         keep_fields: None,
         models: None,
+        effort: None,
         aliases: Some(aliases.into_iter().map(String::from).collect()),
     }
 }
@@ -207,8 +208,20 @@ fn matches_target_no_aliases() {
         deploy: None,
         keep_fields: None,
         models: None,
+        effort: None,
         aliases: None,
     };
     assert!(config.matches_target("opencode", "opencode"));
     assert!(!config.matches_target("claudecode", "opencode"));
+}
+
+#[test]
+fn load_providers_reads_effort_steps() {
+    let providers = load_providers(DEFAULTS).unwrap();
+
+    let codex = &providers["codex"];
+    let effort = codex.effort.as_ref().unwrap();
+    assert_eq!(effort.get("strong"), Some(&"medium".to_string()));
+    assert_eq!(effort.get("fast"), Some(&"low".to_string()));
+    assert_eq!(effort.get("light"), Some(&"low".to_string()));
 }

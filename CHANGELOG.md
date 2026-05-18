@@ -8,6 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Fixed
 
+- `markdown_to_toml` now serializes Codex agent `.toml` via the `toml` crate, which picks a safe string form (`"..."`, `"""..."""`, or `'''...'''`) based on body content. The previous implementation interpolated the body directly into a `"""..."""` literal with no escaping, so a body containing `"""\n[section]\nkey = "x"` could break out of the literal and inject arbitrary top-level tables into the deployed agent config. (#43)
 - `forge provenance --target <DIR>` now walks every deployed content file regardless of extension instead of only `.md`. The codex provider produces `.toml` agent files, so the previous `.md`-only filter caused `forge provenance --target ~/.codex` to report "No provenance found" even when every sidecar matched. Sidecars (`.yaml`) and dotfiles (`.DS_Store`, `.manifest`) are still skipped. (#29)
 - `forge init` now deploys all hidden template files (`.pre-commit-config.yaml`, `.gitattributes`, `.gitleaks.toml`, `.gitlab-ci.yml`). The previous near-total dotfile allowlist silently dropped them; replaced with an OS-junk blocklist (`.DS_Store`, `Thumbs.db`, `Desktop.ini`, `._*` resource forks). (#28)
 - `templates/init/.pre-commit-config.yaml` ruff hook drops `pass_filenames: false`, which was bypassing the `types: [python]` filter and forcing ruff to run on every commit (including markdown-only modules without ruff installed). With the flag gone, prek skips the hook when no Python files are staged. (#33)
@@ -23,6 +24,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Changed
 
+- Codex agent `.toml` files now include `name`, `model`, and `model_reasoning_effort` fields alongside `description`, and the body is emitted as `developer_instructions` (renamed from `instructions`). The codex provider also defines `effort` tiers (`strong → medium`, `fast → low`, `light → low`) and extends `keep_fields.agents` to retain `model` and `effort` so they flow through assembly. Consumers must rerun `forge install` for deployed agents to pick up the new field names. Per the OpenAI Responses API the `developer` role outranks `user`, so adopted upstream agent content now inherits that elevated trust on Codex. (#43)
 - `manifest::generate_statement` builds the SLSA statement via typed `serde_yaml::to_string` (eliminates YAML injection risk in interpolated fields)
 - Copy provenance subject names and dependency URIs use POSIX path separators regardless of host OS
 - `forge install`, `forge deploy`, `forge clean` refuse to operate on a directory without `module.yaml`; the error names the missing file and the corrective `--source` invocation

@@ -75,3 +75,149 @@ fn kebab_case_path_converts_directory_and_filename() {
 fn kebab_case_path_preserves_already_lowercase() {
     assert_eq!(apply_kebab_case_to_path("readme.md"), "readme.md");
 }
+
+#[test]
+fn assemble_source_maps_agent_model_and_effort_tiers() {
+    let source = sources::SourceFile {
+        kind: commands::provider::ContentKind::Agents,
+        relative_path: "agents/TestAgent.md".to_string(),
+        full_path: "/tmp/TestAgent.md".to_string(),
+        qualifier: None,
+        passthrough: false,
+        targets: None,
+        content: "---\nname: TestAgent\ndescription: test\nmodel: strong\n---\n\nBody.\n"
+            .to_string(),
+    };
+    let mut model_tiers = HashMap::new();
+    model_tiers.insert("strong".to_string(), vec!["o3".to_string()]);
+    let mut effort_tiers = HashMap::new();
+    effort_tiers.insert("strong".to_string(), "medium".to_string());
+
+    let result = pipeline::assemble_source(
+        &source,
+        std::path::Path::new("/tmp"),
+        "codex",
+        &[
+            "name".to_string(),
+            "description".to_string(),
+            "model".to_string(),
+            "effort".to_string(),
+        ],
+        &model_tiers,
+        &effort_tiers,
+        false,
+    )
+    .unwrap();
+
+    assert!(result.contains("model: o3"));
+    assert!(result.contains("effort: medium"));
+}
+
+#[test]
+fn assemble_source_maps_all_codex_tiers() {
+    let mut model_tiers = HashMap::new();
+    model_tiers.insert("strong".to_string(), vec!["gpt-5.5".to_string()]);
+    model_tiers.insert("fast".to_string(), vec!["gpt-5.4".to_string()]);
+    model_tiers.insert("light".to_string(), vec!["gpt-5.3-codex".to_string()]);
+
+    let mut effort_tiers = HashMap::new();
+    effort_tiers.insert("strong".to_string(), "medium".to_string());
+    effort_tiers.insert("fast".to_string(), "low".to_string());
+    effort_tiers.insert("light".to_string(), "low".to_string());
+
+    let cases = [
+        ("strong", Some("gpt-5.5"), Some("medium")),
+        ("fast", Some("gpt-5.4"), Some("low")),
+        ("light", Some("gpt-5.3-codex"), Some("low")),
+        ("unmapped", None, None),
+    ];
+
+    for (source_model, expected_model, expected_effort) in cases {
+        let source = sources::SourceFile {
+            kind: commands::provider::ContentKind::Agents,
+            relative_path: "agents/TestAgent.md".to_string(),
+            full_path: "/tmp/TestAgent.md".to_string(),
+            qualifier: None,
+            passthrough: false,
+            targets: None,
+            content: format!(
+                "---\nname: TestAgent\ndescription: test\nmodel: {source_model}\n---\n\nBody.\n"
+            ),
+        };
+
+        let result = pipeline::assemble_source(
+            &source,
+            std::path::Path::new("/tmp"),
+            "codex",
+            &[
+                "name".to_string(),
+                "description".to_string(),
+                "model".to_string(),
+                "effort".to_string(),
+            ],
+            &model_tiers,
+            &effort_tiers,
+            false,
+        )
+        .unwrap();
+
+        let model_line = match expected_model {
+            Some(model) => format!("model: {model}"),
+            None => format!("model: {source_model}"),
+        };
+        assert!(
+            result.contains(&model_line),
+            "tier {source_model}: expected `{model_line}`, got:\n{result}"
+        );
+
+        match expected_effort {
+            Some(effort) => assert!(
+                result.contains(&format!("effort: {effort}")),
+                "tier {source_model}: expected effort {effort}, got:\n{result}"
+            ),
+            None => assert!(
+                !result.contains("effort:"),
+                "tier {source_model}: expected no effort, got:\n{result}"
+            ),
+        }
+    }
+}
+
+#[test]
+fn assemble_source_keeps_explicit_effort_over_tier_effort() {
+    let source = sources::SourceFile {
+        kind: commands::provider::ContentKind::Agents,
+        relative_path: "agents/TestAgent.md".to_string(),
+        full_path: "/tmp/TestAgent.md".to_string(),
+        qualifier: None,
+        passthrough: false,
+        targets: None,
+        content:
+            "---\nname: TestAgent\ndescription: test\nmodel: strong\neffort: high\n---\n\nBody.\n"
+                .to_string(),
+    };
+    let mut model_tiers = HashMap::new();
+    model_tiers.insert("strong".to_string(), vec!["o3".to_string()]);
+    let mut effort_tiers = HashMap::new();
+    effort_tiers.insert("strong".to_string(), "medium".to_string());
+
+    let result = pipeline::assemble_source(
+        &source,
+        std::path::Path::new("/tmp"),
+        "codex",
+        &[
+            "name".to_string(),
+            "description".to_string(),
+            "model".to_string(),
+            "effort".to_string(),
+        ],
+        &model_tiers,
+        &effort_tiers,
+        false,
+    )
+    .unwrap();
+
+    assert!(result.contains("model: o3"));
+    assert!(result.contains("effort: high"));
+    assert!(!result.contains("effort: medium"));
+}

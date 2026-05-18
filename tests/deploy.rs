@@ -155,6 +155,50 @@ fn install_maps_model_tier_for_claude() {
 }
 
 #[test]
+fn install_generates_valid_codex_toml_with_effort() {
+    let module_directory = tempfile::tempdir().unwrap();
+    let target_directory = tempfile::tempdir().unwrap();
+
+    scaffold_module(module_directory.path());
+    create_agent(module_directory.path(), "StrongAgent", "strong");
+
+    forge()
+        .args([
+            "install",
+            "--source",
+            module_directory.path().to_str().unwrap(),
+            "--target",
+            target_directory.path().to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    let deployed = fs::read_to_string(
+        target_directory
+            .path()
+            .join(".codex/agents/StrongAgent.toml"),
+    )
+    .unwrap();
+
+    let parsed: toml::Value = toml::from_str(&deployed).unwrap();
+    assert_eq!(
+        parsed.get("name").and_then(toml::Value::as_str),
+        Some("StrongAgent")
+    );
+    assert_eq!(
+        parsed.get("model").and_then(toml::Value::as_str),
+        Some("gpt-5.5")
+    );
+    assert_eq!(
+        parsed
+            .get("model_reasoning_effort")
+            .and_then(toml::Value::as_str),
+        Some("medium")
+    );
+    assert!(parsed.get("developer_instructions").is_some());
+}
+
+#[test]
 fn install_strips_rule_frontmatter_for_claude() {
     let module_directory = tempfile::tempdir().unwrap();
     let target_directory = tempfile::tempdir().unwrap();

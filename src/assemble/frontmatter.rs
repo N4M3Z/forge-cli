@@ -91,6 +91,32 @@ pub fn map_field(content: &str, target_field: &str, mapper: impl Fn(&str) -> Str
     format!("---\n{new_yaml}---\n{body}")
 }
 
+/// Set or replace a string field in YAML frontmatter.
+pub fn set_field(content: &str, target_field: &str, value: &str) -> String {
+    let Some((yaml_text, body)) = crate::parse::split_frontmatter(content) else {
+        return content.to_string();
+    };
+
+    let Ok(mut parsed): Result<serde_yaml::Value, _> = serde_yaml::from_str(yaml_text) else {
+        return content.to_string();
+    };
+
+    let Some(mapping) = parsed.as_mapping_mut() else {
+        return content.to_string();
+    };
+
+    mapping.insert(
+        serde_yaml::Value::String(target_field.to_string()),
+        serde_yaml::Value::String(value.to_string()),
+    );
+
+    let Ok(new_yaml) = serde_yaml::to_string(&parsed) else {
+        return content.to_string();
+    };
+
+    format!("---\n{new_yaml}---\n{body}")
+}
+
 /// Strip a leading `# Title` heading if it's the first non-empty line.
 fn strip_heading(text: &str) -> String {
     let had_newline = text.ends_with('\n');

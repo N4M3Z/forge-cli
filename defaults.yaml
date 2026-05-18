@@ -46,13 +46,17 @@ providers:
         deploy:
             - rulesync
         keep_fields:
-            agents: [name, description]
+            agents: [name, description, model, effort]
             skills: [name, description, version]
             rules: []
         models:
             strong: [gpt-5.5]
             fast: [gpt-5.4]
             light: [gpt-5.3-codex]
+        effort:
+            strong: medium
+            fast: low
+            light: low
 
     opencode:
         target: ".opencode"

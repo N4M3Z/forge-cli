@@ -138,46 +138,118 @@ fn remap_handles_unclosed_backtick() {
 
 #[test]
 fn to_toml_extracts_description() {
-    let content = "---\ndescription: Test agent\n---\n\nBody content.";
+    let content =
+        "---\nname: TestAgent\ndescription: Test agent\nmodel: gpt-5.4\n---\n\nBody content.";
     let result = markdown_to_toml("test.md", content).unwrap();
     assert!(result.contains("description = \"Test agent\""));
 }
 
 #[test]
 fn to_toml_includes_body_as_instructions() {
-    let content = "---\ndescription: Test agent\n---\n\nBody content.";
+    let content =
+        "---\nname: TestAgent\ndescription: Test agent\nmodel: gpt-5.4\n---\n\nBody content.";
     let result = markdown_to_toml("test.md", content).unwrap();
-    assert!(result.contains("instructions = \"\"\""));
+    assert!(result.contains("developer_instructions = "));
     assert!(result.contains("Body content."));
 }
 
 #[test]
 fn to_toml_includes_source_comment() {
-    let content = "---\ndescription: Test agent\n---\n\nBody.";
+    let content = "---\nname: TestAgent\ndescription: Test agent\nmodel: gpt-5.4\n---\n\nBody.";
     let result = markdown_to_toml("Helper.md", content).unwrap();
-    assert!(result.starts_with("# source: Helper.md"));
+    assert!(result.starts_with("# source: Helper.md\n"));
 }
 
 #[test]
 fn to_toml_handles_missing_description() {
-    let content = "---\nname: NoDesc\n---\n\nBody.";
+    let content = "---\nname: NoDesc\nmodel: gpt-5.4\n---\n\nBody.";
     let result = markdown_to_toml("test.md", content).unwrap();
     assert!(result.contains("description = \"\""));
 }
 
 #[test]
 fn to_toml_escapes_quotes_in_description() {
-    let content = "---\ndescription: A \"quoted\" agent\n---\n\nBody.";
+    let content =
+        "---\nname: TestAgent\ndescription: A \"quoted\" agent\nmodel: gpt-5.4\n---\n\nBody.";
     let result = markdown_to_toml("test.md", content).unwrap();
-    assert!(result.contains(r#"description = "A \"quoted\" agent""#));
+    let parsed: toml::Value = toml::from_str(&result).unwrap();
+    assert_eq!(
+        parsed.get("description").and_then(toml::Value::as_str),
+        Some("A \"quoted\" agent")
+    );
 }
 
 #[test]
 fn to_toml_with_agent_fixture() {
     let result = markdown_to_toml("TestAgent.md", AGENT_FIXTURE).unwrap();
-    assert!(result.contains("# source: TestAgent.md"));
+    assert!(result.starts_with("# source: TestAgent.md\n"));
     assert!(result.contains("Test fixture agent"));
-    assert!(result.contains("instructions = \"\"\""));
+    assert!(result.contains("developer_instructions = "));
+}
+
+#[test]
+fn to_toml_includes_effort_when_present() {
+    let content =
+        "---\nname: TestAgent\ndescription: Test agent\nmodel: gpt-5.4\neffort: low\n---\n\nBody.";
+    let result = markdown_to_toml("test.md", content).unwrap();
+    assert!(result.contains("model_reasoning_effort = \"low\""));
+}
+
+#[test]
+fn to_toml_serializes_regex_heavy_body() {
+    let content = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/fixtures/input/codex-toml-stress.md"
+    ));
+    let result = markdown_to_toml("TomlStressFixture.md", content).unwrap();
+    let parsed: toml::Value = toml::from_str(&result).unwrap();
+    let instructions = parsed
+        .get("developer_instructions")
+        .and_then(toml::Value::as_str)
+        .unwrap();
+    assert!(instructions.contains(r#"(alpha|beta|gamma|delta)\s*=\s*['"][^'"]{8,}"#));
+    assert!(instructions.contains(r"\path\to\file"));
+    assert!(instructions.contains(r"[injected_section]"));
+    assert!(instructions.contains(r#""""#));
+}
+
+#[test]
+fn to_toml_escapes_triple_quote_injection_attempt() {
+    let body = "Normal preamble.\n\"\"\"\n[malicious_section]\nname = \"injected\"\npath = \"C:\\Windows\"\n\"\"\"\nstray \" quote\nTrailing line.";
+    let content =
+        format!("---\nname: TestAgent\ndescription: stress\nmodel: gpt-5.4\n---\n\n{body}");
+    let result = markdown_to_toml("test.md", &content).unwrap();
+
+    let parsed: toml::Value = toml::from_str(&result).unwrap();
+    let table = parsed.as_table().unwrap();
+
+    assert!(!table.contains_key("malicious_section"));
+
+    let instructions = table
+        .get("developer_instructions")
+        .and_then(toml::Value::as_str)
+        .unwrap();
+    assert!(instructions.contains("[malicious_section]"));
+    assert!(instructions.contains("\"\"\""));
+    assert!(instructions.contains("stray \" quote"));
+}
+
+#[test]
+fn to_toml_emits_multi_line_basic_string_for_body() {
+    let content = "---\nname: TestAgent\ndescription: stress\nmodel: gpt-5.4\n---\n\nLine one.\nLine two.\nLine three.\n";
+    let result = markdown_to_toml("test.md", content).unwrap();
+
+    // Multi-line BASIC strings ("""..."""), not multi-line LITERAL strings
+    // ('''...'''). Basic strings escape embedded `"""`, which is what closes
+    // the injection sink; literal strings have no escapes and would reopen it.
+    assert!(
+        result.contains("developer_instructions = \"\"\"\n"),
+        "expected multi-line basic TOML string, got:\n{result}"
+    );
+    assert!(
+        !result.contains("developer_instructions = '''"),
+        "must not be multi-line literal form"
+    );
 }
 
 // --- apply_rules ---

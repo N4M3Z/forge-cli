@@ -92,6 +92,7 @@ pub fn execute(path: &str) -> Result<ActionResult, Error> {
             .collect();
 
         let model_tiers = provider_config.models.clone().unwrap_or_default();
+        let effort_tiers = provider_config.effort.clone().unwrap_or_default();
 
         for source in &source_files {
             if let Some(deployed) = assemble_source_for_provider(
@@ -103,6 +104,7 @@ pub fn execute(path: &str) -> Result<ActionResult, Error> {
                 &tool_mappings,
                 &assembly_rules,
                 &model_tiers,
+                &effort_tiers,
                 &models,
                 &source_uri,
             )? {
@@ -124,6 +126,7 @@ fn assemble_source_for_provider(
     tool_mappings: &std::collections::HashMap<String, String>,
     assembly_rules: &[commands::provider::AssemblyRule],
     model_tiers: &std::collections::HashMap<String, Vec<String>>,
+    effort_tiers: &std::collections::HashMap<String, String>,
     models: &std::collections::HashMap<String, Vec<String>>,
     source_uri: &str,
 ) -> Result<Option<DeployedFile>, Error> {
@@ -156,6 +159,7 @@ fn assemble_source_for_provider(
         provider_name,
         &kind_keep_fields,
         model_tiers,
+        effort_tiers,
         assembly_rules.contains(&commands::provider::AssemblyRule::StripLinks),
     )?;
     // For skills, preserve the skill directory: skills/SceneReview/SKILL.md
