@@ -83,3 +83,121 @@ fn write_then_load_manifest_roundtrips() {
     let loaded = load_deployed_manifest(temp_directory.path());
     assert_eq!(loaded["rules/UseRTK.md"].fingerprint, "abc123");
 }
+
+// --- parse_repo ---
+
+#[test]
+fn parse_repo_extracts_https_url() {
+    assert_eq!(
+        parse_repo("https://github.com/N4M3Z/forge-core"),
+        Some((
+            "github.com".to_string(),
+            "N4M3Z".to_string(),
+            "forge-core".to_string()
+        ))
+    );
+}
+
+#[test]
+fn parse_repo_strips_dot_git_suffix() {
+    assert_eq!(
+        parse_repo("https://github.com/N4M3Z/forge-core.git"),
+        Some((
+            "github.com".to_string(),
+            "N4M3Z".to_string(),
+            "forge-core".to_string()
+        ))
+    );
+}
+
+#[test]
+fn parse_repo_handles_git_at_form() {
+    assert_eq!(
+        parse_repo("git@github.com:N4M3Z/forge-core.git"),
+        Some((
+            "github.com".to_string(),
+            "N4M3Z".to_string(),
+            "forge-core".to_string()
+        ))
+    );
+}
+
+#[test]
+fn parse_repo_tolerates_trailing_slash() {
+    assert_eq!(
+        parse_repo("https://github.com/N4M3Z/forge-core/"),
+        Some((
+            "github.com".to_string(),
+            "N4M3Z".to_string(),
+            "forge-core".to_string()
+        ))
+    );
+}
+
+#[test]
+fn parse_repo_returns_none_for_bare_name() {
+    assert_eq!(parse_repo("forge-core"), None);
+    assert_eq!(parse_repo("PublishPrompts"), None);
+}
+
+#[test]
+fn parse_repo_distinguishes_same_name_different_owner() {
+    let a = parse_repo("https://github.com/N4M3Z/forge-core").unwrap();
+    let b = parse_repo("https://github.com/other-org/forge-core").unwrap();
+    assert_ne!(a, b);
+}
+
+#[test]
+fn parse_repo_distinguishes_same_name_different_host() {
+    let a = parse_repo("https://github.com/N4M3Z/forge-core").unwrap();
+    let b = parse_repo("https://gitlab.com/N4M3Z/forge-core").unwrap();
+    assert_ne!(a, b);
+}
+
+// --- prune_empty_parents ---
+
+#[test]
+fn prune_empty_parents_removes_chain() {
+    let root = TempDir::new().unwrap();
+    let stop = root.path();
+    let nested = stop.join("a/b/c");
+    std::fs::create_dir_all(&nested).unwrap();
+    let file = nested.join("file");
+    std::fs::write(&file, "x").unwrap();
+    std::fs::remove_file(&file).unwrap();
+
+    prune_empty_parents(Some(&nested), stop);
+
+    assert!(!nested.exists());
+    assert!(!stop.join("a/b").exists());
+    assert!(!stop.join("a").exists());
+    assert!(stop.exists(), "stop directory must survive");
+}
+
+#[test]
+fn prune_empty_parents_stops_at_non_empty() {
+    let root = TempDir::new().unwrap();
+    let stop = root.path();
+    let nested = stop.join("a/b");
+    std::fs::create_dir_all(&nested).unwrap();
+    std::fs::write(stop.join("a/sibling"), "stay").unwrap();
+
+    prune_empty_parents(Some(&nested), stop);
+
+    assert!(!nested.exists(), "empty leaf removed");
+    assert!(stop.join("a").exists(), "non-empty parent preserved");
+    assert!(stop.join("a/sibling").exists(), "sibling file untouched");
+}
+
+#[test]
+fn prune_empty_parents_never_removes_stop() {
+    let root = TempDir::new().unwrap();
+    let stop = root.path();
+    let nested = stop.join("only");
+    std::fs::create_dir_all(&nested).unwrap();
+
+    prune_empty_parents(Some(&nested), stop);
+
+    assert!(!nested.exists());
+    assert!(stop.exists(), "stop directory must never be removed");
+}

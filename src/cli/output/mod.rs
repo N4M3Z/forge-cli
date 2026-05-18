@@ -143,7 +143,6 @@ fn print_summary(result: &ActionResult, verb: &str) {
     let green = Style::new().green();
     let yellow = Style::new().yellow();
     let red = Style::new().red();
-    let dim = Style::new().dim();
 
     let action_count = result.installed.len();
     let skipped_count = result.skipped.len();
@@ -178,20 +177,6 @@ fn print_summary(result: &ActionResult, verb: &str) {
         ));
     }
     println!(" {}", parts.join("  "));
-
-    if pruned_count > 0 {
-        let stale_not_deleted = result
-            .pruned
-            .iter()
-            .any(|pruned_file| std::path::Path::new(&pruned_file.target).exists());
-        if stale_not_deleted {
-            println!(
-                " {} {}",
-                yellow.apply_to("⚠"),
-                dim.apply_to("use --prune to remove stale files")
-            );
-        }
-    }
 }
 
 fn extract_content_kind(path: &str) -> &str {

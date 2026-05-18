@@ -11,7 +11,7 @@ fn write_module_yaml(directory: &std::path::Path) {
 
 #[test]
 fn execute_errors_on_missing_module() {
-    let result = execute("/nonexistent/module", None, &[], false, false, false);
+    let result = execute("/nonexistent/module", None, &[], false, false, false, false);
     assert!(result.is_err());
 }
 
@@ -22,6 +22,7 @@ fn execute_errors_on_directory_without_module_yaml() {
         &directory_without_module.path().to_string_lossy(),
         None,
         &[],
+        false,
         false,
         false,
         false,
@@ -56,6 +57,7 @@ fn execute_succeeds_on_empty_module() {
         false,
         false,
         false,
+        false,
     );
     assert!(result.is_ok());
 }
@@ -70,6 +72,7 @@ fn execute_unknown_provider_lists_available_choices() {
         &module_directory.path().to_string_lossy(),
         Some(&target.path().to_string_lossy()),
         &["definitely-not-a-provider".to_string()],
+        false,
         false,
         false,
         false,
@@ -103,6 +106,7 @@ fn execute_provider_filter_skips_unrequested_providers() {
         &module_directory.path().to_string_lossy(),
         Some(&target.path().to_string_lossy()),
         &["opencode".to_string()],
+        false,
         false,
         false,
         false,
