@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [0.3.2] - 2026-05-22
+
 ### Fixed
 
 - `forge install` now prunes deployed skill, agent, and rule directories absent from source. Stale directories (renamed, folded, or deleted upstream) used to keep loading into Claude / Gemini / Codex / OpenCode sessions, shadowing renames. Pruned content moves to `<target>/.trash/<UTC-ts>/` for recoverability; restore with `mv`, reclaim with `rm -rf`. Empty parent directories are walked and removed up to but not including the provider target root. Opt out with `--no-prune`; preview with `--dry-run`. Locally modified files (deployed SHA-256 no longer matches the manifest fingerprint) are skipped with a warning; pass `--force` to prune them anyway. `forge clean` uses the same quarantine path for consistency. The substring-collision bug in `is_owned_by_module` (which previously matched `Prompts` against `PublishPrompts` and let two modules named `forge-core` at different repositories prune each other's files) is fixed via structured `(host, owner, repo)` equality on the source URI. (#45)
@@ -34,6 +36,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - `forge install`, `forge deploy`, `forge clean` refuse to operate on a directory without `module.yaml`; the error names the missing file and the corrective `--source` invocation
 - The YAML deep-merge "type conflict" warning now identifies the conflicting key path and the involved YAML types
 - `forge install --help` lists the available providers, explains the `--target` per-provider join, and shows two example invocations
+- Codex default models refreshed to currently-supported GPT-5 Codex variants in `defaults.yaml` and `config/models.yaml`. (#41, #51)
 
 ### Removed
 
@@ -128,7 +131,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - INSTALL.md following Mintlify install.md standard
 - 28 ADRs documenting architecture decisions
 
-[Unreleased]: https://github.com/N4M3Z/forge-cli/compare/v0.3.1...HEAD
+[Unreleased]: https://github.com/N4M3Z/forge-cli/compare/v0.3.2...HEAD
+[0.3.2]: https://github.com/N4M3Z/forge-cli/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/N4M3Z/forge-cli/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/N4M3Z/forge-cli/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/N4M3Z/forge-cli/compare/v0.1.0...v0.2.0
