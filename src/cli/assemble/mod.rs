@@ -43,15 +43,13 @@ pub fn execute(path: &str) -> Result<ActionResult, Error> {
         ));
     }
     let module_manifest = module_root.join("module.yaml");
-    if !module_manifest.is_file() {
+    let dotforge_path = module_root.join(".forge");
+    if !module_manifest.is_file() && !dotforge_path.is_file() {
         return Err(Error::new(
             commands::error::ErrorKind::Config,
             format!(
-                "no module.yaml found at {} \
-                 \n\nThe --source argument must point to a forge module root. \
-                 \nRun `forge init {}` to scaffold one, or pass --source <module-path>.",
-                module_manifest.display(),
-                module_root.display(),
+                "no module.yaml or .forge at {}; --source must point to a module root or consumer repo",
+                module_root.display()
             ),
         ));
     }
@@ -64,7 +62,11 @@ pub fn execute(path: &str) -> Result<ActionResult, Error> {
     let source_uri = config::load_source_uri(module_root);
     let provider_names: Vec<String> = providers.keys().cloned().collect();
     let valid_qualifiers = sources::build_valid_qualifiers(&provider_names, &models);
-    let source_files = sources::collect(module_root, &valid_qualifiers)?;
+    let source_files = if let Some(manifest) = crate::cli::dotforge::load(module_root)? {
+        crate::cli::dotforge::resolve_sources(&manifest, module_root, &valid_qualifiers)?
+    } else {
+        sources::collect(module_root, &valid_qualifiers)?
+    };
 
     let build_dir = module_root.join("build");
 

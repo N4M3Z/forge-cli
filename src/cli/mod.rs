@@ -2,6 +2,7 @@ mod assemble;
 mod config;
 mod copy;
 mod deploy;
+mod dotforge;
 mod drift;
 mod init;
 mod install;

@@ -20,6 +20,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Added
 
+- `forge install` reads a `.forge` consumer manifest from `--source` when present, deploying only the artifacts the manifest lists. A consumer repo (not itself a forge module) declares which skills, agents, and rules it wants from which producer modules; `forge install` walks each declared local-path source on disk, filters its content to the requested subset, and runs the standard assemble + deploy pipeline scoped to the consumer's own `.claude/`, `.gemini/`, `.codex/`, `.opencode/` directories. The schema is grouped by source: each entry under `sources:` names a module path, each entry under `artifacts:` lists requested skills/agents/rules per source. Git-URL sources, lockfiles, and plugin auto-enable are deferred to follow-up issues; this iteration supports local-path sources only. (#39)
 - `forge copy` writes SLSA provenance sidecars to `.provenance/` in the target tree (opt-out via `--skip-provenance`)
 - `forge drift` consumes copy provenance sidecars to surface source URI on same-name matches and pair files across renames
 - `forge install` and `forge deploy` accept `--provider <NAME>` (repeatable) to deploy only the named provider(s); unknown names error with the available list

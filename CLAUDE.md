@@ -61,6 +61,10 @@ Variant resolution uses qualifier directories (`user/`, `claude/`, `claude-opus-
 
 `templates/init/` mirrors the deploy target 1:1 — no remapping config. `forge init <path>` iterates the directory and writes each file at the same relative path, substituting `${MODULE_NAME}`, `${VERSION}`, and `${VALIDATE_SH_SHA}` (the latter computed by `build.rs` from `scripts/validate.sh` and exposed as `commands::VALIDATE_SH_SHA`). Content `.mdschema` files live inside `templates/init/` at their deploy path (e.g. `agents/.mdschema`). Document schemas (README, CONTRIBUTING) live in `schemas/` — embedded for validation fallback only, never deployed.
 
+### Consumer Manifest (`.forge`)
+
+A non-module project that wants to use forge artifacts drops a `.forge` YAML file at its root listing the requested skills/agents/rules per producer source. `forge install --source <consumer-dir>` reads `.forge`, walks each declared local-path source on disk, filters its content to the requested subset, and runs the standard assemble + deploy pipeline scoped to the consumer's own provider directories. Parser and resolver live at `src/cli/dotforge/` (split into `parse.rs`, `resolve.rs`, `filter.rs`). `assemble::execute` branches on `.forge` presence to choose between `dotforge::resolve_sources` and the existing `sources::collect`. Git-URL sources are reserved for a follow-up issue; this iteration supports local paths only.
+
 ### Validation
 
 `forge validate` runs structural checks (module files, frontmatter, mdschema) plus manifest-based drift detection. If a `.manifest` exists, validate compares each tracked file's SHA-256 against the **current embedded template** — not the manifest fingerprint. The manifest indexes which files to check; the template is the source of truth for expected content. When forge-cli ships updated templates, validate catches modules that haven't updated.

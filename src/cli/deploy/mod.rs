@@ -357,7 +357,10 @@ fn filter_requested_providers(
     Ok(matched)
 }
 
-/// Refuse to operate on a path that isn't a forge module root.
+/// Refuse to operate on a path that isn't a forge module root or a consumer
+/// repo. A consumer repo (one with `.forge`) is a valid `--source` for
+/// install and deploy; the assemble step has already turned its manifest
+/// into a `Vec<SourceFile>` by the time deploy runs.
 fn require_module_root(module_root: &Path) -> Result<(), Error> {
     if !module_root.is_dir() {
         return Err(Error::new(
@@ -365,16 +368,12 @@ fn require_module_root(module_root: &Path) -> Result<(), Error> {
             format!("source directory not found: {}", module_root.display()),
         ));
     }
-    let manifest_path = module_root.join("module.yaml");
-    if !manifest_path.is_file() {
+    if !module_root.join("module.yaml").is_file() && !module_root.join(".forge").is_file() {
         return Err(Error::new(
             ErrorKind::Config,
             format!(
-                "no module.yaml found at {} \
-                 \n\nThe --source argument must point to a forge module root. \
-                 \nRun `forge init {}` to scaffold one, or pass --source <module-path>.",
-                manifest_path.display(),
-                module_root.display(),
+                "no module.yaml or .forge at {}; --source must point to a module root or consumer repo",
+                module_root.display()
             ),
         ));
     }
