@@ -48,18 +48,26 @@ pub fn execute(
         Some(module_source_uri)
     };
 
+    // Consumer mode (.forge present): the consumer dir IS the target the user wants
+    // provider trees written into, so an omitted --target defaults to --source.
+    let effective_target: Option<&str> = match target {
+        Some(dir) => Some(dir),
+        None if module_root.join(".forge").is_file() => Some(path),
+        None => None,
+    };
+
     for (provider_name, provider_config) in &providers {
         let build_provider_dir = module_root.join("build").join(provider_name);
         if !build_provider_dir.is_dir() {
             continue;
         }
 
-        let target_base = match target {
+        let target_base = match effective_target {
             Some(dir) => Path::new(dir).join(&provider_config.target),
             None => Path::new(&provider_config.target).to_path_buf(),
         };
 
-        if let Some(dir) = target {
+        if let Some(dir) = effective_target {
             validate_target_boundary(&target_base, Path::new(dir))?;
         }
 
