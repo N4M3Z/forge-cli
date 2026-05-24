@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Changed
+
+- `forge install` and `forge deploy` default `--target` to `--source` when a `.forge` consumer manifest is present and `--target` is omitted. The consumer dir IS the place the user wants provider trees written; the previous behavior forced redundant `--target .` on every consumer-mode invocation. Module-root flows (no `.forge`) are unchanged: an omitted `--target` still resolves provider directories relative to the current working directory. (#52)
+
 ## [0.3.2] - 2026-05-22
 
 ### Fixed

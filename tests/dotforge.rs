@@ -214,6 +214,43 @@ fn dotforge_install_is_idempotent() {
 }
 
 #[test]
+fn dotforge_defaults_target_to_source_when_omitted() {
+    let producer = tempfile::tempdir().unwrap();
+    let consumer = tempfile::tempdir().unwrap();
+    scaffold_producer(producer.path(), "producer");
+    write_skill(producer.path(), "AlphaSkill");
+
+    write_dotforge(
+        consumer.path(),
+        &format!(
+            "version: 1\nsources:\n  producer:\n    path: {p}\nartifacts:\n  producer:\n    skills: [AlphaSkill]\n",
+            p = producer.path().display(),
+        ),
+    );
+
+    // Note: no --target. Issue #52 says deploying should land under the consumer dir.
+    forge()
+        .args(["install", "--source", consumer.path().to_str().unwrap()])
+        .assert()
+        .success();
+
+    assert!(
+        consumer
+            .path()
+            .join(".claude/skills/AlphaSkill/SKILL.md")
+            .is_file(),
+        "consumer/.claude must receive AlphaSkill when --target is omitted"
+    );
+    assert!(
+        consumer
+            .path()
+            .join(".gemini/skills/AlphaSkill/SKILL.md")
+            .is_file(),
+        "consumer/.gemini must receive AlphaSkill when --target is omitted"
+    );
+}
+
+#[test]
 fn dotforge_errors_on_oversized_file() {
     let consumer = tempfile::tempdir().unwrap();
     // 65 KiB of payload — over the 64 KiB cap enforced in dotforge::load.
