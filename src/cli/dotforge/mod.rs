@@ -8,10 +8,14 @@
 //! deploy pipeline scoped to the consumer's own `.claude/`, `.gemini/`,
 //! `.codex/`, `.opencode/` directories.
 //!
-//! Git-URL sources (`Source::Git { ... }`) are reserved for a follow-up
-//! issue; this iteration supports local-path sources only.
+//! Sources can be `Local` (a sibling checkout on disk) or `Git` (a remote
+//! HTTPS repository pinned to a 40-hex commit SHA). Git sources clone via
+//! `gix` into `~/.cache/forge/git/<host>/<owner>/<repo>/`, materialize the
+//! pinned tree into a per-SHA worktree dir, then plug into the regular
+//! pipeline.
 
 mod filter;
+mod git;
 mod parse;
 mod resolve;
 

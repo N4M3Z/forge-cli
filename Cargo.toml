@@ -41,6 +41,10 @@ chrono = "0.4"
 # utils
 regex = "1"
 console = "0.15"
+dirs = "6"
+
+# git
+gix = { version = "0.66", default-features = false, features = ["blocking-network-client", "blocking-http-transport-reqwest-rust-tls", "worktree-mutation"] }
 
 # optional
 rust-embed = { version = "8", optional = true }

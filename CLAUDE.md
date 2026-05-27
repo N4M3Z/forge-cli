@@ -63,7 +63,11 @@ Variant resolution uses qualifier directories (`user/`, `claude/`, `claude-opus-
 
 ### Consumer Manifest (`.forge`)
 
-A non-module project that wants to use forge artifacts drops a `.forge` YAML file at its root listing the requested skills/agents/rules per producer source. `forge install --source <consumer-dir>` reads `.forge`, walks each declared local-path source on disk, filters its content to the requested subset, and runs the standard assemble + deploy pipeline scoped to the consumer's own provider directories. Parser and resolver live at `src/cli/dotforge/` (split into `parse.rs`, `resolve.rs`, `filter.rs`). `assemble::execute` branches on `.forge` presence to choose between `dotforge::resolve_sources` and the existing `sources::collect`. Git-URL sources are reserved for a follow-up issue; this iteration supports local paths only.
+A non-module project that wants to use forge artifacts drops a `.forge` YAML file at its root listing the requested skills/agents/rules per producer source. `forge install --source <consumer-dir>` reads `.forge`, walks each declared source, filters its content to the requested subset, and runs the standard assemble + deploy pipeline scoped to the consumer's own provider directories. Parser, resolver, and git fetcher live at `src/cli/dotforge/` (`parse.rs`, `resolve.rs`, `filter.rs`, `git.rs`). `assemble::execute` branches on `.forge` presence to choose between `dotforge::resolve_sources` and the existing `sources::collect`.
+
+Two source kinds:
+- **Local** (`path: ../forge-core`) — sibling checkout on disk
+- **Git** (`git: https://github.com/N4M3Z/forge-core`, `ref: <40-hex-SHA>`) — remote HTTPS repo pinned to a full commit SHA. Cloned via `gix` into `~/.cache/forge/git/<host>/<owner>/<repo>/` (override with `FORGE_GIT_CACHE_DIR`); the pinned tree is materialized into a per-SHA worktree dir. HTTPS-only, no shorthand or userinfo URLs, no branch / tag refs. `FORGE_GIT_ALLOW_FILE_URLS=1` allows `file://` URLs in tests.
 
 ### Validation
 

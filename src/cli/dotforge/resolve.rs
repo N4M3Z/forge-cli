@@ -53,13 +53,31 @@ fn canonicalize_source(
     source_label: &str,
     repo_root: &Path,
 ) -> Result<PathBuf, Error> {
-    let Source::Local { path } = source;
+    let materialized = match source {
+        Source::Local { path } => canonicalize_local(path, source_label, repo_root)?,
+        Source::Git { git, commit } => {
+            crate::cli::dotforge::git::ensure_cached(git, commit, source_label)?
+        }
+    };
+    if !materialized.join("module.yaml").is_file() {
+        return Err(Error::new(
+            ErrorKind::Config,
+            format!(
+                ".forge: source '{source_label}' at {} has no module.yaml",
+                materialized.display()
+            ),
+        ));
+    }
+    Ok(materialized)
+}
+
+fn canonicalize_local(path: &Path, source_label: &str, repo_root: &Path) -> Result<PathBuf, Error> {
     let resolved = if path.is_absolute() {
-        path.clone()
+        path.to_path_buf()
     } else {
         repo_root.join(path)
     };
-    let canonical = fs::canonicalize(&resolved).map_err(|error| {
+    fs::canonicalize(&resolved).map_err(|error| {
         Error::new(
             ErrorKind::Config,
             format!(
@@ -67,15 +85,5 @@ fn canonicalize_source(
                 resolved.display()
             ),
         )
-    })?;
-    if !canonical.join("module.yaml").is_file() {
-        return Err(Error::new(
-            ErrorKind::Config,
-            format!(
-                ".forge: source '{source_label}' at {} has no module.yaml",
-                canonical.display()
-            ),
-        ));
-    }
-    Ok(canonical)
+    })
 }
