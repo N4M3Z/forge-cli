@@ -805,15 +805,7 @@ fn read_source_companions(skill_dir: &Path, skill_name: &str) -> Vec<Companion> 
 
 fn git_log_in_repo(repo: &Path, file_rel: &str) -> Vec<GitCommit> {
     let output = Command::new("git")
-        .args([
-            "log",
-            "--follow",
-            "-n",
-            "5",
-            "--format=%H%n%s%n%ai%n%an%n---",
-            "--",
-            file_rel,
-        ])
+        .args(["log", "--follow", "-n", "5", GIT_LOG_FORMAT, "--", file_rel])
         .current_dir(repo)
         .output();
     let Ok(output) = output else {
@@ -822,7 +814,9 @@ fn git_log_in_repo(repo: &Path, file_rel: &str) -> Vec<GitCommit> {
     if !output.status.success() {
         return Vec::new();
     }
-    parse_git_log(&String::from_utf8_lossy(&output.stdout))
+    let mut commits = parse_git_log(&String::from_utf8_lossy(&output.stdout));
+    enrich_commits_with_entire(repo, &mut commits);
+    commits
 }
 
 struct PendingCompanion {
@@ -1620,7 +1614,7 @@ pub fn git_log_for_artifact(
             "--follow",
             "-n",
             "5",
-            "--format=%H%n%s%n%ai%n%an%n---",
+            GIT_LOG_FORMAT,
             "--",
             file_path,
         ])
@@ -1632,29 +1626,117 @@ pub fn git_log_for_artifact(
     if !output.status.success() {
         return Vec::new();
     }
-    parse_git_log(&String::from_utf8_lossy(&output.stdout))
+    let mut commits = parse_git_log(&String::from_utf8_lossy(&output.stdout));
+    enrich_commits_with_entire(repo_path, &mut commits);
+    commits
 }
 
+/// One NUL-delimited record per commit: sha, subject, author-date, author,
+/// `Entire-Checkpoint` trailer. NUL fields survive subjects containing any
+/// printable character; records are newline-separated (every field is
+/// single-line).
+const GIT_LOG_FORMAT: &str =
+    "--format=%H%x00%s%x00%ai%x00%an%x00%(trailers:key=Entire-Checkpoint,valueonly,separator=%x20)";
+
 fn parse_git_log(raw: &str) -> Vec<GitCommit> {
-    let mut commits = Vec::new();
-    let mut lines = raw.lines().peekable();
-    while lines.peek().is_some() {
-        let sha = lines.next().unwrap_or_default().to_string();
-        let message = lines.next().unwrap_or_default().to_string();
-        let date = lines.next().unwrap_or_default().to_string();
-        let author = lines.next().unwrap_or_default().to_string();
-        let separator = lines.next().unwrap_or_default();
-        if sha.is_empty() && separator != "---" {
-            break;
+    raw.lines()
+        .filter(|line| !line.is_empty())
+        .filter_map(|line| {
+            let mut fields = line.split('\u{0}');
+            let sha = fields.next()?.to_string();
+            if sha.is_empty() {
+                return None;
+            }
+            Some(GitCommit {
+                message: fields.next().unwrap_or_default().to_string(),
+                date: fields.next().unwrap_or_default().to_string(),
+                author: fields.next().unwrap_or_default().to_string(),
+                checkpoint: fields.next().unwrap_or_default().trim().to_string(),
+                sha,
+                ..GitCommit::default()
+            })
+        })
+        .collect()
+}
+
+/// Fills the agent-intent facets (`prompt`, `session_count`) for every commit
+/// that carries an `Entire-Checkpoint` trailer, reading the checkpoint's
+/// sessions from the committed `entire/checkpoints/v1` branch. Commits without
+/// a checkpoint, or repos without the branch, are left untouched.
+fn enrich_commits_with_entire(repo: &Path, commits: &mut [GitCommit]) {
+    for commit in commits.iter_mut() {
+        if commit.checkpoint.len() < 3 {
+            continue;
         }
-        commits.push(GitCommit {
-            sha,
-            message,
-            date,
-            author,
-        });
+        let (shard, rest) = commit.checkpoint.split_at(2);
+        let base = format!("entire/checkpoints/v1:{shard}/{rest}");
+        let sessions = git_show_lines(repo, &format!("{base}/"));
+        commit.session_count = sessions
+            .iter()
+            .filter(|name| name.trim_end_matches('/').parse::<usize>().is_ok())
+            .count();
+        commit.prompt = checkpoint_prompt(repo, &base, commit.session_count);
     }
-    commits
+}
+
+/// Picks a one-line intent teaser from a checkpoint's sessions: the first
+/// session prompt that is not a compaction-continuation summary, falling back
+/// to the first session's opening line.
+fn checkpoint_prompt(repo: &Path, base: &str, session_count: usize) -> String {
+    let mut fallback = String::new();
+    for index in 0..session_count {
+        let prompt = git_show(repo, &format!("{base}/{index}/prompt.txt")).unwrap_or_default();
+        let first_line = prompt
+            .lines()
+            .find(|line| !line.trim().is_empty())
+            .unwrap_or("");
+        if first_line.is_empty() {
+            continue;
+        }
+        if fallback.is_empty() {
+            fallback = first_line.to_string();
+        }
+        if !first_line.starts_with("This session is being continued") {
+            return truncate_prompt(first_line);
+        }
+    }
+    truncate_prompt(&fallback)
+}
+
+fn truncate_prompt(line: &str) -> String {
+    const LIMIT: usize = 110;
+    if line.chars().count() <= LIMIT {
+        return line.to_string();
+    }
+    let cut: String = line.chars().take(LIMIT).collect();
+    format!("{}\u{2026}", cut.trim_end())
+}
+
+/// Runs `git show <object>` in a repo, returning its stdout or `None` on any
+/// failure (missing branch, missing path, non-utf8).
+fn git_show(repo: &Path, object: &str) -> Option<String> {
+    let output = Command::new("git")
+        .args(["show", object])
+        .current_dir(repo)
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    Some(String::from_utf8_lossy(&output.stdout).to_string())
+}
+
+/// Lists the entry names directly under a tree object (`git show <tree>/`).
+fn git_show_lines(repo: &Path, tree: &str) -> Vec<String> {
+    git_show(repo, tree)
+        .map(|text| {
+            text.lines()
+                .skip_while(|line| !line.trim().is_empty())
+                .filter(|line| !line.trim().is_empty())
+                .map(str::to_string)
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 fn collect_provenance(
@@ -1807,6 +1889,37 @@ mod tests {
     fn write(path: &Path, content: &str) {
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         std::fs::write(path, content).unwrap();
+    }
+
+    #[test]
+    fn parse_git_log_captures_checkpoint_trailer() {
+        let raw = "abc123\u{0}feat: add thing\u{0}2026-06-12 10:21:46 +0200\u{0}Alice Example\u{0}933ba0519d0a\n\
+                   def456\u{0}fix: tidy up\u{0}2026-06-03 01:47:07 +0200\u{0}Alice Example\u{0}\n";
+        let commits = parse_git_log(raw);
+        assert_eq!(commits.len(), 2);
+        assert_eq!(commits[0].sha, "abc123");
+        assert_eq!(commits[0].message, "feat: add thing");
+        assert_eq!(commits[0].author, "Alice Example");
+        assert_eq!(commits[0].checkpoint, "933ba0519d0a");
+        assert!(commits[1].checkpoint.is_empty());
+    }
+
+    #[test]
+    fn parse_git_log_skips_blank_and_empty_sha_lines() {
+        let raw = "\nabc123\u{0}subject\u{0}date\u{0}author\u{0}\n\u{0}orphan\u{0}\u{0}\u{0}\n";
+        let commits = parse_git_log(raw);
+        assert_eq!(commits.len(), 1);
+        assert_eq!(commits[0].sha, "abc123");
+    }
+
+    #[test]
+    fn truncate_prompt_caps_long_lines_with_ellipsis() {
+        let short = "tighten the sign gutter";
+        assert_eq!(truncate_prompt(short), short);
+        let long = "x".repeat(200);
+        let capped = truncate_prompt(&long);
+        assert!(capped.ends_with('\u{2026}'));
+        assert!(capped.chars().count() <= 111);
     }
 
     #[test]

@@ -314,12 +314,23 @@ pub struct Dependency {
     pub sha: String,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Default)]
 pub struct GitCommit {
     pub sha: String,
     pub message: String,
     pub date: String,
     pub author: String,
+    /// `Entire-Checkpoint` trailer (12-hex) linking this commit to an agent
+    /// checkpoint, empty when the commit predates Entire or carries no trailer.
+    pub checkpoint: String,
+    /// First non-continuation agent prompt in the checkpoint, a one-line teaser
+    /// of the intent behind this commit. Empty when there is no checkpoint.
+    pub prompt: String,
+    /// Number of agent sessions condensed into this commit's checkpoint.
+    pub session_count: usize,
+    /// Jujutsu change-id (short) for this commit in a colocated repo, empty when
+    /// the repo is not jj-colocated or the commit has no jj change.
+    pub jj_change: String,
 }
 
 impl ArtifactView {

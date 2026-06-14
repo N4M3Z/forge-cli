@@ -480,12 +480,17 @@ a.mchip:hover { border-color: var(--accent); color: var(--accent); text-decorati
 a.gc-message { font-size: 13px; font-weight: 500; color: var(--text); text-decoration: none; }
 a.gc-message:hover { color: var(--accent); }
 .gc-date { font-size: 11.5px; color: var(--dim); font-family: var(--mono); white-space: nowrap; }
-.gc-meta { display: flex; gap: 12px; margin-top: 2px; }
+.gc-meta { display: flex; gap: 10px; margin-top: 3px; align-items: center; }
 .gc-author { font-size: 11.5px; color: var(--muted); }
-.gc-sha { font-size: 10.5px; color: var(--dim); cursor: pointer; max-width: 5em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: inline-block; }
-.gc-sha.expanded { max-width: none; }
+.lens-tag { font-size: 10.5px; padding: 1px 6px; border-radius: 3px; border: 1px solid var(--border); white-space: nowrap; }
+.lens-git { color: var(--dim); cursor: pointer; max-width: 5em; overflow: hidden; text-overflow: ellipsis; display: inline-block; }
+.lens-git.expanded { max-width: none; }
+.lens-jj { color: #b48ead; border-color: #b48ead55; }
 .gc-view { font-size: 10.5px; color: var(--accent); text-decoration: none; }
 .gc-view:hover { text-decoration: underline; }
+.gc-intent { display: flex; align-items: baseline; gap: 7px; margin-top: 5px; }
+.gc-dot { color: var(--green); font-size: 11px; line-height: 1.3; flex-shrink: 0; }
+.gc-prompt { font-size: 12px; color: var(--text-dim); font-style: italic; line-height: 1.4; }
 
 .provenance-flow { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; flex-wrap: wrap; }
 .flow-node { background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius); padding: 8px 12px; min-width: 120px; }

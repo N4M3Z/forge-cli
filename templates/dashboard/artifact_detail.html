@@ -248,7 +248,7 @@
 
 {% if !artifact.git_log.is_empty() %}
 <div class="detail-panel" style="margin-top:12px">
-    <div class="panel-title">Git History</div>
+    <div class="panel-title">Artifact History <span class="grp-n">git &middot; jj &middot; entire</span></div>
     <div class="git-log">
     {% for commit in artifact.git_log %}
         <div class="git-commit">
@@ -262,9 +262,16 @@
             </div>
             <div class="gc-meta">
                 <span class="gc-author">{{ commit.author }}</span>
-                <span class="gc-sha mono" onclick="this.classList.toggle('expanded')" title="{{ commit.sha }}">{{ commit.sha }}</span>
+                <span class="lens-tag lens-git mono" onclick="this.classList.toggle('expanded')" title="git commit {{ commit.sha }}">{{ commit.sha }}</span>
+                {% if !commit.jj_change.is_empty() %}<span class="lens-tag lens-jj mono" title="jujutsu change">jj {{ commit.jj_change }}</span>{% endif %}
                 <a class="gc-view" href="/version/{{ artifact.kind }}/{{ artifact.name }}/{{ commit.sha }}">view at this commit &rarr;</a>
             </div>
+            {% if !commit.checkpoint.is_empty() %}
+            <div class="gc-intent" title="agent checkpoint {{ commit.checkpoint }} &middot; {{ commit.session_count }} sessions">
+                <span class="gc-dot">&#9210;</span>
+                <span class="gc-prompt">{{ commit.prompt }}</span>
+            </div>
+            {% endif %}
         </div>
     {% endfor %}
     </div>
