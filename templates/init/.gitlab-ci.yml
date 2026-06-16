@@ -6,6 +6,7 @@ quality:
         - apt-get update && apt-get install -y gitleaks shellcheck
     script:
         - prek run --all-files
+        - prek run --all-files --stage pre-push
     rules:
         - if: $CI_PIPELINE_SOURCE == "merge_request_event"
         - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
