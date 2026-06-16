@@ -27,5 +27,15 @@ node_modules/
 # Plans
 docs/plans/
 
+# Parallel feature work
+.worktrees/
+
+# Entire session data (runtime, not source)
+.entire/metadata/
+.entire/logs/
+.entire/tmp/
+.entire/settings.local.json
+.entire/redactors/local/
+
 # macOS
 .DS_Store
