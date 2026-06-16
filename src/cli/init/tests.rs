@@ -13,6 +13,8 @@ fn init_creates_all_files() {
     assert!(temp_directory.path().join("LICENSE").is_file());
     assert!(temp_directory.path().join("Makefile").is_file());
     assert!(temp_directory.path().join(".githooks/pre-commit").is_file());
+    assert!(temp_directory.path().join(".githooks/pre-push").is_file());
+    assert!(temp_directory.path().join(".githooks/jj-push").is_file());
     assert!(temp_directory.path().join("agents/.mdschema").is_file());
     assert!(temp_directory.path().join("rules/.mdschema").is_file());
 }

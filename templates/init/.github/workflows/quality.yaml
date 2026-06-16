@@ -29,8 +29,11 @@ jobs:
 
             - name: Install tools
               run: |
-                  pip install ruff semgrep
+                  pip install ruff semgrep prek
                   sudo apt-get install -y gitleaks
 
-            - name: Validate
+            - name: Validate (commit stage)
               uses: j178/prek-action@v2
+
+            - name: Validate (pre-push stage)
+              run: prek run --all-files --stage pre-push

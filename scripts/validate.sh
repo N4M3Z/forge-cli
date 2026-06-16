@@ -240,7 +240,7 @@ check_secrets() {
     fi
 
     echo "  gitleaks"
-    if ! gitleaks detect --no-banner --no-git -s . 2>/dev/null; then
+    if ! gitleaks dir --no-banner . 2>/dev/null; then
         ERRORS=$((ERRORS + 1))
     fi
 }
