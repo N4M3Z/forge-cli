@@ -54,6 +54,7 @@ repos:
             entry: gitleaks detect --no-banner
             language: system
             pass_filenames: false
+            stages: [pre-push]
 
           - id: semgrep
             name: semgrep OWASP
