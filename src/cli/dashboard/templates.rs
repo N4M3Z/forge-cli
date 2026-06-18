@@ -209,6 +209,123 @@ pub fn build_matrix(view: &DashboardView) -> MatrixView {
     }
 }
 
+/// Coverage grid for model/harness variants: rows = artifacts that carry at
+/// least one qualifier override, columns = the distinct qualifiers seen across
+/// all such artifacts, cells = the merge mode for that (artifact, qualifier).
+#[derive(Template)]
+#[template(path = "dashboard/variants.html")]
+pub struct VariantsTemplate<'a> {
+    pub tab: &'a str,
+    pub version: &'a str,
+    pub coverage: VariantCoverage,
+}
+
+pub struct VariantCoverage {
+    pub cols: Vec<VariantCol>,
+    pub rows: Vec<VariantCoverageRow>,
+    pub col_totals: Vec<usize>,
+}
+
+pub struct VariantCol {
+    pub qualifier: String,
+    /// Provider segment, drives the column tint.
+    pub provider: String,
+    /// Short header label: the model segment, or the provider when there is none.
+    pub label: String,
+}
+
+pub struct VariantCoverageRow {
+    pub module: String,
+    pub kind: String,
+    pub name: String,
+    pub cells: Vec<VariantCoverageCell>,
+}
+
+pub struct VariantCoverageCell {
+    /// Merge mode (`replace`/`append`/`prepend`) when a variant exists, else empty.
+    pub mode: String,
+    /// `/effective/...` link for a present cell, else empty.
+    pub link: String,
+}
+
+/// Builds the variant-coverage grid across every artifact that has qualifier
+/// overrides. Columns are sorted so provider-level qualifiers precede their
+/// per-model children (lexical order places `claude` before `claude/...`).
+#[must_use]
+pub fn build_variant_coverage(view: &DashboardView) -> VariantCoverage {
+    let mut qualifiers: Vec<String> = Vec::new();
+    for module in &view.modules {
+        for artifact in &module.artifacts {
+            for variant in &artifact.variants {
+                if !qualifiers.contains(&variant.qualifier) {
+                    qualifiers.push(variant.qualifier.clone());
+                }
+            }
+        }
+    }
+    qualifiers.sort();
+    let cols: Vec<VariantCol> = qualifiers
+        .iter()
+        .map(|qualifier| {
+            let (provider, label) = qualifier
+                .split_once('/')
+                .map_or((qualifier.as_str(), qualifier.as_str()), |(p, m)| (p, m));
+            VariantCol {
+                qualifier: qualifier.clone(),
+                provider: provider.to_string(),
+                label: label.to_string(),
+            }
+        })
+        .collect();
+
+    let mut col_totals = vec![0usize; cols.len()];
+    let mut rows = Vec::new();
+    for module in &view.modules {
+        for artifact in &module.artifacts {
+            if artifact.variants.is_empty() {
+                continue;
+            }
+            let cells = cols
+                .iter()
+                .enumerate()
+                .map(|(index, col)| {
+                    match artifact
+                        .variants
+                        .iter()
+                        .find(|variant| variant.qualifier == col.qualifier)
+                    {
+                        Some(variant) => {
+                            col_totals[index] += 1;
+                            VariantCoverageCell {
+                                mode: variant.mode.clone(),
+                                link: format!(
+                                    "/effective/{}/{}/{}?qualifier={}",
+                                    module.name, artifact.kind, artifact.name, col.qualifier
+                                ),
+                            }
+                        }
+                        None => VariantCoverageCell {
+                            mode: String::new(),
+                            link: String::new(),
+                        },
+                    }
+                })
+                .collect();
+            rows.push(VariantCoverageRow {
+                module: module.name.clone(),
+                kind: artifact.kind.clone(),
+                name: artifact.name.clone(),
+                cells,
+            });
+        }
+    }
+    VariantCoverage {
+        cols,
+        rows,
+        col_totals,
+    }
+}
+
 #[derive(Template)]
 #[template(path = "dashboard/adrs.html")]
 pub struct AdrsTemplate<'a> {
@@ -417,4 +534,146 @@ pub struct HooksTemplate<'a> {
     pub tab: &'a str,
     pub version: &'a str,
     pub groups: Vec<HarnessHooks>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use commands::view::{StatusSummary, Variant};
+
+    fn variant(qualifier: &str, provider: &str, model: &str, mode: &str) -> Variant {
+        Variant {
+            qualifier: qualifier.to_string(),
+            provider: provider.to_string(),
+            model: model.to_string(),
+            relative_path: format!("rules/{provider}/{model}/Rule.md"),
+            mode: mode.to_string(),
+        }
+    }
+
+    fn rule_with_variants(name: &str, variants: Vec<Variant>) -> ArtifactView {
+        ArtifactView {
+            name: name.to_string(),
+            kind: "rules".to_string(),
+            relative_path: format!("rules/{name}.md"),
+            variants,
+            ..Default::default()
+        }
+    }
+
+    fn module(name: &str, artifacts: Vec<ArtifactView>) -> ModuleView {
+        ModuleView {
+            name: name.to_string(),
+            version: String::new(),
+            description: String::new(),
+            source_uri: format!("https://example.com/{name}"),
+            is_target: false,
+            artifacts,
+        }
+    }
+
+    fn view(modules: Vec<ModuleView>) -> DashboardView {
+        DashboardView {
+            modules,
+            summary: StatusSummary::default(),
+            provenance: Vec::new(),
+            adrs: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn coverage_excludes_artifacts_without_variants() {
+        let covered = rule_with_variants(
+            "DeadVariables",
+            vec![variant("claude", "claude", "", "replace")],
+        );
+        let bare = rule_with_variants("PlainRule", Vec::new());
+        let coverage =
+            build_variant_coverage(&view(vec![module("forge-core", vec![bare, covered])]));
+        assert_eq!(coverage.rows.len(), 1);
+        assert_eq!(coverage.rows[0].name, "DeadVariables");
+    }
+
+    #[test]
+    fn coverage_columns_sorted_and_split_into_provider_and_model() {
+        let artifact = rule_with_variants(
+            "DeadVariables",
+            vec![
+                variant(
+                    "claude/claude-opus-4-8",
+                    "claude",
+                    "claude-opus-4-8",
+                    "append",
+                ),
+                variant("claude", "claude", "", "replace"),
+            ],
+        );
+        let coverage = build_variant_coverage(&view(vec![module("forge-core", vec![artifact])]));
+
+        let labels: Vec<&str> = coverage.cols.iter().map(|col| col.label.as_str()).collect();
+        assert_eq!(labels, vec!["claude", "claude-opus-4-8"]);
+        assert_eq!(coverage.cols[1].provider, "claude");
+        assert_eq!(coverage.cols[1].qualifier, "claude/claude-opus-4-8");
+    }
+
+    #[test]
+    fn coverage_cells_carry_mode_link_and_totals() {
+        let artifact = rule_with_variants(
+            "DeadVariables",
+            vec![
+                variant("claude", "claude", "", "replace"),
+                variant(
+                    "claude/claude-opus-4-8",
+                    "claude",
+                    "claude-opus-4-8",
+                    "append",
+                ),
+            ],
+        );
+        let coverage = build_variant_coverage(&view(vec![module("forge-core", vec![artifact])]));
+        let row = &coverage.rows[0];
+
+        assert_eq!(row.cells[0].mode, "replace");
+        assert_eq!(
+            row.cells[0].link,
+            "/effective/forge-core/rules/DeadVariables?qualifier=claude"
+        );
+        assert_eq!(row.cells[1].mode, "append");
+        assert_eq!(
+            row.cells[1].link,
+            "/effective/forge-core/rules/DeadVariables?qualifier=claude/claude-opus-4-8"
+        );
+        assert_eq!(coverage.col_totals, vec![1, 1]);
+    }
+
+    #[test]
+    fn coverage_empty_cell_when_target_missing() {
+        let with_model = rule_with_variants(
+            "HasModel",
+            vec![variant(
+                "claude/claude-opus-4-8",
+                "claude",
+                "claude-opus-4-8",
+                "replace",
+            )],
+        );
+        let provider_only = rule_with_variants(
+            "ProviderOnly",
+            vec![variant("claude", "claude", "", "replace")],
+        );
+        let coverage = build_variant_coverage(&view(vec![module(
+            "forge-core",
+            vec![with_model, provider_only],
+        )]));
+
+        // Columns: ["claude", "claude/claude-opus-4-8"]; HasModel has no "claude" cell.
+        let has_model = coverage
+            .rows
+            .iter()
+            .find(|row| row.name == "HasModel")
+            .unwrap();
+        assert!(has_model.cells[0].mode.is_empty());
+        assert!(has_model.cells[0].link.is_empty());
+        assert_eq!(has_model.cells[1].mode, "replace");
+    }
 }

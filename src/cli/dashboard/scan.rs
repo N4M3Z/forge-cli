@@ -10,7 +10,7 @@ use commands::manifest::{self, FileStatus, ManifestEntry};
 use commands::provider::ContentKind;
 use commands::view::{
     Adoption, Adr, ArtifactView, Companion, DashboardView, Dependency, GitCommit, ModuleView,
-    ProvenanceArtifact, ProvenanceView, ProviderStatus, StatusSummary,
+    ProvenanceArtifact, ProvenanceView, ProviderStatus, StatusSummary, Variant,
 };
 use regex::Regex;
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -85,6 +85,7 @@ pub fn build_view(root: &Path, providers: &[(String, String)]) -> Result<Dashboa
         collect_provenance(target_base, providers, &mut provenance);
     }
 
+    let provider_names: Vec<String> = providers.iter().map(|(name, _)| name.clone()).collect();
     for (module_index, module) in modules.iter_mut().enumerate() {
         module.artifacts.sort_by(|a, b| a.name.cmp(&b.name));
         let repo = local_repos.get(module.source_uri.trim_end_matches(".git"));
@@ -100,6 +101,9 @@ pub fn build_view(root: &Path, providers: &[(String, String)]) -> Result<Dashboa
             );
             artifact.broken_refs = broken;
             artifact.age_days = age;
+            artifact.variants = repo
+                .map(|repo| collect_variants(repo, &artifact.relative_path, &provider_names))
+                .unwrap_or_default();
         }
     }
 
@@ -436,6 +440,7 @@ pub fn build_adr_artifact(adr: &Adr, local_repos: &HashMap<String, PathBuf>) -> 
         age_days,
         module_tint: 0,
         companions: Vec::new(),
+        variants: Vec::new(),
     }
 }
 
@@ -669,6 +674,76 @@ fn build_source_artifact(
         age_days: None,
         module_tint: 0,
         companions: Vec::new(),
+        variants: Vec::new(),
+    }
+}
+
+/// Discovers harness and model qualifier overrides of a base artifact in the
+/// source tree (PROV-0005): `<kind-dir>/<provider>/<file>` for harness-level and
+/// `<kind-dir>/<provider>/<model>/<file>` for model-level, plus the `user/`
+/// overlay. The base directory is the artifact file's parent, so the same logic
+/// serves flat kinds (rules, agents) and skill directories alike.
+fn collect_variants(repo: &Path, relative_path: &str, provider_names: &[String]) -> Vec<Variant> {
+    let base_file = repo.join(relative_path);
+    let Some(base_dir) = base_file.parent() else {
+        return Vec::new();
+    };
+    let Some(file_name) = base_file.file_name().and_then(|name| name.to_str()) else {
+        return Vec::new();
+    };
+    let mut qualifiers: Vec<&str> = provider_names.iter().map(String::as_str).collect();
+    qualifiers.push("user");
+    let mut variants = Vec::new();
+    for provider in qualifiers {
+        let provider_dir = base_dir.join(provider);
+        if !provider_dir.is_dir() {
+            continue;
+        }
+        let provider_file = provider_dir.join(file_name);
+        if provider_file.is_file() {
+            variants.push(make_variant(repo, provider, "", &provider_file));
+        }
+        let Ok(entries) = fs::read_dir(&provider_dir) else {
+            continue;
+        };
+        let mut model_dirs: Vec<String> = entries
+            .flatten()
+            .filter(|entry| entry.path().is_dir())
+            .filter_map(|entry| entry.file_name().to_str().map(str::to_string))
+            .collect();
+        model_dirs.sort();
+        for model in model_dirs {
+            let model_file = provider_dir.join(&model).join(file_name);
+            if model_file.is_file() {
+                variants.push(make_variant(repo, provider, &model, &model_file));
+            }
+        }
+    }
+    variants
+}
+
+fn make_variant(repo: &Path, provider: &str, model: &str, file: &Path) -> Variant {
+    let relative_path = file
+        .strip_prefix(repo)
+        .unwrap_or(file)
+        .to_string_lossy()
+        .to_string();
+    let content = fs::read_to_string(file).unwrap_or_default();
+    let mode = match extract_frontmatter_field(&content, "mode") {
+        mode if mode.is_empty() => "replace".to_string(),
+        mode => mode,
+    };
+    let qualifier = if model.is_empty() {
+        provider.to_string()
+    } else {
+        format!("{provider}/{model}")
+    };
+    Variant {
+        qualifier,
+        provider: provider.to_string(),
+        model: model.to_string(),
+        relative_path,
+        mode,
     }
 }
 
@@ -882,6 +957,7 @@ fn build_deployed_artifact(
         age_days: None,
         module_tint: 0,
         companions: Vec::new(),
+        variants: Vec::new(),
     }
 }
 
@@ -1225,7 +1301,7 @@ fn read_artifact_content(provider_path: &Path, relative_key: &str) -> ArtifactCo
     ArtifactContent { description, body }
 }
 
-fn extract_frontmatter_field(content: &str, field: &str) -> String {
+pub fn extract_frontmatter_field(content: &str, field: &str) -> String {
     let Some(rest) = content.strip_prefix("---") else {
         return String::new();
     };

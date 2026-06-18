@@ -218,7 +218,7 @@ impl ModuleView {
     }
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Default)]
 pub struct ArtifactView {
     pub name: String,
     pub kind: String,
@@ -243,6 +243,44 @@ pub struct ArtifactView {
     /// module's position so co-located modules stay visually distinct.
     pub module_tint: usize,
     pub companions: Vec<Companion>,
+    /// Per-harness and per-model qualifier overrides found in the source tree
+    /// (the model-targeting variants from PROV-0005), empty when none.
+    pub variants: Vec<Variant>,
+}
+
+/// A harness- or model-qualifier override of a base artifact, discovered in the
+/// source tree (e.g. `rules/claude/claude-opus-4-8/DeadVariables.md`).
+#[derive(Debug, Clone, Serialize)]
+pub struct Variant {
+    /// Qualifier path under the kind dir: `claude`, `claude/claude-opus-4-8`, `user`.
+    pub qualifier: String,
+    /// The harness this qualifier belongs to (`claude`, `gemini`, `user`).
+    pub provider: String,
+    /// The model directory when this is a model-level variant, else empty.
+    pub model: String,
+    /// Repo-relative path to the variant file.
+    pub relative_path: String,
+    /// Merge mode from the variant frontmatter: `replace` (default), `append`, `prepend`.
+    pub mode: String,
+}
+
+impl ArtifactView {
+    #[must_use]
+    pub fn has_variants(&self) -> bool {
+        !self.variants.is_empty()
+    }
+
+    /// Distinct harnesses that carry a variant of this artifact, in stable order.
+    #[must_use]
+    pub fn variant_providers(&self) -> Vec<String> {
+        let mut seen = Vec::new();
+        for variant in &self.variants {
+            if !seen.contains(&variant.provider) {
+                seen.push(variant.provider.clone());
+            }
+        }
+        seen
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]

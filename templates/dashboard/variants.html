@@ -1,0 +1,44 @@
+{% extends "dashboard/base.html" %}
+
+{% block content %}
+<div class="detail-header">
+    <div class="detail-title-row">
+        <h2 class="detail-name">Model &amp; harness variants</h2>
+        <span class="detail-module">read-only</span>
+    </div>
+    <div class="detail-description">Artifacts carrying qualifier overrides (PROV-0005) and the targets they cover. Each cell links to the effective merge. Deploy currently resolves provider-only, so per-model overlays are authored here but not yet what forge ships.</div>
+</div>
+
+{% if coverage.rows.is_empty() %}
+<div class="detail-panel">No artifacts carry qualifier overrides in the scanned sources.</div>
+{% else %}
+<div class="ov-matrix-wrap">
+    <table class="ov-matrix variant-matrix">
+        <thead>
+            <tr>
+                <th class="corner"></th>
+                {% for col in coverage.cols %}<th class="vcol vtint-{{ col.provider }}" title="{{ col.qualifier }}">{{ col.label }}</th>{% endfor %}
+            </tr>
+        </thead>
+        <tbody>
+        {% for row in coverage.rows %}
+            <tr>
+                <th class="mrow-label"><a href="/artifact/{{ row.module }}/{{ row.kind }}/{{ row.name }}"><span class="kind-icon k-{{ row.kind }}"></span>{{ row.name }}<span class="vrow-module">{{ row.module }}</span></a></th>
+                {% for cell in row.cells %}
+                {% if cell.mode.is_empty() %}
+                <td class="mcell empty"><span class="mchip">&middot;</span></td>
+                {% else %}
+                <td class="mcell"><a class="mchip vc-mode mode-{{ cell.mode }}" href="{{ cell.link }}" title="{{ cell.mode }}">{{ cell.mode }}</a></td>
+                {% endif %}
+                {% endfor %}
+            </tr>
+        {% endfor %}
+            <tr class="totrow">
+                <th class="tot">cover</th>
+                {% for total in coverage.col_totals %}<td class="tot">{{ total }}</td>{% endfor %}
+            </tr>
+        </tbody>
+    </table>
+</div>
+{% endif %}
+{% endblock %}

@@ -46,11 +46,13 @@ pub fn router(shared: SharedState, root: PathBuf) -> Router {
         .route("/companion/{parent}/{name}", get(companion_detail))
         .route("/provenance", get(provenance_page))
         .route("/adrs", get(adrs_page))
+        .route("/variants", get(variants_page))
         .route("/adr/{repo}/{id}", get(adr_detail))
         .route("/search", get(search))
         .route("/refresh", get(refresh))
         .route("/deployed/{harness}/{*path}", get(deployed))
         .route("/version/{kind}/{name}/{sha}", get(version_page))
+        .route("/effective/{module}/{kind}/{name}", get(effective_page))
         .route("/settings", get(settings_page))
         .route("/settings/{harness}/{index}", get(settings_detail))
         .route("/hooks", get(hooks_page))
@@ -462,6 +464,7 @@ async fn companion_detail(
         age_days: None,
         module_tint: 0,
         companions: Vec::new(),
+        variants: Vec::new(),
     };
     let companion_label = format!("{parent} / {name}");
     let provenance_raw = super::scan::read_source_sidecar(
@@ -632,6 +635,19 @@ async fn adrs_page(State(app): State<AppState>) -> impl IntoResponse {
         tab: "adrs",
         version: &state.version,
         view: &state.view,
+    };
+    Html(template.to_string())
+}
+
+/// Variant coverage grid at `/variants` — artifacts with qualifier overrides
+/// against the targets they cover.
+async fn variants_page(State(app): State<AppState>) -> impl IntoResponse {
+    let state = app.shared.read().await;
+    let coverage = templates::build_variant_coverage(&state.view);
+    let template = templates::VariantsTemplate {
+        tab: "variants",
+        version: &state.version,
+        coverage,
     };
     Html(template.to_string())
 }
@@ -1388,6 +1404,119 @@ async fn version_page(
     Html(template.to_string())
 }
 
+#[derive(Deserialize)]
+struct EffectiveParams {
+    #[serde(default)]
+    qualifier: String,
+}
+
+/// Resolves an artifact's effective content for a `(provider, model)` qualifier
+/// by merging its qualifier-directory variants over the base, mirroring
+/// `commands::assemble::variants`. This shows the *authored* intent of the
+/// PROV-0005 overlay; deploy currently resolves provider-only, so model-level
+/// overlays are not yet what ships.
+async fn effective_page(
+    State(app): State<AppState>,
+    Path((module, kind, name)): Path<(String, String, String)>,
+    Query(params): Query<EffectiveParams>,
+) -> impl IntoResponse {
+    use commands::assemble::variants::{self, Mode};
+
+    let state = app.shared.read().await;
+    let Some((module_view, artifact)) = locate_artifact(&state.view, Some(&module), &kind, &name)
+    else {
+        return (
+            axum::http::StatusCode::NOT_FOUND,
+            Html(format!(
+                "<p>Artifact {kind}/{name} not found in {module}.</p>"
+            )),
+        )
+            .into_response();
+    };
+
+    let normalized = module_view.source_uri.trim_end_matches(".git");
+    let Some(repo) = state.local_repos.get(normalized) else {
+        return (
+            axum::http::StatusCode::NOT_FOUND,
+            Html(format!("<p>No local checkout for {module}.</p>")),
+        )
+            .into_response();
+    };
+
+    let base_path = repo.join(&artifact.relative_path);
+    let Some(source_directory) = base_path.parent() else {
+        return (
+            axum::http::StatusCode::NOT_FOUND,
+            Html("<p>Artifact has no parent directory.</p>".to_string()),
+        )
+            .into_response();
+    };
+    let filename = artifact
+        .relative_path
+        .rsplit('/')
+        .next()
+        .unwrap_or(&artifact.relative_path);
+
+    let qualifiers: Vec<String> = params
+        .qualifier
+        .split('/')
+        .filter(|segment| !segment.is_empty())
+        .map(str::to_string)
+        .collect();
+
+    let base_content = std::fs::read_to_string(&base_path).unwrap_or_default();
+    let variant_path = variants::resolve(source_directory, filename, &qualifiers);
+
+    let (merged, mode_label, variant_label) = match &variant_path {
+        Some(path) => {
+            let variant_content = std::fs::read_to_string(path).unwrap_or_default();
+            let mode_field = super::scan::extract_frontmatter_field(&variant_content, "mode");
+            let mode = Mode::parse(&mode_field);
+            let label = path
+                .strip_prefix(repo)
+                .unwrap_or(path)
+                .to_string_lossy()
+                .to_string();
+            (
+                variants::apply(&base_content, &variant_content, mode),
+                if mode_field.is_empty() {
+                    "replace".to_string()
+                } else {
+                    mode_field
+                },
+                label,
+            )
+        }
+        None => (
+            commands::parse::frontmatter_body(&base_content).to_string(),
+            "base".to_string(),
+            format!("{} (no variant for this target)", artifact.relative_path),
+        ),
+    };
+
+    let title = format!("{}/{} · {}", kind, name, params.qualifier);
+    let blurb = format!(
+        "Effective content authored for target '{}' (merge mode: {}). \
+         Source: {}. Deploy currently resolves provider-only, so model-level \
+         overlays are authored here but not yet what forge ships.",
+        params.qualifier, mode_label, variant_label
+    );
+    let files = vec![templates::ConfigFile {
+        label: format!("{kind}/{name} → {}", params.qualifier),
+        path: variant_label,
+        language: "markdown".to_string(),
+        content: merged,
+    }];
+    let template = templates::FilesTemplate {
+        tab: "",
+        title: &title,
+        blurb: &blurb,
+        version: &state.version,
+        files,
+    };
+    Html(template.to_string()).into_response()
+}
+
 /// Finds an artifact's (or companion's) module source URI and source-relative
 /// path. Top-level artifacts are matched first, then skill companions by name.
 fn find_source_location(view: &DashboardView, kind: &str, name: &str) -> Option<(String, String)> {
@@ -1582,6 +1711,7 @@ mod tests {
             age_days: None,
             module_tint: 0,
             companions: Vec::new(),
+            variants: Vec::new(),
         }
     }
 
