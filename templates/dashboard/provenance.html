@@ -1,0 +1,47 @@
+{% extends "dashboard/base.html" %}
+
+{% block chrome %}<div hx-get="/chrome" hx-trigger="load" hx-swap="outerHTML"></div>{% endblock %}
+
+{% block content %}
+<div class="detail-header">
+    <div class="detail-title-row">
+        <h2 class="detail-name">Integrity</h2>
+    </div>
+    <div class="detail-description">Provenance verification and deployment drift across all monitored locations.</div>
+</div>
+
+<div class="summary-bar">
+    <div><span class="count count-ok">{{ verified }}</span> verified</div>
+    <div><span class="count count-stale">{{ stale }}</span> stale</div>
+    <div><span class="count count-modified">{{ modified }}</span> modified</div>
+    <div><span class="count count-modified">{{ drift }}</span> drift</div>
+    <div><span class="count count-stale">{{ broken }}</span> broken refs</div>
+    <div><span class="count count-new">{{ orphans }}</span> orphans</div>
+    <span style="margin-left:auto;font-size:11px;color:var(--dim)">{{ total }} provenance records</span>
+</div>
+
+{% if problems.is_empty() %}
+<div class="detail-panel">
+    <p class="muted">All {{ verified }} verified, nothing drifted. Everything deployed matches its source and provenance.</p>
+</div>
+{% else %}
+<div class="grp-section">
+    <div class="file-grp-label">Needs attention <span class="grp-n">{{ problems.len() }}</span></div>
+    <div class="nest-cards peek-all">
+    {% for problem in problems %}
+        <a class="nest-card tint-{{ problem.kind }}" href="/artifact/{{ problem.module }}/{{ problem.kind }}/{{ problem.name }}">
+            <span class="nc-icon" aria-hidden="true"></span>
+            <div class="nc-body">
+                <div class="nc-top">
+                    <span class="status-chip {% if problem.issue == "modified" %}modified{% else if problem.issue == "stale" %}stale{% else %}broken{% endif %}">{% if problem.issue == "broken-refs" %}broken refs{% else %}{{ problem.issue }}{% endif %}</span>
+                    <span class="nc-age mono">{{ problem.module }}</span>
+                </div>
+                <div class="nc-name">{{ problem.name }}</div>
+                {% if !problem.detail.is_empty() %}<div class="nc-desc">{{ problem.detail }}</div>{% endif %}
+            </div>
+        </a>
+    {% endfor %}
+    </div>
+</div>
+{% endif %}
+{% endblock %}

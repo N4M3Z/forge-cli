@@ -1,0 +1,49 @@
+{% extends "dashboard/base.html" %}
+
+{% block chrome %}<div hx-get="/chrome" hx-trigger="load" hx-swap="outerHTML"></div>{% endblock %}
+
+{% block content %}
+<div class="detail-header">
+    <div class="detail-title-row">
+        <h2 class="detail-name">Architecture Decisions</h2>
+        <span class="detail-module">read-only</span>
+    </div>
+    <div class="detail-description">ADRs from each repo's docs/decisions/, grouped by repo then id prefix. Click a card to preview its context; open for the full decision, frontmatter, history, and provenance.</div>
+</div>
+
+{% if view.adrs.is_empty() %}
+<div class="detail-panel"><p class="muted">No ADRs found in any repo's docs/decisions/.</p></div>
+{% else %}
+{% for group in view.adrs_grouped() %}
+<div class="grp-section">
+    <div class="grp-header" onclick="this.parentElement.classList.toggle('collapsed')">
+        <span class="grp-toggle">&#9656;</span>
+        <span class="grp-name">{{ group.repo }}</span>
+        <span class="artifact-count">{{ group.total }}</span>
+    </div>
+    <div class="grp-body">
+        {% for prefix_group in group.prefix_groups %}
+        <div class="adr-prefix-group">
+            <div class="adr-prefix-label">{{ prefix_group.prefix }}</div>
+            <div class="nest-cards peek-all">
+            {% for adr in prefix_group.adrs %}
+                <a class="nest-card tint-adr" href="/adr/{{ adr.repo }}/{{ adr.id }}">
+                    <span class="nc-icon" aria-hidden="true"></span>
+                    <div class="nc-body">
+                        <div class="nc-top">
+                            <span class="nc-adrid mono">{{ adr.id }}</span>
+                            <span class="adr-state state-{{ adr.state }}">{{ adr.state }}</span>
+                        </div>
+                        <div class="nc-name">{{ adr.title }}</div>
+                        {% if !adr.summary.is_empty() %}<div class="nc-desc">{{ adr.summary }}</div>{% endif %}
+                    </div>
+                </a>
+            {% endfor %}
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+{% endfor %}
+{% endif %}
+{% endblock %}

@@ -1,0 +1,79 @@
+{% extends "dashboard/base.html" %}
+
+{% block content %}
+<div class="detail-header">
+    <a href="javascript:history.back()" class="back-link">&larr; Back</a>
+    <div class="detail-title-row">
+        <span class="kind-badge deployed-badge">deployed</span>
+        <h2 class="detail-name">{{ harness }}</h2>
+        <span class="detail-module">read-only</span>
+    </div>
+    <div class="detail-description mono">{{ path }}</div>
+</div>
+
+{% if exists %}
+<div class="deployed-banner">This is the assembled, deployed file. It is read-only here, edit the source artifact instead.</div>
+<div class="view-tabs">
+    <button class="view-tab active" onclick="switchView(this, 'preview')">Preview</button>
+    <button class="view-tab" onclick="switchView(this, 'code')">Deployed</button>
+    {% if !source.is_empty() %}
+    <button class="view-tab" onclick="switchView(this, 'source')">Source</button>
+    <button class="view-tab" onclick="switchView(this, 'diff')">Diff</button>
+    {% endif %}
+</div>
+<div id="view-preview" class="view-panel active">
+    <div class="detail-panel content-panel">
+        <div class="content-body markdown-body" data-markdown>{{ content_body }}</div>
+    </div>
+</div>
+<div id="view-code" class="view-panel">
+    <div class="detail-panel content-panel">
+        <pre class="code-source"><code class="language-markdown">{{ raw_source }}</code></pre>
+    </div>
+</div>
+{% if !source.is_empty() %}
+<textarea id="deployed-text" style="display:none">{{ raw_source }}</textarea>
+<textarea id="source-text" style="display:none">{{ source }}</textarea>
+<div id="view-source" class="view-panel">
+    <div class="deployed-banner">Current source artifact (pre-assembly). Differences from Deployed are the assembly transforms (frontmatter strip, tool remap, etc.).</div>
+    <div class="detail-panel content-panel">
+        <pre class="code-source"><code class="language-markdown">{{ source }}</code></pre>
+    </div>
+</div>
+<div id="view-diff" class="view-panel">
+    <div class="deployed-banner">Diff: source &rarr; deployed. <span class="diff-legend"><span class="diff-add">+ source only</span> <span class="diff-del">- deployed only</span></span></div>
+    <div class="detail-panel content-panel">
+        <pre class="diff-view"><code id="diff-body"></code></pre>
+    </div>
+</div>
+{% endif %}
+{% else %}
+<div class="detail-panel">
+    <p class="muted">Deployed file not found at this target.</p>
+</div>
+{% endif %}
+
+<script>
+function switchView(btn, view) {
+    btn.closest('.view-tabs').querySelectorAll('.view-tab').forEach(function(t) { t.classList.remove('active'); });
+    btn.classList.add('active');
+    document.querySelectorAll('.view-panel').forEach(function(p) { p.classList.remove('active'); });
+    var panel = document.getElementById('view-' + view);
+    panel.classList.add('active');
+    panel.querySelectorAll('pre code:not(.hljs)').forEach(function(block) { hljs.highlightElement(block); });
+    if (view === 'diff') { renderDiff(); }
+}
+
+// Source (+) vs deployed (-) line diff, via the shared DashDiff module.
+function renderDiff() {
+    var body = document.getElementById('diff-body');
+    if (!body || body.dataset.rendered) return;
+    body.dataset.rendered = 'true';
+    window.DashDiff.render(
+        body,
+        document.getElementById('source-text').value,
+        document.getElementById('deployed-text').value
+    );
+}
+</script>
+{% endblock %}

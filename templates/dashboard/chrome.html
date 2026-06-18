@@ -1,0 +1,42 @@
+<div class="global-chrome">
+    <div class="summary-bar">
+        <a href="/search?status=ok"><span class="count count-ok">{{ view.summary.unchanged }}</span> unchanged</a>
+        <a href="/search?status=stale"><span class="count count-stale">{{ view.summary.stale }}</span> stale</a>
+        <a href="/search?status=new"><span class="count count-new">{{ view.summary.new }}</span> new</a>
+        <a href="/search?status=modified"><span class="count count-modified">{{ view.summary.modified }}</span> modified</a>
+        <span style="margin-left:auto;font-size:10px;color:var(--dim)">scanned {{ scanned_at }}</span>
+        <a href="/refresh" style="font-size:10px;color:var(--accent)">Refresh</a>
+    </div>
+
+    <form class="search-bar" action="/search" method="get">
+        <input type="text" class="search-input" placeholder="Search artifacts...  ( / to focus )" name="query">
+        <select name="kind" onchange="this.form.submit()">
+            <option value="">All types</option>
+            <option value="skills">Skills</option>
+            <option value="agents">Agents</option>
+            <option value="rules">Rules</option>
+        </select>
+        <select name="module" onchange="this.form.submit()">
+            <option value="">All repositories</option>
+            {% for module in view.modules %}
+            <option value="{{ module.name }}">{{ module.name }}</option>
+            {% endfor %}
+        </select>
+        <select name="status" onchange="this.form.submit()">
+            <option value="">Any status</option>
+            <option value="attention">Needs attention</option>
+            <option value="ok">Unchanged</option>
+            <option value="stale">Stale</option>
+            <option value="modified">Modified</option>
+            <option value="new">New</option>
+        </select>
+        <select name="sort" onchange="this.form.submit()">
+            <option value="recent">Sort: Recent commit</option>
+            <option value="name">Sort: Name</option>
+            <option value="module">Sort: Repository</option>
+            <option value="size">Sort: Size (largest)</option>
+            <option value="age">Sort: Age (oldest)</option>
+            <option value="staleness">Sort: Staleness (worst)</option>
+        </select>
+    </form>
+</div>

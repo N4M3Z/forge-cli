@@ -1,0 +1,329 @@
+{% extends "dashboard/base.html" %}
+
+{% block content %}
+<div class="detail-header">
+    <a href="/" class="back-link">&larr; Back</a>
+    <div class="detail-title-row">
+        <span class="kind-badge {{ artifact.kind }}">{{ artifact.kind }}</span>
+        <h2 class="detail-name">{{ artifact.name }}</h2>
+        {% if !module_name.is_empty() %}
+        <span class="detail-module">{{ module_name }}</span>
+        {% endif %}
+    </div>
+    {% if !artifact.description.is_empty() %}
+    <div class="detail-description">{{ artifact.description }}</div>
+    {% endif %}
+    {% if !schema_applies.is_empty() %}
+    <div class="schema-applies"><span class="kind-icon">&#9707;&#xFE0E;</span> Schema: <a href="/schema/{{ module_name }}/{{ artifact.kind }}">{{ schema_applies }}</a></div>
+    {% endif %}
+    <div class="staleness-bar">
+        <span class="stale-metric" title="total source lines including companion files (the Size sort)"><span class="stale-mlabel">size</span> {{ artifact.total_lines() }} lines</span>
+        {% if !artifact.age_label().is_empty() %}<span class="stale-metric" title="time since the last commit affecting this artifact (the Age sort)"><span class="stale-mlabel">age</span> {{ artifact.age_label() }}</span>{% endif %}
+        <span class="stale-metric" title="composite staleness, worst signal first: broken references, then deploy drift (the Staleness sort)"><span class="stale-mlabel">staleness</span> <span class="stale-state stale-{{ artifact.staleness_level() }}">{% if artifact.staleness_level() == "ok" %}&#10003;{% else %}&#9888;&#xFE0E;{% endif %} {{ artifact.staleness_label() }}</span></span>
+    </div>
+    {% if artifact.has_broken_refs() %}
+    <div class="stale-list">
+    {% for reference in artifact.broken_refs %}<code class="stale-ref" title="cited link target that no longer resolves on disk">{{ reference }}</code>{% endfor %}
+    </div>
+    {% endif %}
+</div>
+
+{% if artifact.kind != "adr" %}
+<div class="install-bar">
+    <span class="install-label">.forge</span>
+    <code>{{ artifact.kind }}: [{{ artifact.name }}]</code>
+    <button onclick="navigator.clipboard.writeText(this.previousElementSibling.textContent.trim())">Copy</button>
+</div>
+{% endif %}
+
+{% if artifact.adoption.is_some() || !deploy_groups.is_empty() %}
+<div class="prov-section">
+    <div class="content-toolbar">
+        <div class="view-tabs">
+            <button class="view-tab active" onclick="switchProv(this, 'graph')">Graph</button>
+            {% if !provenance_raw.is_empty() %}
+            <button class="view-tab" onclick="switchProv(this, 'raw')">Sidecar</button>
+            {% endif %}
+        </div>
+        <span class="toolbar-label">Provenance</span>
+    </div>
+    {% if !artifact.sidecar_warning.is_empty() %}
+    <div class="sidecar-warning"><span class="kind-icon">&#9888;&#xFE0E;</span> {{ artifact.sidecar_warning }}</div>
+    {% endif %}
+    <div id="prov-graph" class="prov-panel active">
+    <div class="detail-panel content-panel">
+    <div class="provenance-flow">
+        {% if let Some(adoption) = artifact.adoption %}
+        <div class="flow-node">
+            <div class="flow-label">{% if adoption.kind == "adopt" %}Upstream{% else %}Copied from{% endif %}</div>
+            {% if adoption.source.starts_with("http") %}
+            <a href="{{ adoption.source }}" target="_blank" rel="noopener noreferrer" class="flow-path" title="{{ adoption.source }}">{{ adoption.source_label }}</a>
+            {% else %}
+            <div class="flow-path">{{ adoption.source_label }}</div>
+            {% endif %}
+            {% if !adoption.commit.is_empty() %}
+            <div class="flow-hash mono" onclick="this.classList.toggle('expanded')" title="{{ adoption.commit }}">{{ adoption.commit }}</div>
+            {% endif %}
+            {% if !adoption.source_sha.is_empty() %}
+            <div class="flow-hash mono" onclick="this.classList.toggle('expanded')" title="{{ adoption.source_sha }}">{{ adoption.source_sha }}</div>
+            {% endif %}
+        </div>
+        <div class="flow-arrow">&rarr;</div>
+        <div class="flow-node">
+            <div class="flow-label">forge-cli {{ adoption.kind }}</div>
+            {% if dep_links.is_empty() %}
+            <div class="flow-path">no tooling deps</div>
+            {% else %}
+            {% for dep in dep_links %}
+            {% if !dep.module.is_empty() %}<a href="/artifact/{{ dep.module }}/skills/{{ dep.name }}" class="dep-chip" title="{{ dep.uri }}">{{ dep.name }}</a>{% else %}<span class="dep-chip dep-chip-plain" title="{{ dep.uri }}">{{ dep.name }}</span>{% endif %}
+            {% endfor %}
+            {% endif %}
+        </div>
+        <div class="flow-arrow">&rarr;</div>
+        {% endif %}
+
+        <div class="flow-node flow-ok">
+            <div class="flow-label">{{ module_name }}</div>
+            {% if !module_source_uri.is_empty() && module_source_uri.starts_with("http") %}
+            <a href="{{ module_source_uri }}/blob/main/{{ artifact.relative_path }}" target="_blank" rel="noopener noreferrer" class="flow-path">{{ artifact.relative_path }}</a>
+            {% else %}
+            <div class="flow-path">{{ artifact.relative_path }}</div>
+            {% endif %}
+        </div>
+
+        {% if !deploy_groups.is_empty() %}
+        <div class="flow-arrow">&rarr;</div>
+        <div class="flow-node">
+            <div class="flow-label">forge-cli assemble</div>
+            <div class="flow-path">{{ version }}</div>
+            {% if !binary_hash.is_empty() %}
+            <div class="flow-hash mono" onclick="this.classList.toggle('expanded')" title="{{ binary_hash }}">{{ binary_hash }}</div>
+            {% endif %}
+        </div>
+        <div class="flow-arrow">&rarr;</div>
+        <div class="flow-node-group">
+        {% for group in deploy_groups %}
+            <div class="deploy-group {% if group.verified == group.total %}flow-ok{% else %}flow-warn{% endif %}">
+                <button class="deploy-group-head" onclick="this.parentElement.classList.toggle('open')">
+                    <span class="deploy-target">{{ group.target }}</span>
+                    <span class="deploy-count">{{ group.verified }}/{{ group.total }}</span>
+                    <span class="companion-toggle">&#9656;</span>
+                </button>
+                <div class="deploy-group-body">
+                {% for harness in group.harnesses %}
+                    <a class="flow-deploy {% if harness.verified %}flow-ok{% else %}flow-warn{% endif %}" href="/deployed/{{ harness.harness }}/{{ harness.deployed_path }}">
+                        <span class="deploy-harness">{{ harness.harness }}</span>
+                        {% if harness.verified %}<span class="status-chip ok">OK</span>{% else %}<span class="status-chip modified">DRIFT</span>{% endif %}
+                        <span class="deploy-loc mono">{{ group.target }}/.{{ harness.harness }}/{{ harness.deployed_dir }}/</span>
+                        <span class="deploy-view">view &rarr;</span>
+                    </a>
+                {% endfor %}
+                </div>
+            </div>
+        {% endfor %}
+        </div>
+        {% endif %}
+    </div>
+    {% if let Some(adoption) = artifact.adoption %}
+    {% if !adoption.transforms.is_empty() %}
+    <div class="adoption-meta">
+        <span class="meta-key">transforms</span>
+        <span>
+        {% for transform in adoption.transforms %}<span class="transform-chip">{{ transform }}</span>{% endfor %}
+        </span>
+    </div>
+    {% endif %}
+    {% if !adoption.author.is_empty() %}
+    <div class="adoption-meta"><span class="meta-key">author</span><span>{{ adoption.author }}</span></div>
+    {% endif %}
+    {% if !adoption.license.is_empty() %}
+    <div class="adoption-meta"><span class="meta-key">license</span><span>{{ adoption.license }}</span></div>
+    {% endif %}
+    {% if !adoption.adopted_by.is_empty() %}
+    <div class="adoption-meta"><span class="meta-key">adopted by</span><span>{{ adoption.adopted_by }}</span></div>
+    {% endif %}
+    {% endif %}
+    </div>
+    </div>
+    {% if !provenance_raw.is_empty() %}
+    <div id="prov-raw" class="prov-panel">
+        <div class="detail-panel content-panel">
+        <pre class="code-source"><code class="language-yaml" data-path="{{ artifact.relative_path }} · sidecar">{{ provenance_raw }}</code></pre>
+        </div>
+    </div>
+    {% endif %}
+</div>
+{% else %}
+<div class="detail-panel" style="margin-top:12px">
+    <div class="panel-title">Provenance</div>
+    <p class="muted">No provenance record. This artifact was authored directly in
+    {% if !module_name.is_empty() %}<strong>{{ module_name }}</strong>{% else %}this module{% endif %}
+    with no upstream source.</p>
+</div>
+{% endif %}
+
+{% if !artifact.metadata.is_empty() %}
+<div class="detail-panel metadata-panel" style="margin-top:12px">
+    <div class="panel-title">Frontmatter</div>
+    <div class="metadata-grid">
+    {% for (key, value) in artifact.metadata %}
+        <span class="meta-key">{{ key }}</span>
+        <span class="meta-value">{{ value }}</span>
+    {% endfor %}
+    </div>
+</div>
+{% endif %}
+
+{% if !artifact.content_body.is_empty() %}
+<textarea id="raw-markdown" style="display:none">{{ artifact.raw_source }}</textarea>
+{% if !diff_deployed.is_empty() %}<textarea id="deployed-text" style="display:none">{{ diff_deployed }}</textarea>{% endif %}
+{% if !diff_source_at_deploy.is_empty() %}<textarea id="source-at-deploy-text" style="display:none">{{ diff_source_at_deploy }}</textarea>{% endif %}
+<div class="content-toolbar">
+    <div class="view-tabs">
+        <button class="view-tab active" onclick="switchView(this, 'preview')">Preview</button>
+        <button class="view-tab" onclick="switchView(this, 'code')">Code</button>
+        {% if !diff_deployed.is_empty() || !diff_source_at_deploy.is_empty() %}
+        <button class="view-tab" onclick="switchView(this, 'diff')">Diff</button>
+        {% endif %}
+    </div>
+    <button class="toolbar-btn" onclick="copyMarkdown(this)">Copy</button>
+</div>
+<div id="view-preview" class="view-panel active">
+    <div class="detail-panel content-panel">
+        <div class="content-body markdown-body" data-markdown>{{ artifact.content_body }}</div>
+    </div>
+</div>
+<div id="view-code" class="view-panel">
+    <div class="detail-panel content-panel">
+        <pre class="code-source"><code class="language-markdown" data-path="{{ artifact.relative_path }}">{{ artifact.raw_source }}</code></pre>
+    </div>
+</div>
+{% if !diff_deployed.is_empty() || !diff_source_at_deploy.is_empty() %}
+<div id="view-diff" class="view-panel">
+    <div class="diff-modes">
+        {% if !diff_deployed.is_empty() %}<button class="diff-mode active" data-mode="deployed" onclick="setDiffMode(this)">vs deployed</button>{% endif %}
+        {% if !diff_source_at_deploy.is_empty() %}<button class="diff-mode{% if diff_deployed.is_empty() %} active{% endif %}" data-mode="drift" onclick="setDiffMode(this)">drift since deploy</button>{% endif %}
+    </div>
+    <div class="deployed-banner" id="diff-banner"></div>
+    <div class="detail-panel content-panel">
+        <pre class="diff-view"><code id="diff-body"></code></pre>
+    </div>
+</div>
+{% endif %}
+{% else %}
+<div class="detail-panel">
+    <p class="muted">No content available.</p>
+</div>
+{% endif %}
+
+{% if !artifact.companions.is_empty() %}
+<div class="detail-panel" style="margin-top:12px">
+    <div class="panel-title">Companion files</div>
+    <div class="companion-list">
+    {% for companion in artifact.companions %}
+        <a class="companion-head companion-link" href="/companion/{{ artifact.name }}/{{ companion.name }}">
+            <span class="companion-name">{{ artifact.name }}/{{ companion.name }}</span>
+            {% if !companion.description.is_empty() %}<span class="companion-desc">{{ companion.description }}</span>{% endif %}
+            <span class="companion-toggle">&rarr;</span>
+        </a>
+    {% endfor %}
+    </div>
+</div>
+{% endif %}
+
+{% if !artifact.git_log.is_empty() %}
+<div class="detail-panel" style="margin-top:12px">
+    <div class="panel-title">Git History</div>
+    <div class="git-log">
+    {% for commit in artifact.git_log %}
+        <div class="git-commit">
+            <div class="gc-header">
+                {% if !module_source_uri.is_empty() %}
+                <a href="{{ module_source_uri }}/commit/{{ commit.sha }}" target="_blank" rel="noopener noreferrer" class="gc-message">{{ commit.message }}</a>
+                {% else %}
+                <span class="gc-message">{{ commit.message }}</span>
+                {% endif %}
+                <span class="gc-date">{{ commit.date }}</span>
+            </div>
+            <div class="gc-meta">
+                <span class="gc-author">{{ commit.author }}</span>
+                <span class="gc-sha mono" onclick="this.classList.toggle('expanded')" title="{{ commit.sha }}">{{ commit.sha }}</span>
+                <a class="gc-view" href="/version/{{ artifact.kind }}/{{ artifact.name }}/{{ commit.sha }}">view at this commit &rarr;</a>
+            </div>
+        </div>
+    {% endfor %}
+    </div>
+</div>
+{% endif %}
+
+<script>
+function copyMarkdown(btn) {
+    var raw = document.getElementById('raw-markdown').value;
+    navigator.clipboard.writeText(raw).then(function() {
+        var orig = btn.textContent;
+        btn.textContent = 'Copied!';
+        setTimeout(function() { btn.textContent = orig; }, 1500);
+    });
+}
+function switchView(btn, view) {
+    btn.closest('.content-toolbar').querySelectorAll('.view-tab').forEach(function(t) { t.classList.remove('active'); });
+    btn.classList.add('active');
+    document.querySelectorAll('.view-panel').forEach(function(p) { p.classList.remove('active'); });
+    document.getElementById('view-' + view).classList.add('active');
+    if (view === 'diff') { renderArtifactDiff(); }
+}
+function switchProv(btn, view) {
+    btn.closest('.view-tabs').querySelectorAll('.view-tab').forEach(function(t) { t.classList.remove('active'); });
+    btn.classList.add('active');
+    document.querySelectorAll('.prov-panel').forEach(function(p) { p.classList.remove('active'); });
+    document.getElementById('prov-' + view).classList.add('active');
+}
+function setDiffMode(btn) {
+    btn.closest('.diff-modes').querySelectorAll('.diff-mode').forEach(function(b) { b.classList.remove('active'); });
+    btn.classList.add('active');
+    renderArtifactDiff();
+}
+function renderArtifactDiff() {
+    var body = document.getElementById('diff-body');
+    if (!body || typeof window.DashDiff === 'undefined') return;
+    var active = document.querySelector('#view-diff .diff-mode.active');
+    var mode = active ? active.getAttribute('data-mode') : 'deployed';
+    var source = document.getElementById('raw-markdown').value;
+    var banner = document.getElementById('diff-banner');
+    var other = '';
+    if (mode === 'drift') {
+        var driftEl = document.getElementById('source-at-deploy-text');
+        other = driftEl ? driftEl.value : '';
+        if (banner) banner.innerHTML = 'Diff: current source &rarr; source at deploy. <span class="diff-legend"><span class="diff-add">+ added since deploy</span> <span class="diff-del">- removed since deploy</span></span>';
+    } else {
+        var depEl = document.getElementById('deployed-text');
+        other = depEl ? depEl.value : '';
+        if (banner) banner.innerHTML = 'Diff: source &rarr; deployed (assembly transforms show as differences). <span class="diff-legend"><span class="diff-add">+ source only</span> <span class="diff-del">- deployed only</span></span>';
+    }
+    window.DashDiff.render(body, source, other);
+}
+
+</script>
+
+<div class="command-pane">
+    <span class="cmd-label">Actions</span>
+    <button class="cmd-action" data-export onclick="Annotate.exportNotes()">Export notes</button>
+    <button class="cmd-action" onclick="copyMarkdown(this)">Copy source</button>
+    {% if artifact.kind != "adr" %}<button class="cmd-action" onclick="copyInstall(this)">Copy .forge</button>{% endif %}
+    <a class="cmd-action" href="/refresh">Rescan</a>
+    <a class="cmd-action" href="/schemas">Schema</a>
+    <a class="cmd-action" href="/">Overview</a>
+    {% if !module_source_uri.is_empty() %}
+    <a class="cmd-action" href="{{ module_source_uri }}" target="_blank" rel="noopener noreferrer">GitHub &#8599;</a>
+    {% endif %}
+    <span class="cmd-hint">&#8984;K search &middot; click code lines to annotate</span>
+</div>
+<script>
+function copyInstall(btn) {
+    navigator.clipboard.writeText('{{ artifact.kind }}: [{{ artifact.name }}]').then(function() {
+        var orig = btn.textContent; btn.textContent = 'Copied!';
+        setTimeout(function() { btn.textContent = orig; }, 1500);
+    });
+}
+</script>
+{% endblock %}

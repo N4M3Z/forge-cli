@@ -1,0 +1,169 @@
+{% extends "dashboard/base.html" %}
+
+{% block content %}
+<div class="summary-bar">
+    <a href="/search?status=ok"><span class="count count-ok">{{ view.summary.unchanged }}</span> unchanged</a>
+    <a href="/search?status=stale"><span class="count count-stale">{{ view.summary.stale }}</span> stale</a>
+    <a href="/search?status=new"><span class="count count-new">{{ view.summary.new }}</span> new</a>
+    <a href="/search?status=modified"><span class="count count-modified">{{ view.summary.modified }}</span> modified</a>
+    <span style="margin-left:auto;font-size:10px;color:var(--dim)">scanned {{ scanned_at }}</span>
+    <a href="/refresh" style="font-size:10px;color:var(--accent)">Refresh</a>
+</div>
+
+<div class="search-bar">
+    <input type="text" id="search-input" placeholder="Search artifacts...  ( / to focus )"
+           hx-get="/search" hx-trigger="keyup changed delay:200ms"
+           hx-target="#artifact-grid" hx-swap="innerHTML"
+           hx-include="#kind-filter,#module-filter,#status-filter,#sort-filter" name="query">
+    <select id="kind-filter" name="kind"
+            hx-get="/search" hx-trigger="change"
+            hx-target="#artifact-grid" hx-swap="innerHTML"
+            hx-include="#search-input,#module-filter,#status-filter,#sort-filter">
+        <option value="">All types</option>
+        <option value="skills">Skills</option>
+        <option value="agents">Agents</option>
+        <option value="rules">Rules</option>
+    </select>
+    <select id="module-filter" name="module"
+            hx-get="/search" hx-trigger="change"
+            hx-target="#artifact-grid" hx-swap="innerHTML"
+            hx-include="#search-input,#kind-filter,#status-filter,#sort-filter">
+        <option value="">All repositories</option>
+        {% for module in view.modules %}
+        <option value="{{ module.name }}">{{ module.name }}</option>
+        {% endfor %}
+    </select>
+    <select id="status-filter" name="status"
+            hx-get="/search" hx-trigger="change"
+            hx-target="#artifact-grid" hx-swap="innerHTML"
+            hx-include="#search-input,#kind-filter,#module-filter,#sort-filter">
+        <option value="">Any status</option>
+        <option value="attention">Needs attention</option>
+        <option value="ok">Unchanged</option>
+        <option value="stale">Stale</option>
+        <option value="modified">Modified</option>
+        <option value="new">New</option>
+    </select>
+    <select id="sort-filter" name="sort"
+            hx-get="/search" hx-trigger="change"
+            hx-target="#artifact-grid" hx-swap="innerHTML"
+            hx-include="#search-input,#kind-filter,#module-filter,#status-filter">
+        <option value="recent" selected>Sort: Recent commit</option>
+        <option value="name">Sort: Name</option>
+        <option value="module">Sort: Repository</option>
+        <option value="size">Sort: Size (largest)</option>
+        <option value="age">Sort: Age (oldest)</option>
+        <option value="staleness">Sort: Staleness (worst)</option>
+    </select>
+</div>
+
+<div class="ov-controls">
+    <div class="ov-seg">
+        <a class="ov-btn{% if layout == "nested" %} active{% endif %}" href="/?view=nested&primary={{ primary }}&density={{ density }}">Nested</a>
+        <a class="ov-btn{% if layout == "matrix" %} active{% endif %}" href="/?view=matrix">Matrix</a>
+    </div>
+    {% if layout == "nested" %}
+    <a class="ov-btn ghost" href="/?view=nested&primary={% if primary == "kind" %}module{% else %}kind{% endif %}&density={{ density }}" title="Swap which facet is primary">
+        <span class="ov-icon">&#8646;</span> {% if primary == "kind" %}kind &rsaquo; repository{% else %}repository &rsaquo; kind{% endif %}
+    </a>
+    <a class="ov-btn ghost" href="/?view=nested&primary={{ primary }}&density={% if density == "compact" %}comfortable{% else %}compact{% endif %}" title="Toggle row density">
+        {{ density }}
+    </a>
+    <span class="ov-sep"></span>
+    <button class="ov-btn ghost" onclick="overviewExpandAll()">Expand all</button>
+    <button class="ov-btn ghost" onclick="overviewCollapseAll()">Collapse all</button>
+    {% endif %}
+</div>
+
+<div id="artifact-grid" class="overview-root density-{{ density }}">
+{% if layout == "matrix" %}
+{% if let Some(matrix) = matrix %}
+    <table class="ov-matrix">
+        <thead>
+            <tr>
+                <th class="corner"></th>
+                {% for col in matrix.cols %}<th class="ktext-{{ col }}">{{ col }}</th>{% endfor %}
+                <th class="tot">all</th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for row in matrix.rows %}
+            <tr>
+                <th class="mrow-label">{{ row.module }}</th>
+                {% for cell in row.cells %}
+                {% if cell.count == 0 %}
+                <td class="mcell empty"><span class="mchip">&middot;</span></td>
+                {% else %}
+                <td class="mcell"><a class="mchip" href="/search?kind={{ cell.kind }}&module={{ cell.module }}" title="{{ cell.count }} {{ cell.kind }} in {{ cell.module }}"><span class="dot dot-{{ cell.status }}"></span>{{ cell.count }}</a></td>
+                {% endif %}
+                {% endfor %}
+                <td class="tot">{{ row.total }}</td>
+            </tr>
+        {% endfor %}
+            <tr class="totrow">
+                <th class="tot">all</th>
+                {% for total in matrix.col_totals %}<td class="tot">{{ total }}</td>{% endfor %}
+                <td class="tot">{{ matrix.total }}</td>
+            </tr>
+        </tbody>
+    </table>
+{% endif %}
+{% else %}
+{% for group in nested %}
+    <div class="nest-group">
+        <div class="nest-ghead" onclick="this.parentElement.classList.toggle('collapsed')">
+            <span class="caret">&#9656;</span>
+            <span class="nest-gname{% if !group.kind.is_empty() %} ktext-{{ group.kind }}{% endif %}">{{ group.label }}</span>
+            <span class="nest-gcount">{{ group.count }}</span>
+        </div>
+        <div class="nest-gbody">
+        {% for sub in group.subgroups %}
+            <div class="nest-sub">
+                <div class="nest-shead" onclick="this.parentElement.classList.toggle('collapsed')">
+                    <span class="caret-sm">&#9656;</span>
+                    <span class="nest-sname{% if !sub.kind.is_empty() %} ktext-{{ sub.kind }}{% endif %}">{{ sub.label }}</span>
+                    <span class="nest-scount">{{ sub.count }}</span>
+                </div>
+                <div class="nest-cards">
+                {% for item in sub.items %}
+                    <a class="nest-card tint-{{ item.kind }} mod-{{ item.module_tint }}" href="/artifact/{{ item.module }}/{{ item.kind }}/{{ item.name }}">
+                        <span class="nc-icon" aria-hidden="true"></span>
+                        <div class="nc-body">
+                            <div class="nc-top">
+                                <span class="dot dot-{{ item.overall_status() }}"></span>
+                                {% if item.has_broken_refs() %}<span class="nc-broken" title="{{ item.broken_refs.len() }} broken reference(s)">&#9888;&#xFE0E; {{ item.broken_refs.len() }}</span>{% endif %}
+                                {% if !item.age_label().is_empty() %}<span class="nc-age">{{ item.age_label() }}</span>{% endif %}
+                                {% if item.deployed_count() > 0 %}<span class="nc-dep">{{ item.deployed_count() }}&#8599;</span>{% else %}<span class="nc-dep nc-src">src</span>{% endif %}
+                            </div>
+                            <div class="nc-name">{{ item.name }}</div>
+                            {% if !item.description.is_empty() %}<div class="nc-desc">{{ item.description }}</div>
+                            {% else if !item.content_preview.is_empty() %}<div class="nc-desc">{{ item.content_preview }}</div>{% endif %}
+                        </div>
+                    </a>
+                {% endfor %}
+                {% if sub.count > 7 %}<button class="peek-card" data-count="{{ sub.count }}" onclick="overviewPeekToggle(this)"><span class="peek-card-more">+{{ sub.count - 7 }}</span><span class="peek-card-text">show all {{ sub.count }}</span></button>{% endif %}
+                </div>
+            </div>
+        {% endfor %}
+        </div>
+    </div>
+{% endfor %}
+{% endif %}
+</div>
+
+<script>
+function overviewPeekToggle(button) {
+    var cards = button.closest('.nest-cards');
+    var showingAll = cards.classList.toggle('peek-all');
+    button.querySelector('.peek-card-text').textContent = showingAll ? 'show fewer' : 'show all ' + button.dataset.count;
+}
+function overviewExpandAll() {
+    document.querySelectorAll('.nest-sub').forEach(function(s) { s.classList.remove('collapsed'); });
+    document.querySelectorAll('.nest-cards').forEach(function(c) { c.classList.add('peek-all'); });
+    document.querySelectorAll('.peek-card .peek-card-text').forEach(function(t) { t.textContent = 'show fewer'; });
+}
+function overviewCollapseAll() {
+    document.querySelectorAll('.nest-sub').forEach(function(s) { s.classList.add('collapsed'); });
+}
+</script>
+{% endblock %}

@@ -1,0 +1,19 @@
+{% extends "dashboard/base.html" %}
+
+{% block content %}
+<div class="detail-header">
+    <div class="detail-title-row">
+        <h2 class="detail-name">{{ event }}</h2>
+        <span class="detail-module">{{ harness }} &middot; read-only</span>
+    </div>
+    <div class="detail-description">Hook registered in {{ harness }}, triggered on {{ event }}{% if !matcher.is_empty() %} matching <span class="mono">{{ matcher }}</span>{% endif %}.</div>
+</div>
+
+<div class="detail-panel">
+    <div class="file-head">
+        <span class="file-label">command{% if !wrapper.is_empty() %} <span class="hook-wrapper mono">{{ wrapper }} &lsquo;…&rsquo;</span>{% endif %}</span>
+        <span class="file-path mono">{{ source }}</span>
+    </div>
+    <pre class="code-source"><code class="language-bash" data-path="{{ source }}">{{ command }}</code></pre>
+</div>
+{% endblock %}

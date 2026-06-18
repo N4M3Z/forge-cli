@@ -1,0 +1,41 @@
+{% if groups.is_empty() %}
+<p class="muted" style="padding:2rem;text-align:center">No artifacts match your search.</p>
+{% else %}
+<div class="results-count">{{ total }} results{% if total_pages > 1 %} (page {{ page }}/{{ total_pages }}){% endif %}</div>
+{% for (kind, artifacts) in groups %}
+<div class="kind-section">
+    <div class="kind-header-row">
+        <span class="kind-badge {{ kind }}">{{ kind }}</span>
+        <span class="artifact-count">{{ artifacts.len() }}</span>
+    </div>
+    <div class="nest-cards peek-all">
+    {% for artifact in artifacts %}
+        <a class="nest-card tint-{{ artifact.kind }} mod-{{ artifact.module_tint }}" href="/artifact/{{ artifact.module }}/{{ artifact.kind }}/{{ artifact.name }}">
+            <span class="nc-icon" aria-hidden="true"></span>
+            <div class="nc-body">
+                <div class="nc-top">
+                    <span class="dot dot-{{ artifact.overall_status() }}"></span>
+                    {% if artifact.has_broken_refs() %}<span class="nc-broken" title="{{ artifact.broken_refs.len() }} broken reference(s)">&#9888;&#xFE0E; {{ artifact.broken_refs.len() }}</span>{% endif %}
+                    {% if !artifact.age_label().is_empty() %}<span class="nc-age">{{ artifact.age_label() }}</span>{% endif %}
+                    {% if artifact.deployed_count() > 0 %}<span class="nc-dep" title="{{ artifact.provider_breakdown() }}">{{ artifact.deployed_count() }}&#8599;</span>{% else %}<span class="nc-dep nc-src">src</span>{% endif %}
+                </div>
+                <div class="nc-name">{{ artifact.name }}</div>
+                {% if !artifact.description.is_empty() %}<div class="nc-desc">{{ artifact.description }}</div>
+                {% else if !artifact.content_preview.is_empty() %}<div class="nc-desc">{{ artifact.content_preview }}</div>{% endif %}
+            </div>
+        </a>
+    {% endfor %}
+    </div>
+</div>
+{% endfor %}
+{% if total_pages > 1 %}
+<div class="pagination">
+    {% if page > 1 %}
+    <a class="page-btn" href="/search?page={{ page - 1 }}&query={{ query }}&kind={{ kind }}&module={{ module }}&status={{ status }}&sort={{ sort }}">&laquo; Prev</a>
+    {% endif %}
+    {% if page < total_pages %}
+    <a class="page-btn" href="/search?page={{ page + 1 }}&query={{ query }}&kind={{ kind }}&module={{ module }}&status={{ status }}&sort={{ sort }}">Next &raquo;</a>
+    {% endif %}
+</div>
+{% endif %}
+{% endif %}
