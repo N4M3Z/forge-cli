@@ -60,7 +60,7 @@ Transforms source content into provider-specific output:
 3. Merge — combine base + variant body using variant's `mode` (append, prepend, replace)
 4. Strip frontmatter — remove `---` delimiters, H1 heading from body
 5. Strip reference links — remove `[N]: url` definitions and `[N]` inline markers
-6. Format per provider — YAML frontmatter (Claude/Gemini/OpenCode), TOML (Codex), kebab-case names (Gemini/OpenCode), tool remapping (Gemini)
+6. Format per provider — YAML frontmatter (Claude/Gemini/OpenCode), TOML for Codex agents only (skills and rules stay markdown), kebab-case names (Gemini/OpenCode), tool remapping (Gemini)
 7. Write sidecar — `.yaml` companion preserving stripped frontmatter + provenance
 
 Output structure:
