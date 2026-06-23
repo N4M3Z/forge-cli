@@ -15,6 +15,31 @@ fn init_creates_all_files() {
     assert!(temp_directory.path().join(".githooks/pre-commit").is_file());
     assert!(temp_directory.path().join(".githooks/pre-push").is_file());
     assert!(temp_directory.path().join(".githooks/jj-push").is_file());
+    assert!(
+        temp_directory
+            .path()
+            .join(".githooks/pre-push.pre-entire")
+            .is_file()
+    );
+    assert!(temp_directory.path().join(".githooks/commit-msg").is_file());
+    assert!(
+        temp_directory
+            .path()
+            .join(".githooks/post-commit")
+            .is_file()
+    );
+    assert!(
+        temp_directory
+            .path()
+            .join(".githooks/post-rewrite")
+            .is_file()
+    );
+    assert!(
+        temp_directory
+            .path()
+            .join(".githooks/prepare-commit-msg")
+            .is_file()
+    );
     assert!(temp_directory.path().join("agents/.mdschema").is_file());
     assert!(temp_directory.path().join("rules/.mdschema").is_file());
 }
@@ -97,6 +122,7 @@ fn init_deploys_hidden_template_files() {
         ".gitattributes",
         ".gitleaks.toml",
         ".gitlab-ci.yml",
+        ".gitignore",
     ] {
         let path = temp_directory.path().join(required);
         assert!(
@@ -139,4 +165,32 @@ fn init_uses_already_exists_skip_reason() {
         .find(|s| s.target.contains("LICENSE"))
         .expect("LICENSE should be skipped");
     assert!(matches!(license_skip.reason, SkipReason::AlreadyExists));
+}
+
+#[test]
+fn init_pre_push_is_entire_wrapper_chaining_to_gate() {
+    let temp_directory = TempDir::new().unwrap();
+    execute(&temp_directory.path().to_string_lossy()).unwrap();
+
+    let wrapper =
+        std::fs::read_to_string(temp_directory.path().join(".githooks/pre-push")).unwrap();
+    assert!(
+        wrapper.contains("Entire CLI hooks"),
+        "scaffolded pre-push should be the Entire wrapper"
+    );
+    assert!(
+        wrapper.contains("pre-push.pre-entire"),
+        "wrapper should chain to the gate"
+    );
+
+    let gate = std::fs::read_to_string(temp_directory.path().join(".githooks/pre-push.pre-entire"))
+        .unwrap();
+    assert!(
+        gate.contains("validate.sh"),
+        "pre-push.pre-entire should be the forge validation gate"
+    );
+    assert!(
+        !gate.contains("${VALIDATE_SH_SHA}"),
+        "gate SHA placeholder must be substituted at init time"
+    );
 }
