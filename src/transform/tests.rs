@@ -322,6 +322,43 @@ fn apply_rules_kebab_case_agents_skips_filename_for_rules() {
 }
 
 #[test]
+fn apply_rules_agents_to_toml_converts_agents() {
+    let rules = vec![AssemblyRule::AgentsToToml];
+    let mappings = HashMap::new();
+    let content = "---\nname: TestAgent\ndescription: Test agent\n---\n\nBody.";
+
+    let (out, filename) =
+        apply_rules(content, "TestAgent.md", &rules, &mappings, "agents").unwrap();
+
+    assert_eq!(filename, "TestAgent.toml");
+    assert!(out.contains("description = \"Test agent\""));
+}
+
+#[test]
+fn apply_rules_agents_to_toml_leaves_skills_as_markdown() {
+    let rules = vec![AssemblyRule::AgentsToToml];
+    let mappings = HashMap::new();
+    let content = "---\nname: WebDevelopment\ndescription: Web skill\n---\n\nBody.";
+
+    let (out, filename) = apply_rules(content, "SKILL.md", &rules, &mappings, "skills").unwrap();
+
+    assert_eq!(filename, "SKILL.md");
+    assert_eq!(out, content);
+}
+
+#[test]
+fn apply_rules_agents_to_toml_leaves_rules_as_markdown() {
+    let rules = vec![AssemblyRule::AgentsToToml];
+    let mappings = HashMap::new();
+    let content = "---\nname: NoEmDash\n---\n\nBody.";
+
+    let (out, filename) = apply_rules(content, "NoEmDash.md", &rules, &mappings, "rules").unwrap();
+
+    assert_eq!(filename, "NoEmDash.md");
+    assert_eq!(out, content);
+}
+
+#[test]
 fn kebab_case_converts_tax_advisor() {
     assert_eq!(to_kebab_case("TaxAdvisor"), "tax-advisor");
 }

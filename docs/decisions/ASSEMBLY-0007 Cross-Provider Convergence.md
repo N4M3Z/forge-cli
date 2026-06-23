@@ -31,8 +31,8 @@ This convergence changes what forge-cli needs to do over time.
 
 ## Decision Drivers
 
-- `.agents/skills/SKILL.md` is becoming the universal format
-- Provider-specific formatting (TOML for Codex, kebab-case for Gemini) is transitional
+- `.agents/skills/SKILL.md` is the universal skill format; forge deploys skills as `SKILL.md` for every provider, Codex included
+- Provider-specific formatting (TOML for Codex agents, kebab-case for Gemini) is transitional and applies to agents only, never skills or rules
 - forge-cli's deployment layer should shrink as providers converge
 - Assembly and validation are the durable capabilities
 
@@ -56,7 +56,7 @@ Design the forge tool as an **assembler and validator** whose deployment layer i
 
 - Per-provider directory routing (`.claude/`, `.gemini/`, `.codex/`, `.opencode/`), probably
 - Name format conversion (PascalCase → kebab-case)
-- Body format conversion (markdown → TOML)
+- Body format conversion (markdown → TOML), agents only
 - Tool name remapping (Read → read_file)
 
 ### Timeline expectation

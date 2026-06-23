@@ -13,7 +13,7 @@ The core philosophy is "Author Once, Deploy Everywhere." Authors write provider-
 - **Variant Resolution:** Supports overrides via `user/`, `provider/`, and `model/` subdirectories with a clear precedence order (`user/` > `provider/model/` > `provider/` > root).
 - **Provenance & Manifests:** Generates SLSA/in-toto sidecars and `.manifest` files to track source-to-deployed chains and detect local modifications.
 - **Validation:** Enforces module structure and `.mdschema` compliance for agents and documents.
-- **Provider-Specific Transforms:** Handles `kebab-case` filenames, tool name remapping, and TOML conversion (for Codex).
+- **Provider-Specific Transforms:** Handles `kebab-case` filenames, tool name remapping, and TOML conversion (Codex agents only; skills and rules stay markdown).
 
 ### Technologies
 - **Language:** Rust (2024 edition)

@@ -165,10 +165,10 @@ fn prune_does_not_match_name_suffix() {
 
 // --- two-pass prune across all providers ---
 
-/// Codex converts skill `.md` files to `.toml` via the `agents-to-toml`
-/// assembly rule. Every other provider keeps the `.md` extension.
-fn skill_file_extension(provider: &str) -> &'static str {
-    if provider == ".codex" { "toml" } else { "md" }
+/// Skills deploy as `SKILL.md` for every provider, Codex included; only agents
+/// are converted to TOML (`agents-to-toml` is gated to `kind == "agents"`).
+fn skill_file_extension(_provider: &str) -> &'static str {
+    "md"
 }
 
 fn run_two_pass_prune_for_provider(provider: &str) {

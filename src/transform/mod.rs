@@ -15,9 +15,10 @@ use crate::provider::AssemblyRule;
 /// Returns the transformed `(content, filename)` pair.
 ///
 /// Rules are applied sequentially:
-///   - `KebabCase` — transforms filename from `PascalCase` to kebab-case (only for agents)
+///   - `KebabCase` — transforms filename from `PascalCase` to kebab-case
 ///   - `RemapTools` — replaces tool names in backtick spans
-///   - `AgentsToToml` — converts markdown body to TOML, changes `.md` to `.toml`
+///   - `AgentsToToml` — converts an agent's markdown to TOML and `.md` to `.toml`;
+///     agents only, so skills (Codex reads `SKILL.md`) and rules stay markdown
 pub fn apply_rules(
     content: &str,
     filename: &str,
@@ -50,9 +51,11 @@ pub fn apply_rules(
                 current_content = remap_tools(&current_content, tool_mappings);
             }
             AssemblyRule::AgentsToToml => {
-                current_content = markdown_to_toml(&current_filename, &current_content)?;
-                let (stem, _) = split_extension(&current_filename);
-                current_filename = format!("{stem}.toml");
+                if kind == "agents" {
+                    current_content = markdown_to_toml(&current_filename, &current_content)?;
+                    let (stem, _) = split_extension(&current_filename);
+                    current_filename = format!("{stem}.toml");
+                }
             }
             AssemblyRule::StripLinks => {}
         }
