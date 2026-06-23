@@ -10,11 +10,14 @@ mod output;
 mod provenance;
 mod release;
 mod validate;
+mod watchlist;
 
 #[cfg(test)]
 mod tests;
 
 use clap::{Parser, Subcommand};
+use commands::error::Error;
+use commands::result::ActionResult;
 
 #[derive(Parser)]
 #[command(name = "forge", about = "Forge module toolkit", version)]
@@ -203,6 +206,36 @@ enum Command {
         #[arg(long)]
         embed: bool,
     },
+
+    /// Manage the watchlist of module and deployment locations to monitor
+    Watch {
+        #[command(subcommand)]
+        action: WatchAction,
+    },
+}
+
+#[derive(Subcommand)]
+enum WatchAction {
+    /// List watched locations
+    List,
+    /// Add a local path to the watchlist
+    Add {
+        /// Path to a module or deployment target (supports a leading `~/`).
+        path: String,
+    },
+    /// Watch a remote repo pinned to a commit SHA
+    Git {
+        /// HTTPS URL of the repo to monitor.
+        url: String,
+        /// Full 40-char lowercase-hex commit SHA to pin.
+        #[arg(long = "ref")]
+        reference: String,
+    },
+    /// Remove a watched entry by its path or git URL
+    Remove {
+        /// Path or git URL to stop watching.
+        path: String,
+    },
 }
 
 /// Parse CLI arguments, dispatch to subcommand, and return an exit code.
@@ -265,42 +298,57 @@ pub fn run() -> i32 {
             source_uri,
             show_orphans,
         } => {
-            return match provenance::execute(
+            return exit_code(provenance::execute(
                 &target,
                 source_uri.as_deref(),
                 show_orphans,
                 args.json,
-            ) {
-                Ok(code) => code,
-                Err(error) => {
-                    eprintln!("fatal: {error}");
-                    2
-                }
-            };
+            ));
         }
         Command::Drift {
             source,
             upstream,
             ignore,
-        } => {
-            return match drift::execute(&source, &upstream, &ignore, args.json) {
-                Ok(code) => code,
-                Err(error) => {
-                    eprintln!("fatal: {error}");
-                    2
-                }
-            };
-        }
+        } => return exit_code(drift::execute(&source, &upstream, &ignore, args.json)),
         Command::Clean { source, target } => (
             deploy::execute(&source, target.as_deref(), &[], false, true, false, false),
             "cleaned",
         ),
         Command::Release { source, embed } => (release::execute(&source, embed), "released"),
+        Command::Watch { action } => return run_watch(action, args.json),
     };
 
+    report(result, args.json, verb)
+}
+
+/// Collapse a subcommand's `Result<exit_code, _>` into a process exit code,
+/// printing a `fatal:` line on `Err`.
+fn exit_code<E: std::fmt::Display>(result: Result<i32, E>) -> i32 {
+    match result {
+        Ok(code) => code,
+        Err(error) => {
+            eprintln!("fatal: {error}");
+            2
+        }
+    }
+}
+
+/// Dispatch a `forge watch` subcommand to its handler.
+fn run_watch(action: WatchAction, json: bool) -> i32 {
+    let result = match action {
+        WatchAction::List => watchlist::list(json),
+        WatchAction::Add { path } => watchlist::add_path(&path, json),
+        WatchAction::Git { url, reference } => watchlist::add_git(&url, &reference, json),
+        WatchAction::Remove { path } => watchlist::remove(&path, json),
+    };
+    exit_code(result)
+}
+
+/// Print a structured `ActionResult` and return the corresponding exit code.
+fn report(result: Result<ActionResult, Error>, json: bool, verb: &str) -> i32 {
     match result {
         Ok(action_result) => {
-            output::print(&action_result, args.json, verb);
+            output::print(&action_result, json, verb);
             i32::from(action_result.has_errors())
         }
         Err(error) => {
