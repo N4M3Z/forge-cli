@@ -31,10 +31,10 @@
 {% if total_pages > 1 %}
 <div class="pagination">
     {% if page > 1 %}
-    <a class="page-btn" href="/search?page={{ page - 1 }}&query={{ query }}&kind={{ kind }}&module={{ module }}&status={{ status }}&sort={{ sort }}">&laquo; Prev</a>
+    <a class="page-btn" href="/search?page={{ page - 1 }}&query={{ query|urlencode }}&kind={{ kind|urlencode }}&module={{ module|urlencode }}&status={{ status|urlencode }}&sort={{ sort|urlencode }}">&laquo; Prev</a>
     {% endif %}
     {% if page < total_pages %}
-    <a class="page-btn" href="/search?page={{ page + 1 }}&query={{ query }}&kind={{ kind }}&module={{ module }}&status={{ status }}&sort={{ sort }}">Next &raquo;</a>
+    <a class="page-btn" href="/search?page={{ page + 1 }}&query={{ query|urlencode }}&kind={{ kind|urlencode }}&module={{ module|urlencode }}&status={{ status|urlencode }}&sort={{ sort|urlencode }}">Next &raquo;</a>
     {% endif %}
 </div>
 {% endif %}

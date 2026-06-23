@@ -56,7 +56,7 @@
         {% if let Some(adoption) = artifact.adoption %}
         <div class="flow-node">
             <div class="flow-label">{% if adoption.kind == "adopt" %}Upstream{% else %}Copied from{% endif %}</div>
-            {% if adoption.source.starts_with("http") %}
+            {% if adoption.source.starts_with("https://") || adoption.source.starts_with("http://") %}
             <a href="{{ adoption.source }}" target="_blank" rel="noopener noreferrer" class="flow-path" title="{{ adoption.source }}">{{ adoption.source_label }}</a>
             {% else %}
             <div class="flow-path">{{ adoption.source_label }}</div>
@@ -111,7 +111,7 @@
                 </button>
                 <div class="deploy-group-body">
                 {% for harness in group.harnesses %}
-                    <a class="flow-deploy {% if harness.verified %}flow-ok{% else %}flow-warn{% endif %}" href="/deployed/{{ harness.harness }}/{{ harness.deployed_path }}">
+                    <a class="flow-deploy {% if harness.verified %}flow-ok{% else %}flow-warn{% endif %}" href="/deployed/{{ artifact.module }}/{{ harness.harness }}/{{ harness.deployed_path }}">
                         <span class="deploy-harness">{{ harness.harness }}</span>
                         {% if harness.verified %}<span class="status-chip ok">OK</span>{% else %}<span class="status-chip modified">DRIFT</span>{% endif %}
                         <span class="deploy-loc mono">{{ group.target }}/.{{ harness.harness }}/{{ harness.deployed_dir }}/</span>
@@ -236,7 +236,7 @@
     <div class="panel-title">Companion files</div>
     <div class="companion-list">
     {% for companion in artifact.companions %}
-        <a class="companion-head companion-link" href="/companion/{{ artifact.name }}/{{ companion.name }}">
+        <a class="companion-head companion-link" href="/companion/{{ artifact.module }}/{{ artifact.name }}/{{ companion.name }}">
             <span class="companion-name">{{ artifact.name }}/{{ companion.name }}</span>
             {% if !companion.description.is_empty() %}<span class="companion-desc">{{ companion.description }}</span>{% endif %}
             <span class="companion-toggle">&rarr;</span>
@@ -264,7 +264,7 @@
                 <span class="gc-author">{{ commit.author }}</span>
                 <span class="lens-tag lens-git mono" onclick="this.classList.toggle('expanded')" title="git commit {{ commit.sha }}">{{ commit.sha }}</span>
                 {% if !commit.jj_change.is_empty() %}<span class="lens-tag lens-jj mono" title="jujutsu change">jj {{ commit.jj_change }}</span>{% endif %}
-                <a class="gc-view" href="/version/{{ artifact.kind }}/{{ artifact.name }}/{{ commit.sha }}">view at this commit &rarr;</a>
+                <a class="gc-view" href="/version/{{ artifact.module }}/{{ artifact.kind }}/{{ artifact.name }}/{{ commit.sha }}">view at this commit &rarr;</a>
             </div>
             {% if !commit.checkpoint.is_empty() %}
             <div class="gc-intent" title="agent checkpoint {{ commit.checkpoint }} &middot; {{ commit.session_count }} sessions">
@@ -332,7 +332,7 @@ function renderArtifactDiff() {
     <button class="cmd-action" data-export onclick="Annotate.exportNotes()">Export notes</button>
     <button class="cmd-action" onclick="copyMarkdown(this)">Copy source</button>
     {% if artifact.kind != "adr" %}<button class="cmd-action" onclick="copyInstall(this)">Copy .forge</button>{% endif %}
-    <a class="cmd-action" href="/refresh">Rescan</a>
+    <a class="cmd-action" hx-post="/refresh" hx-swap="none" style="cursor:pointer">Rescan</a>
     <a class="cmd-action" href="/schemas">Schema</a>
     <a class="cmd-action" href="/">Overview</a>
     {% if !module_source_uri.is_empty() %}

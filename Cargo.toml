@@ -21,7 +21,7 @@ assemble = []
 validate = ["dep:rust-embed"]
 deploy = []
 embed = ["dep:rust-embed"]
-dashboard = ["dep:axum", "dep:tokio", "dep:askama", "dep:tower-http", "dep:open"]
+dashboard = ["full", "dep:axum", "dep:tokio", "dep:askama", "dep:tower-http", "dep:open"]
 
 [dependencies]
 # cli
@@ -54,7 +54,7 @@ jsonschema = { version = "0.46.0", default-features = false }
 # dashboard (optional, excluded from full)
 axum = { version = "0.8", optional = true }
 tokio = { version = "1", features = ["rt", "net", "macros"], optional = true }
-askama = { version = "0.13", optional = true }
+askama = { version = "0.13", features = ["urlencode"], optional = true }
 tower-http = { version = "0.6", features = ["set-header"], optional = true }
 open = { version = "5", optional = true }
 

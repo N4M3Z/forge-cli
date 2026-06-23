@@ -1670,21 +1670,22 @@ fn enrich_commits_with_entire(repo: &Path, commits: &mut [GitCommit]) {
         }
         let (shard, rest) = commit.checkpoint.split_at(2);
         let base = format!("entire/checkpoints/v1:{shard}/{rest}");
-        let sessions = git_show_lines(repo, &format!("{base}/"));
-        commit.session_count = sessions
-            .iter()
-            .filter(|name| name.trim_end_matches('/').parse::<usize>().is_ok())
-            .count();
-        commit.prompt = checkpoint_prompt(repo, &base, commit.session_count);
+        let mut sessions: Vec<usize> = git_show_lines(repo, &format!("{base}/"))
+            .into_iter()
+            .filter_map(|name| name.trim_end_matches('/').parse::<usize>().ok())
+            .collect();
+        sessions.sort_unstable();
+        commit.session_count = sessions.len();
+        commit.prompt = checkpoint_prompt(repo, &base, &sessions);
     }
 }
 
 /// Picks a one-line intent teaser from a checkpoint's sessions: the first
 /// session prompt that is not a compaction-continuation summary, falling back
 /// to the first session's opening line.
-fn checkpoint_prompt(repo: &Path, base: &str, session_count: usize) -> String {
+fn checkpoint_prompt(repo: &Path, base: &str, sessions: &[usize]) -> String {
     let mut fallback = String::new();
-    for index in 0..session_count {
+    for index in sessions {
         let prompt = git_show(repo, &format!("{base}/{index}/prompt.txt")).unwrap_or_default();
         let first_line = prompt
             .lines()

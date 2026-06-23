@@ -5,7 +5,7 @@
         <a href="/search?status=new"><span class="count count-new">{{ view.summary.new }}</span> new</a>
         <a href="/search?status=modified"><span class="count count-modified">{{ view.summary.modified }}</span> modified</a>
         <span style="margin-left:auto;font-size:10px;color:var(--dim)">scanned {{ scanned_at }}</span>
-        <a href="/refresh" style="font-size:10px;color:var(--accent)">Refresh</a>
+        <a hx-post="/refresh" hx-swap="none" style="font-size:10px;color:var(--accent);cursor:pointer">Refresh</a>
     </div>
 
     <form class="search-bar" action="/search" method="get">

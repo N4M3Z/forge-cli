@@ -1,7 +1,7 @@
 use axum::Router;
 use axum::extract::{Path, Query, State};
-use axum::response::{Html, IntoResponse, Redirect};
-use axum::routing::get;
+use axum::response::{Html, IntoResponse};
+use axum::routing::{get, post};
 use serde::Deserialize;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -43,15 +43,15 @@ pub fn router(shared: SharedState, root: PathBuf) -> Router {
             "/artifact/{module}/{kind}/{name}",
             get(artifact_detail_in_module),
         )
-        .route("/companion/{parent}/{name}", get(companion_detail))
+        .route("/companion/{module}/{parent}/{name}", get(companion_detail))
         .route("/provenance", get(provenance_page))
         .route("/adrs", get(adrs_page))
         .route("/variants", get(variants_page))
         .route("/adr/{repo}/{id}", get(adr_detail))
         .route("/search", get(search))
-        .route("/refresh", get(refresh))
-        .route("/deployed/{harness}/{*path}", get(deployed))
-        .route("/version/{kind}/{name}/{sha}", get(version_page))
+        .route("/refresh", post(refresh))
+        .route("/deployed/{module}/{harness}/{*path}", get(deployed))
+        .route("/version/{module}/{kind}/{name}/{sha}", get(version_page))
         .route("/effective/{module}/{kind}/{name}", get(effective_page))
         .route("/settings", get(settings_page))
         .route("/settings/{harness}/{index}", get(settings_detail))
@@ -81,15 +81,31 @@ async fn host_guard(
         .and_then(|value| value.to_str().ok())
         .map(host_name)
         .is_some_and(|name| matches!(name, "127.0.0.1" | "localhost" | "forge.localhost" | "::1"));
-    if host_allowed {
-        next.run(request).await
-    } else {
-        (
+    if !host_allowed {
+        return (
             axum::http::StatusCode::FORBIDDEN,
             "forbidden: dashboard only serves loopback hosts",
         )
-            .into_response()
+            .into_response();
     }
+    // The Host guard stops DNS-rebinding reads but not a cross-origin form POST.
+    // State-changing methods additionally require a same-origin fetch, which a
+    // forged cross-site request cannot supply (browsers set Sec-Fetch-Site).
+    if request.method() != axum::http::Method::GET {
+        let same_origin = request
+            .headers()
+            .get("sec-fetch-site")
+            .and_then(|value| value.to_str().ok())
+            .is_some_and(|site| matches!(site, "same-origin" | "none"));
+        if !same_origin {
+            return (
+                axum::http::StatusCode::FORBIDDEN,
+                "forbidden: cross-origin state change rejected",
+            )
+                .into_response();
+        }
+    }
+    next.run(request).await
 }
 
 /// Extracts the hostname from a `Host` header value, dropping any port. Handles
@@ -268,6 +284,9 @@ fn render_artifact(
         .view
         .provenance
         .iter()
+        .filter(|prov| {
+            canonical_source(&prov.source_uri) == canonical_source(&module_view.source_uri)
+        })
         .flat_map(|prov| &prov.artifacts)
         .filter(|entry| strip_extension(&entry.deployed_path) == artifact_stem)
         .collect();
@@ -301,7 +320,7 @@ fn render_artifact(
         binary_hash: &state.binary_hash,
         artifact,
         module_name: &module_view.name,
-        module_source_uri: &module_view.source_uri,
+        module_source_uri: http_uri(&module_view.source_uri),
         deploy_groups,
         provenance_raw,
         diff_deployed,
@@ -394,17 +413,22 @@ fn primary_deployed_content(
 
 async fn companion_detail(
     State(app): State<AppState>,
-    Path((parent, name)): Path<(String, String)>,
+    Path((module_name, parent, name)): Path<(String, String, String)>,
 ) -> impl IntoResponse {
     let state = app.shared.read().await;
-    let found = state.view.modules.iter().find_map(|module| {
-        module
-            .artifacts
-            .iter()
-            .find(|artifact| artifact.kind == "skills" && artifact.name == parent)
-            .and_then(|skill| skill.companions.iter().find(|comp| comp.name == name))
-            .map(|comp| (module.source_uri.clone(), comp.clone()))
-    });
+    let found = state
+        .view
+        .modules
+        .iter()
+        .filter(|module| module.name == module_name)
+        .find_map(|module| {
+            module
+                .artifacts
+                .iter()
+                .find(|artifact| artifact.kind == "skills" && artifact.name == parent)
+                .and_then(|skill| skill.companions.iter().find(|comp| comp.name == name))
+                .map(|comp| (module.source_uri.clone(), comp.clone()))
+        });
     let Some((source_uri, companion)) = found else {
         return (
             axum::http::StatusCode::NOT_FOUND,
@@ -418,6 +442,7 @@ async fn companion_detail(
         .view
         .provenance
         .iter()
+        .filter(|prov| canonical_source(&prov.source_uri) == canonical_source(&source_uri))
         .flat_map(|prov| &prov.artifacts)
         .filter(|entry| strip_extension(&entry.deployed_path) == stem)
         .collect();
@@ -441,7 +466,7 @@ async fn companion_detail(
     let artifact = ArtifactView {
         name: companion.name.clone(),
         kind: "skills".to_string(),
-        module: String::new(),
+        module: module_name,
         relative_path: companion.relative_path.clone(),
         description: companion.description.clone(),
         content_preview: String::new(),
@@ -479,7 +504,7 @@ async fn companion_detail(
         binary_hash: &state.binary_hash,
         artifact: &artifact,
         module_name: &companion_label,
-        module_source_uri: &source_uri,
+        module_source_uri: http_uri(&source_uri),
         deploy_groups,
         provenance_raw,
         diff_deployed: String::new(),
@@ -685,7 +710,7 @@ async fn adr_detail(
         binary_hash: &state.binary_hash,
         artifact: &artifact,
         module_name: &adr.repo,
-        module_source_uri: &adr.source_uri,
+        module_source_uri: http_uri(&adr.source_uri),
         deploy_groups: Vec::new(),
         provenance_raw,
         diff_deployed: String::new(),
@@ -741,12 +766,22 @@ async fn refresh(State(app): State<AppState>) -> impl IntoResponse {
         Ok(new_state) => {
             let mut state = app.shared.write().await;
             *state = new_state;
+            (
+                axum::http::StatusCode::OK,
+                [("HX-Refresh", "true")],
+                "rescanned",
+            )
+                .into_response()
         }
         Err(error) => {
             eprintln!("refresh failed: {error}");
+            (
+                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                "rescan failed; see server log",
+            )
+                .into_response()
         }
     }
-    Redirect::to("/")
 }
 
 /// Sorts matched artifacts in place. `recent` (default) orders by latest commit
@@ -809,9 +844,31 @@ fn strip_extension(path: &str) -> &str {
         .unwrap_or(path)
 }
 
+/// Returns the value only when it is an http(s) URL, else an empty string, so a
+/// `javascript:`/`data:`/`file:` value from a sidecar `source:` or a module's
+/// `repository:` never reaches an anchor href. The templates already hide the
+/// link when this is empty.
+fn http_uri(value: &str) -> &str {
+    if value.starts_with("https://") || value.starts_with("http://") {
+        value
+    } else {
+        ""
+    }
+}
+
+/// Normalizes a source URI for provenance correlation: trims a trailing slash
+/// and `.git` so the same repository compares equal across the spelling
+/// variations sidecars and git origins use. Distinct repositories that merely
+/// share a basename stay distinct, unlike a basename-only key.
+fn canonical_source(uri: &str) -> &str {
+    uri.trim_end_matches('/')
+        .trim_end_matches(".git")
+        .trim_end_matches('/')
+}
+
 async fn deployed(
     State(app): State<AppState>,
-    Path((harness, path)): Path<(String, String)>,
+    Path((module, harness, path)): Path<(String, String, String)>,
 ) -> impl IntoResponse {
     let state = app.shared.read().await;
     let provider_dir = state
@@ -828,7 +885,7 @@ async fn deployed(
         (format!("~/{dir}/{path}"), String::new())
     });
     let content_body = strip_frontmatter(&raw_source);
-    let source = read_current_source(&state, &path);
+    let source = read_current_source(&state, &module, &path);
     let template = templates::DeployedTemplate {
         tab: "",
         version: &state.version,
@@ -844,22 +901,38 @@ async fn deployed(
 
 /// Reads the current source file for a deployed path, for source-vs-deployed
 /// comparison. Matches the artifact by deployed path, resolves its repo.
-fn read_current_source(state: &DashboardState, deployed_path: &str) -> String {
+fn read_current_source(state: &DashboardState, module_name: &str, deployed_path: &str) -> String {
     let stem = strip_extension(deployed_path);
-    let Some((source_uri, source_path)) = state.view.modules.iter().find_map(|module| {
-        module
-            .artifacts
-            .iter()
-            .find(|artifact| strip_extension(&artifact.relative_path) == stem)
-            .map(|artifact| (module.source_uri.clone(), artifact.relative_path.clone()))
-    }) else {
+    let Some((source_uri, source_path)) = state
+        .view
+        .modules
+        .iter()
+        .filter(|module| module.name == module_name)
+        .find_map(|module| {
+            module
+                .artifacts
+                .iter()
+                .find(|artifact| strip_extension(&artifact.relative_path) == stem)
+                .map(|artifact| (module.source_uri.clone(), artifact.relative_path.clone()))
+        })
+    else {
         return String::new();
     };
     let normalized = source_uri.trim_end_matches(".git");
     let Some(repo) = state.local_repos.get(normalized) else {
         return String::new();
     };
-    std::fs::read_to_string(repo.join(source_path)).unwrap_or_default()
+    let source_file = repo.join(source_path);
+    match std::fs::read_to_string(&source_file) {
+        Ok(content) => content,
+        Err(error) => {
+            eprintln!(
+                "dashboard: cannot read source {}: {error}",
+                source_file.display()
+            );
+            String::new()
+        }
+    }
 }
 
 /// Reads a deployed file from `<base>/<provider_dir>/<path>`, checking the home
@@ -962,8 +1035,20 @@ fn not_found(message: &str) -> axum::response::Response {
         .into_response()
 }
 
-/// Forge config files at the scanned root plus everything in `~/.config/forge`,
-/// in a stable order so index-based detail routing stays valid across requests.
+/// Forge-cli's own config files surfaced from `~/.config/forge`. Per-artifact
+/// config there (forensic.yaml, avatar.yaml, ...) holds private identifiers and
+/// is deliberately excluded; only this allowlist is rendered.
+const FORGE_CONFIG_FILES: &[&str] = &[
+    "config.yaml",
+    "config.yml",
+    "config.toml",
+    "config.json",
+    "watchlist.yaml",
+];
+
+/// Forge config files at the scanned root plus the allowlisted forge-cli config
+/// files in `~/.config/forge`, in a stable order so index-based detail routing
+/// stays valid across requests.
 fn collect_dashboard_config_files(root: &std::path::Path) -> Vec<templates::ConfigFile> {
     let mut files = Vec::new();
     for (label, name, lang) in [
@@ -983,6 +1068,11 @@ fn collect_dashboard_config_files(root: &std::path::Path) -> Vec<templates::Conf
                 .flatten()
                 .filter(|entry| entry.path().is_file())
                 .map(|entry| entry.file_name().to_string_lossy().to_string())
+                .filter(|name| {
+                    FORGE_CONFIG_FILES
+                        .iter()
+                        .any(|allowed| name.eq_ignore_ascii_case(allowed))
+                })
                 .collect();
             names.sort();
             for name in names {
@@ -1373,10 +1463,10 @@ async fn schema_page(
 /// Shows an artifact's source content at a specific commit via `git show`.
 async fn version_page(
     State(app): State<AppState>,
-    Path((kind, name, sha)): Path<(String, String, String)>,
+    Path((module, kind, name, sha)): Path<(String, String, String, String)>,
 ) -> impl IntoResponse {
     let state = app.shared.read().await;
-    let located = find_source_location(&state.view, &kind, &name);
+    let located = find_source_location(&state.view, &module, &kind, &name);
     let content = located.as_ref().and_then(|(source_uri, source_path)| {
         let normalized = source_uri.trim_end_matches(".git");
         let repo = state.local_repos.get(normalized)?;
@@ -1420,7 +1510,7 @@ async fn effective_page(
     Path((module, kind, name)): Path<(String, String, String)>,
     Query(params): Query<EffectiveParams>,
 ) -> impl IntoResponse {
-    use commands::assemble::variants::{self, Mode};
+    use commands::assemble::variants;
 
     let state = app.shared.read().await;
     let Some((module_view, artifact)) = locate_artifact(&state.view, Some(&module), &kind, &name)
@@ -1464,35 +1554,27 @@ async fn effective_page(
         .map(str::to_string)
         .collect();
 
-    let base_content = std::fs::read_to_string(&base_path).unwrap_or_default();
-    let variant_path = variants::resolve(source_directory, filename, &qualifiers);
-
-    let (merged, mode_label, variant_label) = match &variant_path {
-        Some(path) => {
-            let variant_content = std::fs::read_to_string(path).unwrap_or_default();
-            let mode_field = super::scan::extract_frontmatter_field(&variant_content, "mode");
-            let mode = Mode::parse(&mode_field);
-            let label = path
-                .strip_prefix(repo)
-                .unwrap_or(path)
-                .to_string_lossy()
-                .to_string();
-            (
-                variants::apply(&base_content, &variant_content, mode),
-                if mode_field.is_empty() {
-                    "replace".to_string()
-                } else {
-                    mode_field
-                },
-                label,
+    let base_content = match std::fs::read_to_string(&base_path) {
+        Ok(content) => content,
+        Err(error) => {
+            eprintln!(
+                "dashboard: cannot read base source {}: {error}",
+                base_path.display()
+            );
+            format!(
+                "(could not read source file {}: {error})\n",
+                base_path.display()
             )
         }
-        None => (
-            commands::parse::frontmatter_body(&base_content).to_string(),
-            "base".to_string(),
-            format!("{} (no variant for this target)", artifact.relative_path),
-        ),
     };
+    let variant_path = variants::resolve(source_directory, filename, &qualifiers);
+
+    let (merged, mode_label, variant_label) = resolve_effective_content(
+        &base_content,
+        variant_path.as_ref(),
+        repo,
+        &artifact.relative_path,
+    );
 
     let title = format!("{}/{} · {}", kind, name, params.qualifier);
     let blurb = format!(
@@ -1517,27 +1599,83 @@ async fn effective_page(
     Html(template.to_string()).into_response()
 }
 
+/// Merges an artifact's base content with its resolved variant (if any),
+/// returning the rendered content, the merge-mode label, and a display label
+/// for the variant path.
+fn resolve_effective_content(
+    base_content: &str,
+    variant_path: Option<&PathBuf>,
+    repo: &std::path::Path,
+    relative_path: &str,
+) -> (String, String, String) {
+    use commands::assemble::variants::{self, Mode};
+    match variant_path {
+        Some(path) => {
+            let variant_content = match std::fs::read_to_string(path) {
+                Ok(content) => content,
+                Err(error) => {
+                    eprintln!("dashboard: cannot read variant {}: {error}", path.display());
+                    String::new()
+                }
+            };
+            let mode_field = super::scan::extract_frontmatter_field(&variant_content, "mode");
+            let mode = Mode::parse(&mode_field);
+            let label = path
+                .strip_prefix(repo)
+                .unwrap_or(path)
+                .to_string_lossy()
+                .to_string();
+            (
+                variants::apply(base_content, &variant_content, mode),
+                if mode_field.is_empty() {
+                    "replace".to_string()
+                } else {
+                    mode_field
+                },
+                label,
+            )
+        }
+        None => (
+            commands::parse::frontmatter_body(base_content).to_string(),
+            "base".to_string(),
+            format!("{relative_path} (no variant for this target)"),
+        ),
+    }
+}
+
 /// Finds an artifact's (or companion's) module source URI and source-relative
 /// path. Top-level artifacts are matched first, then skill companions by name.
-fn find_source_location(view: &DashboardView, kind: &str, name: &str) -> Option<(String, String)> {
-    let direct = view.modules.iter().find_map(|module| {
-        module
-            .artifacts
-            .iter()
-            .find(|artifact| artifact.kind == kind && artifact.name == name)
-            .map(|artifact| (module.source_uri.clone(), artifact.relative_path.clone()))
-    });
+fn find_source_location(
+    view: &DashboardView,
+    module_name: &str,
+    kind: &str,
+    name: &str,
+) -> Option<(String, String)> {
+    let direct = view
+        .modules
+        .iter()
+        .filter(|module| module.name == module_name)
+        .find_map(|module| {
+            module
+                .artifacts
+                .iter()
+                .find(|artifact| artifact.kind == kind && artifact.name == name)
+                .map(|artifact| (module.source_uri.clone(), artifact.relative_path.clone()))
+        });
     if direct.is_some() {
         return direct;
     }
-    view.modules.iter().find_map(|module| {
-        module
-            .artifacts
-            .iter()
-            .flat_map(|artifact| &artifact.companions)
-            .find(|comp| comp.name == name)
-            .map(|comp| (module.source_uri.clone(), comp.relative_path.clone()))
-    })
+    view.modules
+        .iter()
+        .filter(|module| module.name == module_name)
+        .find_map(|module| {
+            module
+                .artifacts
+                .iter()
+                .flat_map(|artifact| &artifact.companions)
+                .find(|comp| comp.name == name)
+                .map(|comp| (module.source_uri.clone(), comp.relative_path.clone()))
+        })
 }
 
 /// Runs `git show {sha}:{path}` in a repo, returning the file content at that commit.

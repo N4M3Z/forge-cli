@@ -6,7 +6,7 @@ mod templates;
 
 use commands::error::{Error, ErrorKind};
 
-pub fn execute(root: &str, port: Option<u16>, _compare: bool) -> Result<i32, Error> {
+pub fn execute(root: &str, port: Option<u16>) -> Result<i32, Error> {
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()

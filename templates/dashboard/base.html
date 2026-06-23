@@ -96,7 +96,7 @@
         { label: 'Go to Hooks', hint: 'g h', run: function(){ location.href = '/hooks'; } },
         { label: 'Go to Config', hint: 'g c', run: function(){ location.href = '/config'; } },
         { label: 'Go to Schemas', run: function(){ location.href = '/schemas'; } },
-        { label: 'Rescan deployments', hint: 'r', run: function(){ location.href = '/refresh'; } },
+        { label: 'Rescan deployments', hint: 'r', run: function(){ fetch('/refresh', { method: 'POST' }).then(function(r){ if (r.ok) location.reload(); }); } },
         { label: 'Filter: Skills', run: function(){ location.href = '/search?kind=skills'; } },
         { label: 'Filter: Agents', run: function(){ location.href = '/search?kind=agents'; } },
         { label: 'Filter: Rules', run: function(){ location.href = '/search?kind=rules'; } },

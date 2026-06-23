@@ -13,7 +13,7 @@ updated: 2026-06-04
 author: "@N4M3Z"
 project: forge-cli
 related:
-    - "CLI-0009 Forge Dashboard"
+    - "CLI-0012 Forge Dashboard"
 responsible: ["@N4M3Z"]
 accountable: ["@N4M3Z"]
 consulted: []
@@ -25,7 +25,7 @@ upstream: []
 
 ## Context and Problem Statement
 
-The [CLI-0009 Forge Dashboard](CLI-0009%20Forge%20Dashboard.md) serves local artifact, provenance, settings, hooks, and config content over HTTP. A local web server that reads files and reflects them in a browser is a real attack surface: a malicious page the user visits can use DNS rebinding to reach a service on `127.0.0.1`, a path segment in a URL can become a directory-traversal component, and any write endpoint would let a forged request mutate deployments. The dashboard had to be designed so none of these are possible.
+The [CLI-0012 Forge Dashboard](CLI-0012%20Forge%20Dashboard.md) serves local artifact, provenance, settings, hooks, and config content over HTTP. A local web server that reads files and reflects them in a browser is a real attack surface: a malicious page the user visits can use DNS rebinding to reach a service on `127.0.0.1`, a path segment in a URL can become a directory-traversal component, and any write endpoint would let a forged request mutate deployments. The dashboard had to be designed so none of these are possible.
 
 ## Decision Drivers
 
@@ -43,18 +43,20 @@ The [CLI-0009 Forge Dashboard](CLI-0009%20Forge%20Dashboard.md) serves local art
 
 The dashboard is read-only and loopback-confined, with three independent protections.
 
-- **Read-only.** There are no mutation endpoints. Deploy-from-dashboard (source to target) is explicitly deferred to a later effort, likely alongside the TUI, so the browser surface cannot change state.
+- **No on-disk mutation, no network in handlers.** The dashboard never writes to disk; deploy-from-dashboard is deferred to a later, explicitly authorized effort. The only non-GET endpoint, `/refresh`, re-scans local state and is a `POST`, so a cross-origin `GET` (an `<img>` or link) cannot trigger it. Scanning resolves watchlist git entries from the local cache only and never clones or fetches inside a request handler, so no forged request can drive network I/O.
 - **Loopback bind plus Host guard.** The server binds a loopback address, and a middleware rejects any request whose `Host` header is not a loopback name (`127.0.0.1`, `localhost`, `forge.localhost`, `::1`). This blocks DNS-rebinding access even when the socket is reachable.
 - **Index-based detail routing.** Detail routes for config, settings, schemas, and hooks carry a numeric position into a server-derived, deterministically ordered list (for example `/config/{index}`, `/settings/{harness}/{index}`), never a filesystem path. A URL segment therefore can never become a path-traversal component. The list order is stable across requests (sorted), and the index is bounds-checked, returning 404 on a stale or out-of-range value. The few routes that do accept a path (the deployed-file viewer) canonicalize the path and assert it stays within the allowed provider directory before reading.
+- **Allowlisted read surfaces and scheme-guarded links.** The settings and config views serve only an allowlisted set of filenames, never the full contents of `~/.config/forge` or local and MCP config files that may carry secrets. Outbound links built from a module's `repository` or a sidecar `source` are rendered only when they are `http(s)` URLs, so a `javascript:` value cannot become a clickable link.
 
 ## Consequences
 
-- [+] No remote read: DNS rebinding is rejected by the Host guard.
-- [+] No traversal: detail routes carry positions, not paths, so arbitrary-file reads are structurally impossible.
-- [+] No accidental or forged writes: there are no write endpoints.
-- [-] Index routes are sensitive to list order; this is mitigated by deterministic sorting and bounds-checking, but a follow-up could promote the index to a stable key if the lists ever churn between requests.
-- [-] Deploy-from-dashboard is unavailable until a separate, explicitly authorized effort adds it.
+- DNS rebinding is rejected by the Host guard, so a remote page cannot read local content.
+- Detail routes carry positions, not paths, so arbitrary-file reads are structurally impossible; the one path-accepting route canonicalizes and confines the path.
+- There are no on-disk writes, and the single `POST` (`/refresh`) only re-scans local state without network access, so a forged request cannot mutate state or drive fetches.
+- The settings and config views are allowlisted, so secrets and private per-artifact config under `~/.config/forge` are not served.
+- Index routes are sensitive to list order, mitigated by deterministic sorting and bounds-checking; a follow-up could promote the index to a stable key if the lists ever churn between requests.
+- Deploy-from-dashboard is unavailable until a separate, explicitly authorized effort adds it.
 
 ## More Information
 
-- [CLI-0009 Forge Dashboard](CLI-0009%20Forge%20Dashboard.md): the dashboard this posture governs.
+- [CLI-0012 Forge Dashboard](CLI-0012%20Forge%20Dashboard.md): the dashboard this posture governs.

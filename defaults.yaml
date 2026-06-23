@@ -10,14 +10,11 @@ dashboard:
     # Anything not listed (caches, runtime state, credentials) stays hidden.
     settings_files:
         - settings.json
-        - settings.local.json
         - config.json
         - config.toml
         - config.yaml
         - config.yml
         - opencode.json
-        - mcp.json
-        - .mcp.json
 
 providers:
     claude:

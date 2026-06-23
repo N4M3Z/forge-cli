@@ -206,13 +206,9 @@ enum Command {
         #[arg(long, value_name = "DIR", default_value = ".")]
         root: String,
 
-        /// Override the auto-assigned port (default: random ephemeral).
+        /// Port to bind. Defaults to 40000, falling back to 40001 if busy.
         #[arg(long, value_name = "PORT")]
         port: Option<u16>,
-
-        /// Enable GitHub upstream comparison (requires network).
-        #[arg(long)]
-        compare: bool,
     },
 
     /// Assemble and package module as release tarballs
@@ -334,19 +330,7 @@ pub fn run() -> i32 {
             "cleaned",
         ),
         #[cfg(feature = "dashboard")]
-        Command::Dashboard {
-            root,
-            port,
-            compare,
-        } => {
-            return match dashboard::execute(&root, port, compare) {
-                Ok(code) => code,
-                Err(error) => {
-                    eprintln!("fatal: {error}");
-                    2
-                }
-            };
-        }
+        Command::Dashboard { root, port } => return exit_code(dashboard::execute(&root, port)),
         Command::Release { source, embed } => (release::execute(&source, embed), "released"),
         Command::Watch { action } => return run_watch(action, args.json),
     };
