@@ -11,9 +11,26 @@ pub fn execute(
     path: &str,
     source_filter: Option<&str>,
     show_orphans: bool,
-    _json_output: bool,
+    json_output: bool,
 ) -> Result<i32, Error> {
     let target = Path::new(path);
+
+    // A repository with a `module.yaml` carries source-side `.provenance/`
+    // sidecars (adopt/v1, init/v1) that name repo-relative subjects; a
+    // deployed target has none, so it routes to the deployed-file scan.
+    if let Some(module_root) = find_module_root(target) {
+        if target.is_dir() {
+            return Ok(scan::print_source_summary(
+                &module_root,
+                target,
+                source_filter,
+                json_output,
+            ));
+        }
+        if target.is_file() {
+            return Ok(scan::print_source_file(&module_root, target, json_output));
+        }
+    }
 
     if target.is_dir() {
         return Ok(scan::print_summary(target, source_filter, show_orphans));
@@ -111,6 +128,24 @@ pub fn execute(
     println!();
 
     Ok(0)
+}
+
+/// Walk up from `start` (or its parent, for a file) looking for a directory
+/// that contains `module.yaml`, marking a forge source repository. The start
+/// is canonicalized first so a relative target still walks to an absolute root.
+fn find_module_root(start: &Path) -> Option<std::path::PathBuf> {
+    let absolute = fs::canonicalize(start).ok()?;
+    let mut current = if absolute.is_file() {
+        absolute.parent()?.to_path_buf()
+    } else {
+        absolute
+    };
+    loop {
+        if current.join("module.yaml").is_file() {
+            return Some(current);
+        }
+        current = current.parent()?.to_path_buf();
+    }
 }
 
 pub(crate) fn resolve_sidecar_path(file_path: &Path) -> std::path::PathBuf {

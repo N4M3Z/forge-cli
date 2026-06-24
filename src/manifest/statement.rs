@@ -26,6 +26,7 @@ pub fn generate_statement(
                     build_type: build_type.to_string(),
                     external_parameters: ExternalParameters {
                         source: source_uri.to_string(),
+                        ..ExternalParameters::default()
                     },
                     resolved_dependencies: inputs
                         .iter()
@@ -34,6 +35,7 @@ pub fn generate_statement(
                             digest: DigestMap {
                                 sha256: digest.clone(),
                             },
+                            ..Dependency::default()
                         })
                         .collect(),
                 },
