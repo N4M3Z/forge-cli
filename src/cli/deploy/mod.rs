@@ -424,7 +424,9 @@ fn validate_target_boundary(target_path: &Path, base_directory: &Path) -> Result
 }
 
 /// Load the previously deployed `.manifest` from a provider's target directory.
-fn load_deployed_manifest(target_base: &Path) -> HashMap<String, manifest::ManifestEntry> {
+pub(crate) fn load_deployed_manifest(
+    target_base: &Path,
+) -> HashMap<String, manifest::ManifestEntry> {
     let manifest_path = target_base.join(".manifest");
     let Ok(content) = fs::read_to_string(&manifest_path) else {
         return HashMap::new();
@@ -517,7 +519,7 @@ fn collect_files_recursive(dir: &Path) -> Result<Vec<std::path::PathBuf>, Error>
 /// inputs fail to parse as URLs. This prevents two modules named `forge-core`
 /// at different repositories from incorrectly pruning each other's deployed
 /// files, and stops `Prompts` from matching `PublishPrompts` via a substring.
-fn is_owned_by_module(
+pub(crate) fn is_owned_by_module(
     entry: &manifest::ManifestEntry,
     target_base: &Path,
     module_name: Option<&str>,
