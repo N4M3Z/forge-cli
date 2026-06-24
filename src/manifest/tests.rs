@@ -271,3 +271,34 @@ fn string_field_error_when_not_string() {
     let yaml: serde_yaml::Value = serde_yaml::from_str("count: 42").unwrap();
     assert!(string_field(&yaml, "count", "test").is_err());
 }
+
+#[test]
+fn parses_adopt_v1_sidecar_with_upstream_url() {
+    let yaml = "provenance:\n    _type: https://in-toto.io/Statement/v1\n    subject:\n        - name: agents/Reviewer.md\n          digest:\n              sha256: aaa\n    predicate:\n        buildDefinition:\n            buildType: https://forge-cli/adopt/v1\n            externalParameters:\n                upstream_url: https://example.test/upstream\n            resolvedDependencies:\n                - name: upstream\n                  uri: https://example.test/upstream\n                  digest:\n                      sha256: bbb\n                - name: AdoptArtifact\n                  uri: forge-core/skills/AdoptArtifact/SKILL.md\n                  digest:\n                      sha256: ccc\n";
+    let sidecar = provenance::parse(yaml).expect("adopt/v1 sidecar must parse");
+    let definition = &sidecar.provenance.predicate.build_definition;
+    assert_eq!(
+        definition.resolved_source(),
+        "https://example.test/upstream"
+    );
+    assert_eq!(definition.resolved_dependencies.len(), 2);
+    assert_eq!(definition.resolved_dependencies[1].name, "AdoptArtifact");
+}
+
+#[test]
+fn assemble_v1_statement_has_no_adopt_fields() {
+    let yaml = generate_statement(
+        "claude/agents/Foo.md",
+        "abc",
+        &[("agents/Foo.md".to_string(), "def".to_string())],
+        "forge-cli",
+        "https://forge-cli/assemble/v1",
+        "0.0.0",
+        "https://github.com/example/repo",
+    );
+    // The relaxed model must not leak empty adopt-only keys into generated
+    // assemble/v1 sidecars.
+    assert!(!yaml.contains("upstream_url"));
+    assert!(!yaml.contains("transforms_applied"));
+    assert!(yaml.contains("source: https://github.com/example/repo"));
+}
