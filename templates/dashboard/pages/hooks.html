@@ -1,0 +1,37 @@
+{% extends "dashboard/base.html" %}
+
+{% block chrome %}<div hx-get="/chrome" hx-trigger="load" hx-swap="outerHTML"></div>{% endblock %}
+
+{% block content %}
+<div class="detail-header">
+    <div class="detail-title-row">
+        <h2 class="detail-name">Hooks</h2>
+        <span class="detail-module">read-only</span>
+    </div>
+    <div class="detail-description">Hooks registered per harness, parsed from settings files. Click a hook to see its full command.</div>
+</div>
+
+{% if groups.is_empty() %}
+<div class="detail-panel"><p class="muted">No hooks registered in any harness settings file.</p></div>
+{% else %}
+{% for group in groups %}
+<div class="grp-section">
+    <div class="file-grp-label">{{ group.harness }}</div>
+    <div class="nest-cards peek-all">
+    {% for hook in group.hooks %}
+        <a class="nest-card tint-hook" href="/hook/{{ group.harness }}/{{ loop.index0 }}">
+            <span class="nc-icon" aria-hidden="true"></span>
+            <div class="nc-body">
+                <div class="nc-top">
+                    {% if !hook.matcher.is_empty() %}<span class="nc-lang">{{ hook.matcher }}</span>{% else %}<span class="nc-lang">all</span>{% endif %}
+                </div>
+                <div class="nc-name">{{ hook.event }}</div>
+                <div class="nc-desc mono">{{ hook.command }}</div>
+            </div>
+        </a>
+    {% endfor %}
+    </div>
+</div>
+{% endfor %}
+{% endif %}
+{% endblock %}

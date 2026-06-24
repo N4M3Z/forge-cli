@@ -5,6 +5,17 @@ validate:
     exclude:
         - "templates/*"
 
+dashboard:
+    # Allowlisted settings filenames surfaced in the per-harness Settings view.
+    # Anything not listed (caches, runtime state, credentials) stays hidden.
+    settings_files:
+        - settings.json
+        - config.json
+        - config.toml
+        - config.yaml
+        - config.yml
+        - opencode.json
+
 providers:
     claude:
         target: ".claude"

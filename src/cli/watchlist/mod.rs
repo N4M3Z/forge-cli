@@ -2,8 +2,8 @@
 //! monitor, beyond `~` and the cwd. Stored at
 //! `~/.config/forge/watchlist.yaml`. Each entry is either a local path string
 //! or a SHA-pinned remote `{ git: <https-url>, ref: <40-hex-sha> }`, the same
-//! shape `.forge` uses; remote entries are cloned into the shared git cache and
-//! resolved like any local module.
+//! shape `.forge` uses; remote entries resolve to an already-cached worktree in
+//! the shared git cache and are skipped when absent (resolution never fetches).
 
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -232,8 +232,9 @@ fn resolve(location: &str) -> Option<PathBuf> {
 }
 
 /// Reads the watched locations (expanded), for tools that monitor them. Remote
-/// git entries are cloned into the shared cache and their pinned worktree
-/// returned; a fetch failure is logged and that entry skipped.
+/// git entries resolve only to an already-cached worktree (no network); an
+/// entry that has not been fetched yet is skipped. Cloning is never triggered
+/// here, so callers inside a request handler stay side-effect-free.
 #[must_use]
 #[allow(dead_code)]
 pub fn watched_locations() -> Vec<PathBuf> {
@@ -248,15 +249,7 @@ pub fn watched_locations() -> Vec<PathBuf> {
 fn resolve_entry(entry: &WatchEntry) -> Option<PathBuf> {
     match entry {
         WatchEntry::Path(path) => resolve(path),
-        WatchEntry::Git { git, reference } => {
-            match super::dotforge::ensure_cached(git, reference, git) {
-                Ok(worktree) => Some(worktree),
-                Err(error) => {
-                    eprintln!("warning: watch git {git}@{reference}: {error}");
-                    None
-                }
-            }
-        }
+        WatchEntry::Git { git, reference } => super::dotforge::cached_worktree(git, reference, git),
     }
 }
 

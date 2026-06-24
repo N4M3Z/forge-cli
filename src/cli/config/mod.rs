@@ -74,6 +74,43 @@ pub fn load_providers(config: &str) -> Result<HashMap<String, provider::Provider
     }
 }
 
+/// Load the allowlist of settings filenames the dashboard surfaces per harness,
+/// from `dashboard.settings_files` in the merged config. Falls back to the
+/// embedded defaults when the module config omits the section.
+#[cfg_attr(not(feature = "dashboard"), allow(dead_code))]
+pub fn load_settings_filenames(module_root: &Path) -> Vec<String> {
+    let merged = load_merged_config(module_root).unwrap_or_default();
+    let from_module = parse_settings_filenames(&merged);
+    if from_module.is_empty() {
+        parse_settings_filenames(EMBEDDED_DEFAULTS)
+    } else {
+        from_module
+    }
+}
+
+#[cfg_attr(not(feature = "dashboard"), allow(dead_code))]
+fn parse_settings_filenames(config: &str) -> Vec<String> {
+    #[derive(serde::Deserialize, Default)]
+    struct DashboardConfig {
+        #[serde(default)]
+        settings_files: Vec<String>,
+    }
+    #[derive(serde::Deserialize, Default)]
+    struct Wrapper {
+        #[serde(default)]
+        dashboard: DashboardConfig,
+    }
+    match serde_yaml::from_str::<Wrapper>(config) {
+        Ok(wrapper) => wrapper.dashboard.settings_files,
+        Err(error) => {
+            eprintln!(
+                "warning: failed to parse dashboard.settings_files ({error}), using embedded defaults"
+            );
+            Vec::new()
+        }
+    }
+}
+
 /// Load remap-tools.yaml from the module, falling back to embedded defaults.
 pub fn load_remap_tools(module_root: &Path) -> Result<Option<String>, Error> {
     let module_remap = module_root.join("config/remap-tools.yaml");

@@ -1,0 +1,63 @@
+{% extends "dashboard/base.html" %}
+
+{% block content %}
+<div class="summary-bar">
+    <a href="/search?status=ok"><span class="count count-ok">{{ view.summary.unchanged }}</span> unchanged</a>
+    <a href="/search?status=stale"><span class="count count-stale">{{ view.summary.stale }}</span> stale</a>
+    <a href="/search?status=new"><span class="count count-new">{{ view.summary.new }}</span> new</a>
+    <a href="/search?status=modified"><span class="count count-modified">{{ view.summary.modified }}</span> modified</a>
+    <span style="margin-left:auto;font-size:10px;color:var(--dim)">scanned {{ scanned_at }}</span>
+    <a hx-post="/refresh" hx-swap="none" style="font-size:10px;color:var(--accent);cursor:pointer">Refresh</a>
+</div>
+
+<div class="search-bar">
+    <input type="text" id="search-input" placeholder="Search artifacts...  ( / to focus )"
+           hx-get="/search" hx-trigger="keyup changed delay:200ms"
+           hx-target="#search-results" hx-swap="innerHTML"
+           hx-include="#kind-filter,#module-filter,#status-filter,#sort-filter" name="query" value="{{ query }}">
+    <select id="kind-filter" name="kind"
+            hx-get="/search" hx-trigger="change"
+            hx-target="#search-results" hx-swap="innerHTML"
+            hx-include="#search-input,#module-filter,#status-filter,#sort-filter">
+        <option value=""{% if kind.is_empty() %} selected{% endif %}>All types</option>
+        <option value="skills"{% if kind == "skills" %} selected{% endif %}>Skills</option>
+        <option value="agents"{% if kind == "agents" %} selected{% endif %}>Agents</option>
+        <option value="rules"{% if kind == "rules" %} selected{% endif %}>Rules</option>
+    </select>
+    <select id="module-filter" name="module"
+            hx-get="/search" hx-trigger="change"
+            hx-target="#search-results" hx-swap="innerHTML"
+            hx-include="#search-input,#kind-filter,#status-filter,#sort-filter">
+        <option value=""{% if module.is_empty() %} selected{% endif %}>All repositories</option>
+        {% for repo in view.modules %}
+        <option value="{{ repo.name }}"{% if module == repo.name %} selected{% endif %}>{{ repo.name }}</option>
+        {% endfor %}
+    </select>
+    <select id="status-filter" name="status"
+            hx-get="/search" hx-trigger="change"
+            hx-target="#search-results" hx-swap="innerHTML"
+            hx-include="#search-input,#kind-filter,#module-filter,#sort-filter">
+        <option value=""{% if status.is_empty() %} selected{% endif %}>Any status</option>
+        <option value="attention"{% if status == "attention" %} selected{% endif %}>Needs attention</option>
+        <option value="ok"{% if status == "ok" %} selected{% endif %}>Unchanged</option>
+        <option value="stale"{% if status == "stale" %} selected{% endif %}>Stale</option>
+        <option value="modified"{% if status == "modified" %} selected{% endif %}>Modified</option>
+        <option value="new"{% if status == "new" %} selected{% endif %}>New</option>
+    </select>
+    <select id="sort-filter" name="sort"
+            hx-get="/search" hx-trigger="change"
+            hx-target="#search-results" hx-swap="innerHTML"
+            hx-include="#search-input,#kind-filter,#module-filter,#status-filter">
+        <option value="recent"{% if sort == "recent" || sort.is_empty() %} selected{% endif %}>Sort: Recent commit</option>
+        <option value="name"{% if sort == "name" %} selected{% endif %}>Sort: Name</option>
+        <option value="module"{% if sort == "module" %} selected{% endif %}>Sort: Repository</option>
+        <option value="size"{% if sort == "size" %} selected{% endif %}>Sort: Size (largest)</option>
+        <option value="age"{% if sort == "age" %} selected{% endif %}>Sort: Age (oldest)</option>
+        <option value="staleness"{% if sort == "staleness" %} selected{% endif %}>Sort: Staleness (worst)</option>
+    </select>
+</div>
+
+<div id="search-results">
+{% include "dashboard/partials/search_results.html" %}
+</div>
+{% endblock %}

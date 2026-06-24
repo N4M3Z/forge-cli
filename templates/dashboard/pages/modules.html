@@ -1,0 +1,45 @@
+{% extends "dashboard/base.html" %}
+
+{% block chrome %}<div hx-get="/chrome" hx-trigger="load" hx-swap="outerHTML"></div>{% endblock %}
+
+{% block content %}
+<div class="sidebar-layout">
+    <div>
+        <div class="sidebar-label">Sources</div>
+        <div class="sidebar-list">
+            {% for module in view.source_modules() %}
+            <button class="sidebar-item{% if selected_module == module.name %} active{% endif %}"
+                hx-get="/repositories/{{ module.name }}"
+                hx-target="#module-detail"
+                hx-swap="innerHTML"
+                onclick="this.closest('.sidebar-list').parentElement.querySelectorAll('.sidebar-item').forEach(function(s){s.classList.remove('active')});this.classList.add('active')">
+                <span class="sidebar-item-name">{{ module.name }}</span>
+                <span class="repo-role role-source">source</span>
+            </button>
+            {% endfor %}
+        </div>
+        {% if !view.target_modules().is_empty() %}
+        <div class="sidebar-label sidebar-label-targets">Targets</div>
+        <div class="sidebar-list">
+            {% for module in view.target_modules() %}
+            <button class="sidebar-item{% if selected_module == module.name %} active{% endif %}"
+                hx-get="/repositories/{{ module.name }}"
+                hx-target="#module-detail"
+                hx-swap="innerHTML"
+                onclick="this.closest('.sidebar-list').parentElement.querySelectorAll('.sidebar-item').forEach(function(s){s.classList.remove('active')});this.classList.add('active')">
+                <span class="sidebar-item-name">{{ module.name }}</span>
+                <span class="repo-role role-target">target</span>
+            </button>
+            {% endfor %}
+        </div>
+        {% endif %}
+    </div>
+    <div id="module-detail">
+        {% if let Some(module) = detail %}
+        {% include "dashboard/pages/module_detail.html" %}
+        {% else %}
+        <p style="color:var(--text-muted)">Select a repository from the sidebar.</p>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

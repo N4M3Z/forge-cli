@@ -9,6 +9,7 @@ pub mod parse;
 pub mod provider;
 pub mod result;
 pub mod target;
+pub mod view;
 pub mod yaml;
 
 #[cfg(feature = "assemble")]

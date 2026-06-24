@@ -1,0 +1,25 @@
+{% extends "dashboard/base.html" %}
+
+{% block content %}
+<div class="detail-header">
+    <div class="detail-title-row">
+        <h2 class="detail-name">{{ title }}</h2>
+        <span class="detail-module">read-only</span>
+    </div>
+    <div class="detail-description">{{ blurb }}</div>
+</div>
+
+{% if files.is_empty() %}
+<div class="detail-panel"><p class="muted">No files found.</p></div>
+{% else %}
+{% for file in files %}
+<div class="detail-panel" style="margin-bottom:12px">
+    <div class="file-head">
+        <span class="file-label">{{ file.label }}</span>
+        <span class="file-path mono">{{ file.path }}</span>
+    </div>
+    <pre class="code-source"><code class="language-{{ file.language }}" data-path="{{ file.path }}">{{ file.content }}</code></pre>
+</div>
+{% endfor %}
+{% endif %}
+{% endblock %}

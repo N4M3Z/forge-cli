@@ -1,0 +1,35 @@
+<div class="module-detail-header">
+    <strong>{{ module.name }}</strong>
+    {% if module.is_target %}<span class="repo-role role-target">target</span>{% else %}<span class="repo-role role-source">source</span>{% endif %}
+    {% if !module.version.is_empty() %}
+    <span class="module-version">{{ module.version }}</span>
+    {% endif %}
+    {% if !module.source_uri.is_empty() %}
+    <div class="mono" style="font-size:11px;color:var(--dim);margin-top:2px">{{ module.source_uri }}</div>
+    {% endif %}
+    <div style="font-size:11px;color:var(--muted);margin-top:4px">{{ module.artifacts.len() }} artifacts</div>
+</div>
+
+{% for (kind, artifacts) in module.artifacts_by_kind() %}
+<div class="grp-section">
+    <div class="file-grp-label ktext-{{ kind }}">{{ kind }} <span class="grp-n">{{ artifacts.len() }}</span></div>
+    <div class="nest-cards peek-all repo-cards">
+    {% for artifact in artifacts %}
+        <a class="nest-card tint-{{ artifact.kind }} mod-{{ artifact.module_tint }}" href="/artifact/{{ artifact.module }}/{{ artifact.kind }}/{{ artifact.name }}">
+            <span class="nc-icon" aria-hidden="true"></span>
+            <div class="nc-body">
+                <div class="nc-top">
+                    <span class="dot dot-{{ artifact.overall_status() }}"></span>
+                    {% if artifact.has_broken_refs() %}<span class="nc-broken" title="{{ artifact.broken_refs.len() }} broken reference(s)">&#9888;&#xFE0E; {{ artifact.broken_refs.len() }}</span>{% endif %}
+                    {% if !artifact.age_label().is_empty() %}<span class="nc-age">{{ artifact.age_label() }}</span>{% endif %}
+                    {% if artifact.deployed_count() > 0 %}<span class="nc-dep" title="{{ artifact.provider_breakdown() }}">{{ artifact.deployed_count() }}&#8599;</span>{% else %}<span class="nc-dep nc-src">src</span>{% endif %}
+                </div>
+                <div class="nc-name">{{ artifact.name }}</div>
+                {% if !artifact.description.is_empty() %}<div class="nc-desc">{{ artifact.description }}</div>
+                {% else if !artifact.content_preview.is_empty() %}<div class="nc-desc">{{ artifact.content_preview }}</div>{% endif %}
+            </div>
+        </a>
+    {% endfor %}
+    </div>
+</div>
+{% endfor %}

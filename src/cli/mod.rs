@@ -1,6 +1,8 @@
 mod assemble;
 mod config;
 mod copy;
+#[cfg(feature = "dashboard")]
+mod dashboard;
 mod deploy;
 mod dotforge;
 mod drift;
@@ -196,6 +198,19 @@ enum Command {
         target: Option<String>,
     },
 
+    /// Launch a read-only web dashboard showing artifact state, provenance,
+    /// and deployment status across all providers
+    #[cfg(feature = "dashboard")]
+    Dashboard {
+        /// Base directory to scan for modules (one level deep). Defaults to `.`.
+        #[arg(long, value_name = "DIR", default_value = ".")]
+        root: String,
+
+        /// Port to bind. Defaults to 40000, falling back to 40001 if busy.
+        #[arg(long, value_name = "PORT")]
+        port: Option<u16>,
+    },
+
     /// Assemble and package module as release tarballs
     Release {
         /// Module root to package (must contain module.yaml). Defaults to `.`.
@@ -314,6 +329,8 @@ pub fn run() -> i32 {
             deploy::execute(&source, target.as_deref(), &[], false, true, false, false),
             "cleaned",
         ),
+        #[cfg(feature = "dashboard")]
+        Command::Dashboard { root, port } => return exit_code(dashboard::execute(&root, port)),
         Command::Release { source, embed } => (release::execute(&source, embed), "released"),
         Command::Watch { action } => return run_watch(action, args.json),
     };

@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>forge dashboard</title>
+    <link rel="stylesheet" href="/static/dashboard.css">
+    <link rel="stylesheet" href="/static/vendor/highlight.css">
+    <script src="/static/vendor/htmx.min.js"></script>
+    <script src="/static/vendor/marked.min.js"></script>
+    <script src="/static/vendor/purify.min.js"></script>
+    <script src="/static/vendor/highlight.min.js"></script>
+    <script src="/static/annotate.js"></script>
+    <script src="/static/diff.js"></script>
+    <script src="/static/mdfootnotes.js"></script>
+</head>
+<body>
+    <div class="app-layout">
+        <aside class="app-sidebar">
+            <div class="sidebar-brand">
+                <span class="brand-name">forge</span>
+                <span class="brand-version">{{ version }}</span>
+            </div>
+            <nav class="sidebar-nav">
+                <a href="/" class="nav-item{% if tab == "overview" %} active{% endif %}">
+                    <span class="nav-icon">&#9632;</span> Overview
+                </a>
+            </nav>
+            <div class="sidebar-section-title">Repositories</div>
+            <nav class="sidebar-nav">
+                <a href="/repositories" class="nav-item{% if tab == "repositories" %} active{% endif %}">
+                    <span class="nav-icon">&#9654;</span> Repositories
+                </a>
+            </nav>
+            <div class="sidebar-section-title">Artifacts</div>
+            <nav class="sidebar-nav">
+                <a href="/search?kind=skills" class="nav-item filter-item"><span class="kind-icon k-skills"></span> Skills</a>
+                <a href="/search?kind=agents" class="nav-item filter-item"><span class="kind-icon k-agents"></span> Agents</a>
+                <a href="/search?kind=rules" class="nav-item filter-item"><span class="kind-icon k-rules"></span> Rules</a>
+                <a href="/adrs" class="nav-item{% if tab == "adrs" %} active{% endif %}">
+                    <span class="nav-icon">&#9636;</span> ADRs
+                </a>
+            </nav>
+            <div class="sidebar-section-title">Harness</div>
+            <nav class="sidebar-nav">
+                <a href="/settings" class="nav-item filter-item{% if tab == "settings" %} active{% endif %}"><span class="kind-icon">&#9965;&#xFE0E;</span> Settings</a>
+                <a href="/hooks" class="nav-item filter-item{% if tab == "hooks" %} active{% endif %}"><span class="kind-icon k-hooks"></span> Hooks</a>
+                <a href="/config" class="nav-item filter-item{% if tab == "config" %} active{% endif %}"><span class="kind-icon">&#9776;&#xFE0E;</span> Config</a>
+                <a href="/variants" class="nav-item filter-item{% if tab == "variants" %} active{% endif %}"><span class="kind-icon">&#9683;&#xFE0E;</span> Variants</a>
+            </nav>
+            <div class="sidebar-section-title">Integrity</div>
+            <nav class="sidebar-nav">
+                <a href="/provenance" class="nav-item{% if tab == "provenance" %} active{% endif %}">
+                    <span class="nav-icon">&#9670;</span> Provenance
+                </a>
+                <a href="/schemas" class="nav-item filter-item{% if tab == "schemas" %} active{% endif %}"><span class="kind-icon">&#9707;&#xFE0E;</span> Schemas</a>
+            </nav>
+        </aside>
+        <main class="app-main">
+            {% block chrome %}{% endblock %}
+            {% block content %}{% endblock %}
+            <footer>forge-cli &middot; read-only &middot; forge.localhost</footer>
+        </main>
+    </div>
+    <script>
+    function selectHarness(harness) {
+        document.querySelectorAll('.harness-tab').forEach(function(b) { b.classList.toggle('active', b.dataset.harness === harness); });
+        document.querySelectorAll('.harness-panel').forEach(function(p) { p.classList.toggle('active', p.dataset.harness === harness); });
+    }
+    document.addEventListener('DOMContentLoaded', function() {
+        document.querySelectorAll('[data-markdown]').forEach(function(el) {
+            el.innerHTML = DOMPurify.sanitize(renderMarkdownWithFootnotes(el.textContent));
+            el.querySelectorAll('pre code').forEach(function(block) {
+                hljs.highlightElement(block);
+            });
+        });
+    });
+    document.body.addEventListener('htmx:afterSwap', function() {
+        document.querySelectorAll('[data-markdown]').forEach(function(el) {
+            if (!el.dataset.rendered) {
+                el.innerHTML = DOMPurify.sanitize(renderMarkdownWithFootnotes(el.textContent));
+                el.querySelectorAll('pre code').forEach(function(block) {
+                    hljs.highlightElement(block);
+                });
+                el.dataset.rendered = 'true';
+            }
+        });
+    });
+    // Command palette (Cmd/Ctrl+K or Cmd+Shift+P)
+    var COMMANDS = [
+        { label: 'Go to Overview', hint: 'g o', run: function(){ location.href = '/'; } },
+        { label: 'Go to Repositories', hint: 'g r', run: function(){ location.href = '/repositories'; } },
+        { label: 'Go to Provenance', hint: 'g p', run: function(){ location.href = '/provenance'; } },
+        { label: 'Go to ADRs', hint: 'g a', run: function(){ location.href = '/adrs'; } },
+        { label: 'Go to Settings', hint: 'g s', run: function(){ location.href = '/settings'; } },
+        { label: 'Go to Hooks', hint: 'g h', run: function(){ location.href = '/hooks'; } },
+        { label: 'Go to Config', hint: 'g c', run: function(){ location.href = '/config'; } },
+        { label: 'Go to Schemas', run: function(){ location.href = '/schemas'; } },
+        { label: 'Rescan deployments', hint: 'r', run: function(){ fetch('/refresh', { method: 'POST' }).then(function(r){ if (r.ok) location.reload(); }); } },
+        { label: 'Filter: Skills', run: function(){ location.href = '/search?kind=skills'; } },
+        { label: 'Filter: Agents', run: function(){ location.href = '/search?kind=agents'; } },
+        { label: 'Filter: Rules', run: function(){ location.href = '/search?kind=rules'; } },
+        { label: 'Filter: Modified only', run: function(){ location.href = '/search?status=modified'; } },
+        { label: 'Filter: Stale only', run: function(){ location.href = '/search?status=stale'; } },
+        { label: 'Sort: Recent commit', run: function(){ location.href = '/search?sort=recent'; } },
+        { label: 'Sort: By name', run: function(){ location.href = '/search?sort=name'; } },
+        { label: 'Sort: By module', run: function(){ location.href = '/search?sort=module'; } }
+    ];
+    var palette = document.createElement('div');
+    palette.className = 'cmd-palette';
+    palette.innerHTML = '<div class="cmd-backdrop"></div><div class="cmd-modal">' +
+        '<input class="cmd-input" placeholder="Type a command or search artifacts...  (Esc to close)" autofocus>' +
+        '<div class="cmd-commands"></div><div class="cmd-results"></div></div>';
+    document.body.appendChild(palette);
+    var cmdInput = palette.querySelector('.cmd-input');
+    var cmdCommands = palette.querySelector('.cmd-commands');
+    var cmdResults = palette.querySelector('.cmd-results');
+    var cmdBackdrop = palette.querySelector('.cmd-backdrop');
+    var activeIndex = 0;
+    var visibleCommands = [];
+
+    function openPalette() {
+        palette.classList.add('open');
+        cmdInput.value = '';
+        renderCommands('');
+        cmdResults.innerHTML = '';
+        cmdInput.focus();
+    }
+    function closePalette() { palette.classList.remove('open'); }
+    function renderCommands(query) {
+        var q = query.toLowerCase();
+        visibleCommands = COMMANDS
+            .filter(function(c){ return c.label.toLowerCase().indexOf(q) !== -1; })
+            .slice(0, 10);
+        activeIndex = 0;
+        var heading = q === '' ? '<div class="cmd-heading">Suggestions</div>' : '';
+        cmdCommands.innerHTML = heading + visibleCommands.map(function(c, i){
+            return '<div class="cmd-item' + (i === 0 ? ' active' : '') + '" data-i="' + i + '">' +
+                '<span>' + c.label + '</span>' + (c.hint ? '<kbd>' + c.hint + '</kbd>' : '') + '</div>';
+        }).join('');
+        Array.from(cmdCommands.querySelectorAll('.cmd-item')).forEach(function(el){
+            el.addEventListener('click', function(){ visibleCommands[+el.dataset.i].run(); });
+        });
+    }
+
+    document.addEventListener('keydown', function(e) {
+        if ((e.metaKey || e.ctrlKey) && (e.key === 'k' || ((e.shiftKey) && (e.key === 'p' || e.key === 'P')))) {
+            e.preventDefault();
+            if (palette.classList.contains('open')) { closePalette(); } else { openPalette(); }
+            return;
+        }
+        if (e.key === '/' && !palette.classList.contains('open') &&
+            document.activeElement.tagName !== 'INPUT' && document.activeElement.tagName !== 'TEXTAREA') {
+            var searchBox = document.getElementById('search-input');
+            if (searchBox) { e.preventDefault(); searchBox.focus(); return; }
+        }
+        if (e.key === 'Escape') { closePalette(); }
+        if (palette.classList.contains('open') && visibleCommands.length) {
+            if (e.key === 'ArrowDown') { e.preventDefault(); activeIndex = Math.min(activeIndex + 1, visibleCommands.length - 1); updateActive(); }
+            if (e.key === 'ArrowUp') { e.preventDefault(); activeIndex = Math.max(activeIndex - 1, 0); updateActive(); }
+            if (e.key === 'Enter') { e.preventDefault(); visibleCommands[activeIndex].run(); }
+        }
+    });
+    function updateActive() {
+        Array.from(cmdCommands.querySelectorAll('.cmd-item')).forEach(function(el, i){
+            el.classList.toggle('active', i === activeIndex);
+        });
+    }
+    cmdBackdrop.addEventListener('click', closePalette);
+    cmdInput.addEventListener('input', function() {
+        var query = cmdInput.value.trim();
+        renderCommands(query);
+        if (query.length < 2) { cmdResults.innerHTML = ''; return; }
+        fetch('/search?query=' + encodeURIComponent(query), { headers: { 'HX-Request': 'true' } })
+            .then(function(r) { return r.text(); })
+            .then(function(html) { cmdResults.innerHTML = html; });
+    });
+    </script>
+</body>
+</html>

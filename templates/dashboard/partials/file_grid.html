@@ -1,0 +1,38 @@
+{% extends "dashboard/base.html" %}
+
+{% block chrome %}<div hx-get="/chrome" hx-trigger="load" hx-swap="outerHTML"></div>{% endblock %}
+
+{% block content %}
+<div class="detail-header">
+    <div class="detail-title-row">
+        <h2 class="detail-name">{{ title }}</h2>
+        <span class="detail-module">read-only</span>
+    </div>
+    <div class="detail-description">{{ blurb }}</div>
+</div>
+
+{% if groups.is_empty() %}
+<div class="detail-panel"><p class="muted">No files found.</p></div>
+{% else %}
+{% for group in groups %}
+<div class="grp-section">
+    {% if !group.title.is_empty() %}<div class="file-grp-label">{{ group.title }}</div>{% endif %}
+    <div class="nest-cards peek-all">
+    {% for card in group.cards %}
+        <a class="nest-card tint-file" href="{{ card.href }}">
+            <span class="nc-icon" aria-hidden="true"></span>
+            <div class="nc-body">
+                <div class="nc-top">
+                    <span class="nc-lang">{{ card.language }}</span>
+                    <span class="nc-age">{{ card.lines }} lines</span>
+                </div>
+                <div class="nc-name">{{ card.label }}</div>
+                <div class="nc-desc mono">{{ card.path }}</div>
+            </div>
+        </a>
+    {% endfor %}
+    </div>
+</div>
+{% endfor %}
+{% endif %}
+{% endblock %}

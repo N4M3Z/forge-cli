@@ -47,6 +47,22 @@ pub fn ensure_cached(url: &str, commit: &str, source_label: &str) -> Result<Path
     Ok(work_dir)
 }
 
+/// Returns the already-materialized worktree for a pinned commit if it exists
+/// on disk, without any network access. For callers that must never trigger a
+/// clone inside a request handler (the dashboard scan); an uncached entry
+/// resolves to `None` and is skipped.
+#[cfg_attr(not(feature = "dashboard"), allow(dead_code))]
+pub fn cached_worktree(url: &str, commit: &str, source_label: &str) -> Option<PathBuf> {
+    let cache_root = cache_root().ok()?;
+    let (host, owner, repo) = parse_url(url, source_label).ok()?;
+    let work_dir = cache_root.join(host).join(owner).join(repo).join(commit);
+    if work_dir.join("module.yaml").is_file() {
+        Some(work_dir)
+    } else {
+        None
+    }
+}
+
 fn cache_root() -> Result<PathBuf, Error> {
     if let Ok(override_dir) = std::env::var("FORGE_GIT_CACHE_DIR") {
         return Ok(PathBuf::from(override_dir));
