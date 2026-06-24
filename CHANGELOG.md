@@ -8,6 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Added
 
+- `forge validate` sanity-checks Claude Code plugin scaffolding when `.claude-plugin/plugin.json` is present: each manifest (`plugin.json`, `.claude-plugin/marketplace.json`, `hooks/hooks.json`) must be valid JSON, and every hook script referenced via `${CLAUDE_PLUGIN_ROOT}` must exist and be executable (the most common cause of hooks silently not firing). It deliberately makes no assertions about the plugin or marketplace field schema, so it does not break when Claude Code's plugin format changes. Non-plugin modules are unaffected: the check runs only when `plugin.json` exists. (#59)
 - `.forge` consumer manifests accept `git:` sources pinned to a 40-hex commit SHA. `forge install` clones the remote via `gix` into a content-addressed cache at `~/.cache/forge/git/<host>/<owner>/<repo>/`, materializes the pinned tree, and feeds it through the standard assemble + deploy pipeline. HTTPS-only; `ssh://`, `git://`, `git@host:` shorthand, and userinfo URLs are rejected at parse time. Branch names, tags, and abbreviated SHAs are rejected in favor of explicit 40-char commit hashes. Cache hits are instant; the bare clone is reused across SHA pins within the same repository. (#53)
 
 ### Changed

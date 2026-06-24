@@ -1,4 +1,5 @@
 mod check;
+mod plugin;
 mod repository;
 mod schema;
 pub(crate) mod templates;
@@ -72,6 +73,8 @@ pub fn execute(path: &str) -> Result<ActionResult, Error> {
             }
         }
     }
+
+    plugin::check_plugin_scaffolding(module_root, &mut result);
 
     tools::run_external_checks(module_root, &mut result);
 

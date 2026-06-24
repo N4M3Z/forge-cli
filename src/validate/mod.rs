@@ -4,10 +4,12 @@ mod agent;
 mod frontmatter;
 pub mod json_schema;
 pub mod mdschema;
+mod plugin;
 
 pub use agent::validate;
 pub use frontmatter::validate_frontmatter;
 pub use json_schema::validate_frontmatter_against_json_schema;
+pub use plugin::{validate_hooks_manifest, validate_json_manifest};
 
 // --- Types ---
 

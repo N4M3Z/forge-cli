@@ -252,3 +252,73 @@ fn adr_mdschema_catches_missing_section() {
         "expected missing 'Considered Options' diagnostic"
     );
 }
+
+// --- plugin scaffolding validators (schema-light) ---
+
+#[test]
+fn json_manifest_valid_passes() {
+    let content = r#"{"name": "my-plugin", "anything": ["here"]}"#;
+    let diagnostics = validate_json_manifest(content, ".claude-plugin/plugin.json");
+    assert!(diagnostics.is_empty(), "valid JSON: {diagnostics:?}");
+}
+
+#[test]
+fn json_manifest_invalid_errors() {
+    let diagnostics = validate_json_manifest("{not json", "plugin.json");
+    assert_eq!(diagnostics.len(), 1);
+    assert!(diagnostics[0].message.contains("invalid JSON"));
+    assert_eq!(diagnostics[0].severity, Severity::Error);
+}
+
+#[test]
+fn json_manifest_does_not_assert_field_shape() {
+    // No name, non-kebab fields, arbitrary shape: as long as it parses, it passes.
+    // The schema is Claude Code's to define, not ours to police.
+    let content = r#"{"OWNER": "Whatever", "plugins": []}"#;
+    let diagnostics = validate_json_manifest(content, "marketplace.json");
+    assert!(
+        diagnostics.is_empty(),
+        "shape is not asserted: {diagnostics:?}"
+    );
+}
+
+#[test]
+fn hooks_manifest_invalid_json_errors() {
+    let (diagnostics, scripts) = validate_hooks_manifest("{bad", "hooks.json");
+    assert_eq!(diagnostics.len(), 1);
+    assert!(diagnostics[0].message.contains("invalid JSON"));
+    assert!(scripts.is_empty());
+}
+
+#[test]
+fn hooks_manifest_extracts_plugin_root_script() {
+    let content = r#"{
+        "hooks": {
+            "PreToolUse": [
+                {"hooks": [{"type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/hooks/guard.sh --flag"}]}
+            ]
+        }
+    }"#;
+    let (diagnostics, scripts) = validate_hooks_manifest(content, "hooks.json");
+    assert!(diagnostics.is_empty(), "valid hooks JSON: {diagnostics:?}");
+    assert_eq!(scripts, vec!["hooks/guard.sh".to_string()]);
+}
+
+#[test]
+fn hooks_manifest_ignores_non_convention_command() {
+    // A command that does not use ${CLAUDE_PLUGIN_ROOT} is not an error; it
+    // simply yields no script to check.
+    let content = r#"{
+        "hooks": {
+            "PreToolUse": [
+                {"hooks": [{"type": "command", "command": "/usr/bin/foo.sh"}]}
+            ]
+        }
+    }"#;
+    let (diagnostics, scripts) = validate_hooks_manifest(content, "hooks.json");
+    assert!(
+        diagnostics.is_empty(),
+        "non-convention command is not flagged"
+    );
+    assert!(scripts.is_empty());
+}
