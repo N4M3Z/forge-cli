@@ -14,6 +14,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 - `forge install` and `forge deploy` default `--target` to `--source` when a `.forge` consumer manifest is present and `--target` is omitted. The consumer dir IS the place the user wants provider trees written; the previous behavior forced redundant `--target .` on every consumer-mode invocation. Module-root flows (no `.forge`) are unchanged: an omitted `--target` still resolves provider directories relative to the current working directory. (#52)
 
+### Fixed
+
+- Assembly preserves Claude-native `SKILL.md` frontmatter for the claude provider. `claude.keep_fields.skills` previously kept only `name`, `description`, and `version`, so `forge assemble` stripped `allowed-tools` (and the rest of the Claude Code optional skill fields) from deployed skills, breaking tool pre-approval and gating dynamic context injection (`!` command lines). The claude skill keep-list now mirrors the skill mdschema whitelist (`allowed-tools`, `argument-hint`, `arguments`, `disable-model-invocation`, `user-invocable`, `model`, `effort`, `context`, `agent`, `paths`, `shell`). The frontmatter stripper also retains multi-line block values for kept fields, so a list-form `allowed-tools:` survives intact instead of collapsing to a valueless key. (#69)
+
 ## [0.3.2] - 2026-05-22
 
 ### Fixed
