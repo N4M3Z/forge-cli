@@ -89,6 +89,12 @@ enum Command {
         /// Show what would be pruned without moving files.
         #[arg(long)]
         dry_run: bool,
+
+        /// Override each provider's default model when selecting
+        /// `provider/<model>/` qualifier variants (exact model ID from
+        /// config/models.yaml; ignored for providers that lack it).
+        #[arg(long, value_name = "MODEL_ID")]
+        model: Option<String>,
     },
 
     /// Assemble module content into build/
@@ -96,6 +102,12 @@ enum Command {
         /// Module root to assemble (must contain module.yaml). Defaults to `.`.
         #[arg(long, value_name = "DIR", default_value = ".")]
         source: String,
+
+        /// Override each provider's default model when selecting
+        /// `provider/<model>/` qualifier variants (exact model ID from
+        /// config/models.yaml; ignored for providers that lack it).
+        #[arg(long, value_name = "MODEL_ID")]
+        model: Option<String>,
     },
 
     /// Deploy assembled files from build/ to provider directories
@@ -278,6 +290,7 @@ pub fn run() -> i32 {
             interactive,
             no_prune,
             dry_run,
+            model,
         } => (
             install::execute(
                 &source,
@@ -287,10 +300,14 @@ pub fn run() -> i32 {
                 !no_prune,
                 interactive,
                 dry_run,
+                model.as_deref(),
             ),
             "deployed",
         ),
-        Command::Assemble { source } => (assemble::execute(&source), "assembled"),
+        Command::Assemble { source, model } => (
+            assemble::execute_with_model(&source, model.as_deref()),
+            "assembled",
+        ),
         Command::Deploy {
             source,
             target,

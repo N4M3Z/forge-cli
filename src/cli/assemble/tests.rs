@@ -97,6 +97,7 @@ fn assemble_source_maps_agent_model_and_effort_tiers() {
         &source,
         std::path::Path::new("/tmp"),
         "codex",
+        None,
         &[
             "name".to_string(),
             "description".to_string(),
@@ -149,6 +150,7 @@ fn assemble_source_maps_all_codex_tiers() {
             &source,
             std::path::Path::new("/tmp"),
             "codex",
+            None,
             &[
                 "name".to_string(),
                 "description".to_string(),
@@ -205,6 +207,7 @@ fn assemble_source_keeps_explicit_effort_over_tier_effort() {
         &source,
         std::path::Path::new("/tmp"),
         "codex",
+        None,
         &[
             "name".to_string(),
             "description".to_string(),
