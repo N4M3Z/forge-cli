@@ -108,3 +108,106 @@ fn is_excluded_matches_exact_path() {
     let patterns = vec!["defaults.yaml".to_string()];
     assert!(tools::is_excluded(file_path, module_root, &patterns));
 }
+
+// --- plugin scaffolding (CLI orchestration) ---
+
+fn write_plugin_manifest(root: &std::path::Path, body: &str) {
+    let dir = root.join(".claude-plugin");
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("plugin.json"), body).unwrap();
+}
+
+fn write_hook_script(root: &std::path::Path, relative: &str, executable: bool) {
+    let path = root.join(relative);
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    std::fs::write(&path, "#!/bin/sh\necho hi\n").unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = if executable { 0o755 } else { 0o644 };
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(mode)).unwrap();
+    }
+    #[cfg(not(unix))]
+    let _ = executable;
+}
+
+#[test]
+fn plugin_scaffolding_skipped_without_manifest() {
+    let temp = TempDir::new().unwrap();
+    let mut result = ActionResult::new();
+    plugin::check_plugin_scaffolding(temp.path(), &mut result);
+    assert!(result.errors.is_empty(), "no plugin, no errors");
+}
+
+#[test]
+fn plugin_scaffolding_valid_tree_passes() {
+    let temp = TempDir::new().unwrap();
+    write_plugin_manifest(temp.path(), r#"{"name": "my-plugin"}"#);
+    std::fs::create_dir_all(temp.path().join("hooks")).unwrap();
+    std::fs::write(
+        temp.path().join("hooks/hooks.json"),
+        r#"{"hooks": {"PreToolUse": [{"hooks": [{"type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/hooks/guard.sh"}]}]}}"#,
+    )
+    .unwrap();
+    write_hook_script(temp.path(), "hooks/guard.sh", true);
+
+    let mut result = ActionResult::new();
+    plugin::check_plugin_scaffolding(temp.path(), &mut result);
+    assert!(result.errors.is_empty(), "valid tree: {:?}", result.errors);
+}
+
+#[test]
+fn plugin_scaffolding_corrupt_manifest_errors() {
+    let temp = TempDir::new().unwrap();
+    write_plugin_manifest(temp.path(), "{ not valid json");
+
+    let mut result = ActionResult::new();
+    plugin::check_plugin_scaffolding(temp.path(), &mut result);
+    assert!(
+        result.errors.iter().any(|e| e.contains("invalid JSON")),
+        "expected JSON error: {:?}",
+        result.errors
+    );
+}
+
+#[test]
+fn plugin_scaffolding_missing_hook_script_errors() {
+    let temp = TempDir::new().unwrap();
+    write_plugin_manifest(temp.path(), r#"{"name": "p"}"#);
+    std::fs::create_dir_all(temp.path().join("hooks")).unwrap();
+    std::fs::write(
+        temp.path().join("hooks/hooks.json"),
+        r#"{"hooks": {"PreToolUse": [{"hooks": [{"type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/hooks/ghost.sh"}]}]}}"#,
+    )
+    .unwrap();
+
+    let mut result = ActionResult::new();
+    plugin::check_plugin_scaffolding(temp.path(), &mut result);
+    assert!(
+        result.errors.iter().any(|e| e.contains("not found")),
+        "expected missing-script error: {:?}",
+        result.errors
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn plugin_scaffolding_non_executable_hook_errors() {
+    let temp = TempDir::new().unwrap();
+    write_plugin_manifest(temp.path(), r#"{"name": "p"}"#);
+    std::fs::create_dir_all(temp.path().join("hooks")).unwrap();
+    std::fs::write(
+        temp.path().join("hooks/hooks.json"),
+        r#"{"hooks": {"PreToolUse": [{"hooks": [{"type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/hooks/guard.sh"}]}]}}"#,
+    )
+    .unwrap();
+    write_hook_script(temp.path(), "hooks/guard.sh", false);
+
+    let mut result = ActionResult::new();
+    plugin::check_plugin_scaffolding(temp.path(), &mut result);
+    assert!(
+        result.errors.iter().any(|e| e.contains("not executable")),
+        "expected non-executable error: {:?}",
+        result.errors
+    );
+}
