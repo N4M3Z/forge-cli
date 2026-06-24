@@ -77,6 +77,18 @@ fn create_skill_with_companion(root: &Path, name: &str, companion: &str) {
     .unwrap();
 }
 
+fn create_skill_with_claude_fields(root: &Path, name: &str) {
+    let skill_dir = root.join("skills").join(name);
+    fs::create_dir_all(&skill_dir).unwrap();
+    fs::write(
+        skill_dir.join("SKILL.md"),
+        format!(
+            "---\nname: {name}\ndescription: test skill\nversion: 1.0.0\nargument-hint: <path>\nallowed-tools:\n    - Bash(pass *)\n    - Read\nsources: forge-core\n---\n\nSkill instructions.\n"
+        ),
+    )
+    .unwrap();
+}
+
 // --- Install tests ---
 
 #[test]
@@ -121,6 +133,62 @@ fn install_deploys_agent_to_all_providers() {
             .path()
             .join(".opencode/agents/test-agent.md")
             .is_file()
+    );
+}
+
+#[test]
+fn install_preserves_claude_skill_allowed_tools() {
+    let module_directory = tempfile::tempdir().unwrap();
+    let target_directory = tempfile::tempdir().unwrap();
+
+    scaffold_module(module_directory.path());
+    create_skill_with_claude_fields(module_directory.path(), "DciSkill");
+
+    forge()
+        .args([
+            "install",
+            "--source",
+            module_directory.path().to_str().unwrap(),
+            "--target",
+            target_directory.path().to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    let claude_skill = fs::read_to_string(
+        target_directory
+            .path()
+            .join(".claude/skills/DciSkill/SKILL.md"),
+    )
+    .unwrap();
+    assert!(
+        claude_skill.contains("allowed-tools:"),
+        "claude must keep the allowed-tools key: {claude_skill}"
+    );
+    assert!(
+        claude_skill.contains("- Bash(pass *)") && claude_skill.contains("- Read"),
+        "claude must keep every allowed-tools list item: {claude_skill}"
+    );
+    assert!(
+        claude_skill.contains("argument-hint: <path>"),
+        "claude must keep argument-hint: {claude_skill}"
+    );
+    assert!(
+        !claude_skill.contains("sources:"),
+        "forge-internal sources field must still be stripped: {claude_skill}"
+    );
+
+    // gemini keeps only name/description/version for skills, so the
+    // Claude-native fields must not leak into the gemini deployment.
+    let gemini_skill = fs::read_to_string(
+        target_directory
+            .path()
+            .join(".gemini/skills/DciSkill/SKILL.md"),
+    )
+    .unwrap();
+    assert!(
+        !gemini_skill.contains("allowed-tools:"),
+        "gemini must not carry Claude-native allowed-tools: {gemini_skill}"
     );
 }
 

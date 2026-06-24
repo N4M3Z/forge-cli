@@ -90,6 +90,50 @@ fn strip_frontmatter_keeps_specified_fields_case_insensitively() {
 }
 
 #[test]
+fn strip_frontmatter_preserves_block_list_value() {
+    let content = concat!(
+        "---\n",
+        "name: Foo\n",
+        "allowed-tools:\n",
+        "    - Bash(pass *)\n",
+        "    - Read\n",
+        "sources: forge-core\n",
+        "---\n",
+        "Body.\n",
+    );
+    let result = strip_frontmatter(content, &["name", "allowed-tools"]);
+    assert!(result.contains("allowed-tools:"), "key line kept");
+    assert!(
+        result.contains("- Bash(pass *)"),
+        "first list item must survive: {result}"
+    );
+    assert!(result.contains("- Read"), "second list item must survive");
+    assert!(!result.contains("sources:"), "unlisted key dropped");
+}
+
+#[test]
+fn strip_frontmatter_block_value_of_dropped_key_does_not_leak() {
+    let content = concat!(
+        "---\n",
+        "name: Foo\n",
+        "sources:\n",
+        "    - forge-core\n",
+        "    - forge-dev\n",
+        "version: 0.1.0\n",
+        "---\n",
+        "Body.\n",
+    );
+    let result = strip_frontmatter(content, &["name", "version"]);
+    assert!(result.contains("name: Foo"));
+    assert!(result.contains("version: 0.1.0"));
+    assert!(!result.contains("sources:"), "dropped key gone");
+    assert!(
+        !result.contains("forge-dev"),
+        "dropped key's list items must not leak: {result}"
+    );
+}
+
+#[test]
 fn map_field_finds_name_after_other_fields() {
     let content = "---\ndescription: test\nname: TestAgent\n---";
     let result = map_field(content, "name", |v| v.to_lowercase());

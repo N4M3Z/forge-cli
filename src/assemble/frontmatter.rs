@@ -18,25 +18,20 @@ pub fn strip_frontmatter(content: &str, keep_fields: &[&str]) -> String {
     }
 
     let mut kept_lines: Vec<&str> = Vec::new();
+    let mut keep_current_block = false;
     for line in yaml_text.lines() {
-        let Some(colon_pos) = line.find(':') else {
-            continue;
-        };
-        let key = &line[..colon_pos];
-        let is_valid_key = key
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-' || c == '.');
-        if !is_valid_key {
-            continue;
-        }
-        let mut matched = false;
-        for field in keep_fields {
-            if key.eq_ignore_ascii_case(field) {
-                matched = true;
-                break;
+        if let Some(key) = top_level_key(line) {
+            keep_current_block = keep_fields
+                .iter()
+                .any(|field| key.eq_ignore_ascii_case(field));
+            if keep_current_block {
+                kept_lines.push(line);
             }
-        }
-        if matched {
+        } else if keep_current_block {
+            // Continuation of a kept key: a block scalar, list item, or
+            // nested mapping value. Retaining it keeps multi-line values
+            // (e.g. an `allowed-tools:` list) intact instead of collapsing
+            // them to a bare key with no value.
             kept_lines.push(line);
         }
     }
@@ -115,6 +110,25 @@ pub fn set_field(content: &str, target_field: &str, value: &str) -> String {
     };
 
     format!("---\n{new_yaml}---\n{body}")
+}
+
+/// Return the key of a top-level YAML mapping line — one with no leading
+/// indentation and a valid `key:` prefix. Indented continuation lines, list
+/// items (`- ...`), comments, and blanks return `None`, marking them as part
+/// of the preceding key's value rather than a new key.
+fn top_level_key(line: &str) -> Option<&str> {
+    if line.starts_with([' ', '\t']) {
+        return None;
+    }
+    let colon_pos = line.find(':')?;
+    let key = &line[..colon_pos];
+    if key.is_empty() {
+        return None;
+    }
+    let is_valid_key = key
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-' || c == '.');
+    is_valid_key.then_some(key)
 }
 
 /// Strip a leading `# Title` heading if it's the first non-empty line.

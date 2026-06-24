@@ -23,7 +23,26 @@ providers:
             - claudecode
         keep_fields:
             agents: [name, description, model, allowedTools]
-            skills: [name, description, version]
+            # Claude Code reads these SKILL.md fields natively; stripping any
+            # of them breaks the deployed skill (allowed-tools gates tool
+            # pre-approval and dynamic context injection). Mirrors the skill
+            # mdschema whitelist.
+            skills:
+                - name
+                - description
+                - version
+                - when_to_use
+                - argument-hint
+                - arguments
+                - allowed-tools
+                - disable-model-invocation
+                - user-invocable
+                - model
+                - effort
+                - context
+                - agent
+                - paths
+                - shell
             rules: []
         models:
             strong: [opus]
