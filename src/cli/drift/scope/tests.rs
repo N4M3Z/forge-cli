@@ -1,6 +1,7 @@
 use super::super::{DriftResult, DriftStatus};
 use super::*;
 use commands::manifest;
+use commands::provider::{ProviderConfig, ProviderTarget};
 use tempfile::TempDir;
 
 fn write(path: &std::path::Path, content: &str) {
@@ -43,10 +44,21 @@ fn deploy_owned_file(
 
 fn run(build: &std::path::Path, deployed: &std::path::Path, module: &str) -> DriftResult {
     let mut result = DriftResult::default();
+    let provider_config = ProviderConfig {
+        target: ProviderTarget::Single(".".to_string()),
+        assembly: None,
+        deploy: None,
+        keep_fields: None,
+        models: None,
+        effort: None,
+        aliases: None,
+        model: None,
+    };
     compare_provider(
         &mut result,
         build,
         deployed,
+        &provider_config,
         "claude",
         Some(module),
         &HashSet::new(),

@@ -4,7 +4,7 @@ use commands::result::{ActionResult, DeployedFile, PrunedFile, SkipReason, Skipp
 use regex::Regex;
 use std::collections::{HashMap, HashSet};
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
 use crate::cli::config;
@@ -62,160 +62,83 @@ pub fn execute(
             continue;
         }
 
-        let target_base = match effective_target {
-            Some(dir) => Path::new(dir).join(&provider_config.target),
-            None => Path::new(&provider_config.target).to_path_buf(),
-        };
+        let mut manifests: HashMap<PathBuf, HashMap<String, manifest::ManifestEntry>> =
+            HashMap::new();
+        let mut deployed_by_root: HashMap<PathBuf, HashSet<String>> = HashMap::new();
 
-        if let Some(dir) = effective_target {
-            validate_target_boundary(&target_base, Path::new(dir))?;
-        }
-
-        let mut existing_manifest = load_deployed_manifest(&target_base);
-        let mut deployed_keys: HashSet<String> = HashSet::new();
-
-        deploy_provider_files(
-            &build_provider_dir,
-            &target_base,
-            &mut existing_manifest,
-            &mut deployed_keys,
-            &mut result,
-            provider_name,
-            force,
-        )?;
-
-        // Stale detection only when prune enabled. Pruned files are
-        // quarantined to <target>/.trash/<UTC-ts>/ rather than deleted so
-        // accidental prunes are recoverable with a single mv.
-        if prune {
-            let stale_keys: Vec<String> = existing_manifest
-                .iter()
-                .filter(|(key, _)| !deployed_keys.contains(*key))
-                .filter(|(key, _)| {
-                    ["agents/", "skills/", "rules/"]
-                        .iter()
-                        .any(|prefix| key.starts_with(prefix))
-                })
-                .filter(|(_, entry)| {
-                    is_owned_by_module(entry, &target_base, module_name.as_deref())
-                })
-                .map(|(key, _)| key.clone())
-                .collect();
-
-            if !stale_keys.is_empty() {
-                let stamp = chrono::Utc::now().format("%Y-%m-%d-%H%MZ").to_string();
-                let trash_root = target_base.join(".trash").join(&stamp);
-
-                let mut skipped_modified = 0;
-                for stale_key in &stale_keys {
-                    let stale_path = target_base.join(stale_key);
-                    let trash_dest = trash_root.join(stale_key);
-
-                    // Refuse to prune a file whose on-disk content no longer
-                    // matches the fingerprint forge recorded — that signals
-                    // local edits the user might want to keep. Same semantic as
-                    // the deploy path uses to skip overwriting modified files;
-                    // --force overrides both.
-                    if !force
-                        && stale_path.is_file()
-                        && let Some(expected) = existing_manifest
-                            .get(stale_key)
-                            .map(|entry| entry.fingerprint.clone())
-                        && let Ok(current) = fs::read_to_string(&stale_path)
-                        && manifest::content_sha256(&current) != expected
-                    {
-                        eprintln!(
-                            "forge prune: skipping {} (modified locally; pass --force to prune)",
-                            stale_path.display()
-                        );
-                        skipped_modified += 1;
-                        continue;
-                    }
-
-                    if dry_run {
-                        eprintln!(
-                            "forge prune: would move {} -> {}",
-                            stale_path.display(),
-                            trash_dest.display()
-                        );
-                        continue;
-                    }
-
-                    if let Some(parent) = trash_dest.parent()
-                        && let Err(error) = fs::create_dir_all(parent)
-                    {
-                        eprintln!(
-                            "warning: cannot create quarantine dir {}: {error}",
-                            parent.display()
-                        );
-                        continue;
-                    }
-
-                    if stale_path.is_file() {
-                        if let Err(error) = fs::rename(&stale_path, &trash_dest) {
-                            eprintln!(
-                                "warning: cannot quarantine {}: {error}",
-                                stale_path.display()
-                            );
-                            continue;
-                        }
-                        prune_empty_parents(stale_path.parent(), &target_base);
-                    }
-
-                    let provenance_rel = manifest::provenance_path(stale_key);
-                    let provenance_path = target_base.join(&provenance_rel);
-                    if provenance_path.is_file() {
-                        let provenance_trash = trash_root.join(&provenance_rel);
-                        if let Some(parent) = provenance_trash.parent() {
-                            let _ = fs::create_dir_all(parent);
-                        }
-                        let _ = fs::rename(&provenance_path, &provenance_trash);
-                        prune_empty_parents(provenance_path.parent(), &target_base);
-                    }
-
-                    existing_manifest.remove(stale_key);
-                    result.pruned.push(PrunedFile {
-                        target: stale_path.to_string_lossy().to_string(),
-                        provider: provider_name.to_owned(),
-                    });
-                }
-
-                let action = if dry_run { "would move" } else { "moved" };
-                let pruned_count = stale_keys.len() - skipped_modified;
-                if pruned_count > 0 {
-                    let entry_label = if pruned_count == 1 {
-                        "entry"
-                    } else {
-                        "entries"
-                    };
-                    eprintln!(
-                        "forge prune: {action} {pruned_count} stale {entry_label} to {}/.trash/{}/; recoverable via mv",
-                        target_base.display(),
-                        stamp
-                    );
-                }
-                if skipped_modified > 0 {
-                    let entry_label = if skipped_modified == 1 {
-                        "entry"
-                    } else {
-                        "entries"
-                    };
-                    eprintln!(
-                        "forge prune: skipped {skipped_modified} modified {entry_label}; pass --force to prune"
-                    );
-                }
+        for target_root in provider_config.target_roots() {
+            let target_base = resolve_target_base(target_root, effective_target);
+            if let Some(dir) = effective_target {
+                validate_target_boundary(&target_base, Path::new(dir))?;
             }
+            deployed_by_root.entry(target_base.clone()).or_default();
+            manifests
+                .entry(target_base.clone())
+                .or_insert_with(|| load_deployed_manifest(&target_base));
         }
 
-        write_manifest(&target_base, &existing_manifest)?;
+        for kind in commands::provider::ContentKind::ALL {
+            let kind_dir = build_provider_dir.join(kind.as_str());
+            if !kind_dir.is_dir() {
+                continue;
+            }
+
+            let target_base =
+                resolve_target_base(provider_config.target_for_kind(*kind), effective_target);
+            if let Some(dir) = effective_target {
+                validate_target_boundary(&target_base, Path::new(dir))?;
+            }
+
+            let existing_manifest = manifests
+                .entry(target_base.clone())
+                .or_insert_with(|| load_deployed_manifest(&target_base));
+            let deployed_keys = deployed_by_root.entry(target_base.clone()).or_default();
+
+            deploy_provider_kind_files(
+                &kind_dir,
+                *kind,
+                &target_base,
+                existing_manifest,
+                deployed_keys,
+                &mut result,
+                provider_name,
+                force,
+            )?;
+        }
+
+        for (target_base, mut existing_manifest) in manifests {
+            let deployed_keys = deployed_by_root.remove(&target_base).unwrap_or_default();
+            if prune {
+                prune_stale_files(
+                    &target_base,
+                    &mut existing_manifest,
+                    &deployed_keys,
+                    &mut result,
+                    provider_name,
+                    module_name.as_deref(),
+                    force,
+                    dry_run,
+                );
+            }
+            write_manifest(&target_base, &existing_manifest)?;
+        }
     }
 
     Ok(result)
 }
 
-/// Deploy all content kinds (agents, skills, rules) for a single provider.
-fn deploy_provider_files(
-    build_provider_dir: &Path,
+fn resolve_target_base(target_root: &str, effective_target: Option<&str>) -> PathBuf {
+    match effective_target {
+        Some(dir) => Path::new(dir).join(target_root),
+        None => Path::new(target_root).to_path_buf(),
+    }
+}
+
+/// Deploy one content kind for a single provider.
+#[allow(clippy::too_many_arguments)]
+fn deploy_provider_kind_files(
+    kind_dir: &Path,
+    kind: commands::provider::ContentKind,
     target_base: &Path,
     new_manifest: &mut HashMap<String, manifest::ManifestEntry>,
     deployed_keys: &mut HashSet<String>,
@@ -223,47 +146,71 @@ fn deploy_provider_files(
     provider_name: &str,
     force: bool,
 ) -> Result<(), Error> {
-    for kind in commands::provider::ContentKind::ALL {
-        let kind_dir = build_provider_dir.join(kind.as_str());
-        if !kind_dir.is_dir() {
+    let files = collect_files_recursive(kind_dir)?;
+
+    for build_path in files {
+        if build_path.extension().unwrap_or_default() == "yaml" {
             continue;
         }
 
-        let files = collect_files_recursive(&kind_dir)?;
+        let relative = build_path
+            .strip_prefix(kind_dir)
+            .unwrap_or(&build_path)
+            .to_string_lossy()
+            .to_string();
+        let manifest_key = format!("{kind}/{relative}");
+        deployed_keys.insert(manifest_key.clone());
+        let target_path = target_base.join(kind.as_str()).join(&relative);
 
-        for build_path in files {
-            if build_path.extension().unwrap_or_default() == "yaml" {
-                continue;
+        let build_content = config::read_file(&build_path)?;
+        let build_fingerprint = manifest::content_sha256(&build_content);
+        let provenance_relative = manifest::provenance_path(&manifest_key);
+        let sidecar_source = manifest::sidecar_path(&build_path);
+
+        if sidecar_source.is_file() {
+            let provenance_target = target_base.join(&provenance_relative);
+            let _ = copy_file(&sidecar_source, &provenance_target);
+        }
+
+        let target_content = fs::read_to_string(&target_path).ok();
+        let status = manifest::status(
+            target_content.as_deref(),
+            new_manifest.get(&manifest_key),
+            &build_fingerprint,
+        );
+
+        match status {
+            manifest::FileStatus::New | manifest::FileStatus::Stale => {
+                copy_file(&build_path, &target_path)?;
+                new_manifest.insert(
+                    manifest_key,
+                    manifest::ManifestEntry {
+                        fingerprint: build_fingerprint.clone(),
+                        provenance: Some(provenance_relative.clone()),
+                    },
+                );
+                result.installed.push(DeployedFile {
+                    source: build_path.to_string_lossy().to_string(),
+                    target: target_path.to_string_lossy().to_string(),
+                    provider: provider_name.to_owned(),
+                });
             }
-
-            let relative = build_path
-                .strip_prefix(&kind_dir)
-                .unwrap_or(&build_path)
-                .to_string_lossy()
-                .to_string();
-            let manifest_key = format!("{kind}/{relative}");
-            deployed_keys.insert(manifest_key.clone());
-            let target_path = target_base.join(kind.as_str()).join(&relative);
-
-            let build_content = config::read_file(&build_path)?;
-            let build_fingerprint = manifest::content_sha256(&build_content);
-            let provenance_relative = manifest::provenance_path(&manifest_key);
-            let sidecar_source = manifest::sidecar_path(&build_path);
-
-            if sidecar_source.is_file() {
-                let provenance_target = target_base.join(&provenance_relative);
-                let _ = copy_file(&sidecar_source, &provenance_target);
+            manifest::FileStatus::Unchanged => {
+                new_manifest.insert(
+                    manifest_key,
+                    manifest::ManifestEntry {
+                        fingerprint: build_fingerprint.clone(),
+                        provenance: Some(provenance_relative.clone()),
+                    },
+                );
+                result.skipped.push(SkippedFile {
+                    target: target_path.to_string_lossy().to_string(),
+                    provider: provider_name.to_owned(),
+                    reason: SkipReason::Unchanged,
+                });
             }
-
-            let target_content = fs::read_to_string(&target_path).ok();
-            let status = manifest::status(
-                target_content.as_deref(),
-                new_manifest.get(&manifest_key),
-                &build_fingerprint,
-            );
-
-            match status {
-                manifest::FileStatus::New | manifest::FileStatus::Stale => {
+            manifest::FileStatus::Modified => {
+                if force {
                     copy_file(&build_path, &target_path)?;
                     new_manifest.insert(
                         manifest_key,
@@ -277,48 +224,146 @@ fn deploy_provider_files(
                         target: target_path.to_string_lossy().to_string(),
                         provider: provider_name.to_owned(),
                     });
-                }
-                manifest::FileStatus::Unchanged => {
-                    new_manifest.insert(
-                        manifest_key,
-                        manifest::ManifestEntry {
-                            fingerprint: build_fingerprint.clone(),
-                            provenance: Some(provenance_relative.clone()),
-                        },
-                    );
+                } else {
                     result.skipped.push(SkippedFile {
                         target: target_path.to_string_lossy().to_string(),
                         provider: provider_name.to_owned(),
-                        reason: SkipReason::Unchanged,
+                        reason: SkipReason::UserModified,
                     });
-                }
-                manifest::FileStatus::Modified => {
-                    if force {
-                        copy_file(&build_path, &target_path)?;
-                        new_manifest.insert(
-                            manifest_key,
-                            manifest::ManifestEntry {
-                                fingerprint: build_fingerprint.clone(),
-                                provenance: Some(provenance_relative.clone()),
-                            },
-                        );
-                        result.installed.push(DeployedFile {
-                            source: build_path.to_string_lossy().to_string(),
-                            target: target_path.to_string_lossy().to_string(),
-                            provider: provider_name.to_owned(),
-                        });
-                    } else {
-                        result.skipped.push(SkippedFile {
-                            target: target_path.to_string_lossy().to_string(),
-                            provider: provider_name.to_owned(),
-                            reason: SkipReason::UserModified,
-                        });
-                    }
                 }
             }
         }
     }
     Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_lines)]
+fn prune_stale_files(
+    target_base: &Path,
+    existing_manifest: &mut HashMap<String, manifest::ManifestEntry>,
+    deployed_keys: &HashSet<String>,
+    result: &mut ActionResult,
+    provider_name: &str,
+    module_name: Option<&str>,
+    force: bool,
+    dry_run: bool,
+) {
+    let stale_keys: Vec<String> = existing_manifest
+        .iter()
+        .filter(|(key, _)| !deployed_keys.contains(*key))
+        .filter(|(key, _)| {
+            ["agents/", "skills/", "rules/"]
+                .iter()
+                .any(|prefix| key.starts_with(prefix))
+        })
+        .filter(|(_, entry)| is_owned_by_module(entry, target_base, module_name))
+        .map(|(key, _)| key.clone())
+        .collect();
+
+    if stale_keys.is_empty() {
+        return;
+    }
+
+    let stamp = chrono::Utc::now().format("%Y-%m-%d-%H%MZ").to_string();
+    let trash_root = target_base.join(".trash").join(&stamp);
+    let mut skipped_modified = 0;
+
+    for stale_key in &stale_keys {
+        let stale_path = target_base.join(stale_key);
+        let trash_dest = trash_root.join(stale_key);
+
+        // Refuse to prune a file whose on-disk content no longer matches the
+        // recorded fingerprint: that signals local edits the user might want
+        // to keep. --force overrides both deploy and prune protection.
+        if !force
+            && stale_path.is_file()
+            && let Some(expected) = existing_manifest
+                .get(stale_key)
+                .map(|entry| entry.fingerprint.clone())
+            && let Ok(current) = fs::read_to_string(&stale_path)
+            && manifest::content_sha256(&current) != expected
+        {
+            eprintln!(
+                "forge prune: skipping {} (modified locally; pass --force to prune)",
+                stale_path.display()
+            );
+            skipped_modified += 1;
+            continue;
+        }
+
+        if dry_run {
+            eprintln!(
+                "forge prune: would move {} -> {}",
+                stale_path.display(),
+                trash_dest.display()
+            );
+            continue;
+        }
+
+        if let Some(parent) = trash_dest.parent()
+            && let Err(error) = fs::create_dir_all(parent)
+        {
+            eprintln!(
+                "warning: cannot create quarantine dir {}: {error}",
+                parent.display()
+            );
+            continue;
+        }
+
+        if stale_path.is_file() {
+            if let Err(error) = fs::rename(&stale_path, &trash_dest) {
+                eprintln!(
+                    "warning: cannot quarantine {}: {error}",
+                    stale_path.display()
+                );
+                continue;
+            }
+            prune_empty_parents(stale_path.parent(), target_base);
+        }
+
+        let provenance_rel = manifest::provenance_path(stale_key);
+        let provenance_path = target_base.join(&provenance_rel);
+        if provenance_path.is_file() {
+            let provenance_trash = trash_root.join(&provenance_rel);
+            if let Some(parent) = provenance_trash.parent() {
+                let _ = fs::create_dir_all(parent);
+            }
+            let _ = fs::rename(&provenance_path, &provenance_trash);
+            prune_empty_parents(provenance_path.parent(), target_base);
+        }
+
+        existing_manifest.remove(stale_key);
+        result.pruned.push(PrunedFile {
+            target: stale_path.to_string_lossy().to_string(),
+            provider: provider_name.to_owned(),
+        });
+    }
+
+    let action = if dry_run { "would move" } else { "moved" };
+    let pruned_count = stale_keys.len() - skipped_modified;
+    if pruned_count > 0 {
+        let entry_label = if pruned_count == 1 {
+            "entry"
+        } else {
+            "entries"
+        };
+        eprintln!(
+            "forge prune: {action} {pruned_count} stale {entry_label} to {}/.trash/{}/; recoverable via mv",
+            target_base.display(),
+            stamp
+        );
+    }
+    if skipped_modified > 0 {
+        let entry_label = if skipped_modified == 1 {
+            "entry"
+        } else {
+            "entries"
+        };
+        eprintln!(
+            "forge prune: skipped {skipped_modified} modified {entry_label}; pass --force to prune"
+        );
+    }
 }
 
 /// Keep only the provider entries the user requested. Each requested name is

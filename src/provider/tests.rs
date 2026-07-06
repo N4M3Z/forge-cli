@@ -25,9 +25,32 @@ fn load_providers_parses_all_providers() {
 fn load_providers_reads_target() {
     let providers = load_providers(DEFAULTS).unwrap();
 
-    assert_eq!(providers["claude"].target, ".claude");
-    assert_eq!(providers["gemini"].target, ".gemini");
-    assert_eq!(providers["agentskills"].target, ".agents");
+    assert_eq!(providers["claude"].default_target(), ".claude");
+    assert_eq!(providers["gemini"].default_target(), ".gemini");
+    assert_eq!(providers["agentskills"].default_target(), ".agents");
+}
+
+#[test]
+fn load_providers_reads_target_map() {
+    let providers = load_providers(
+        "providers:\n  codex:\n    target:\n      default: .codex\n      skills: .agents\n",
+    )
+    .unwrap();
+
+    let codex = &providers["codex"];
+    assert_eq!(codex.default_target(), ".codex");
+    assert_eq!(codex.target_for_kind(ContentKind::Agents), ".codex");
+    assert_eq!(codex.target_for_kind(ContentKind::Rules), ".codex");
+    assert_eq!(codex.target_for_kind(ContentKind::Skills), ".agents");
+}
+
+#[test]
+fn load_providers_rejects_unknown_target_map_key() {
+    let result = load_providers(
+        "providers:\n  codex:\n    target:\n      default: .codex\n      skillz: .agents\n",
+    );
+
+    assert!(result.is_err());
 }
 
 #[test]
@@ -182,7 +205,7 @@ fn map_tool_passes_through_unmapped() {
 
 fn provider_with_aliases(target: &str, aliases: Vec<&str>) -> ProviderConfig {
     ProviderConfig {
-        target: target.to_string(),
+        target: ProviderTarget::Single(target.to_string()),
         assembly: None,
         deploy: None,
         keep_fields: None,
@@ -226,7 +249,7 @@ fn matches_target_rejects_unknown() {
 #[test]
 fn matches_target_no_aliases() {
     let config = ProviderConfig {
-        target: ".opencode".to_string(),
+        target: ProviderTarget::Single(".opencode".to_string()),
         assembly: None,
         deploy: None,
         keep_fields: None,
