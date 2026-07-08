@@ -22,6 +22,7 @@ validate = ["dep:rust-embed"]
 deploy = []
 embed = ["dep:rust-embed"]
 dashboard = ["full", "dep:axum", "dep:tokio", "dep:askama", "dep:tower-http", "dep:open"]
+tui = ["dep:ratatui", "dep:crossterm"]
 
 [dependencies]
 # cli
@@ -58,6 +59,10 @@ askama = { version = "0.13", features = ["urlencode"], optional = true }
 tower-http = { version = "0.6", features = ["set-header"], optional = true }
 open = { version = "5", optional = true }
 
+# tui (optional, excluded from full)
+ratatui = { version = "0.30", optional = true }
+crossterm = { version = "0.29", optional = true }
+
 [build-dependencies]
 sha2 = "0.10"
 
@@ -71,7 +76,7 @@ unsafe_code = "forbid"
 
 [lints.rust.unexpected_cfgs]
 level = "deny"
-check-cfg = ["cfg(ci)", "cfg(feature, values(\"dashboard\"))"]
+check-cfg = ["cfg(ci)", "cfg(feature, values(\"dashboard\", \"tui\"))"]
 
 [lints.clippy]
 all = { level = "warn", priority = -1 }
