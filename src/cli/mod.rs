@@ -171,15 +171,24 @@ enum Command {
         show_orphans: bool,
     },
 
-    /// Compare module content against an upstream reference
+    /// Compare module content against an upstream reference, or verify a build
+    /// against where it was deployed
     Drift {
         /// Module root to compare. Defaults to `.`.
         #[arg(long, value_name = "DIR", default_value = ".")]
         source: String,
 
-        /// Upstream reference module to compare against.
+        /// Upstream reference module to compare against (compares two module
+        /// trees by name). Mutually exclusive with --target.
         #[arg(long, value_name = "DIR")]
-        upstream: String,
+        upstream: Option<String>,
+
+        /// Deploy base to verify against (e.g. `~` or `.`), mirroring `forge
+        /// install --target`. Diffs each `build/<provider>` against
+        /// `<DIR>/<provider-target>`, scoped to this module's files. Mutually
+        /// exclusive with --upstream.
+        #[arg(long, value_name = "DIR")]
+        target: Option<String>,
 
         /// Comma-separated keys to ignore (use "body" to ignore body drift)
         #[arg(long, value_delimiter = ',')]
@@ -323,8 +332,17 @@ pub fn run() -> i32 {
         Command::Drift {
             source,
             upstream,
+            target,
             ignore,
-        } => return exit_code(drift::execute(&source, &upstream, &ignore, args.json)),
+        } => {
+            return exit_code(drift::execute(
+                &source,
+                upstream.as_deref(),
+                target.as_deref(),
+                &ignore,
+                args.json,
+            ));
+        }
         Command::Clean { source, target } => (
             deploy::execute(&source, target.as_deref(), &[], false, true, false, false),
             "cleaned",
