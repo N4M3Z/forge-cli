@@ -136,7 +136,7 @@ fn strip_frontmatter_block_value_of_dropped_key_does_not_leak() {
 #[test]
 fn map_field_finds_name_after_other_fields() {
     let content = "---\ndescription: test\nname: TestAgent\n---";
-    let result = map_field(content, "name", |v| v.to_lowercase());
+    let result = map_field(content, "name", str::to_lowercase);
     assert!(result.contains("name: testagent"));
     assert!(result.contains("description: test"));
 }
@@ -144,7 +144,7 @@ fn map_field_finds_name_after_other_fields() {
 #[test]
 fn map_field_handles_double_quoted_value() {
     let content = "---\nname: \"SecurityArchitect\"\n---";
-    let result = map_field(content, "name", |v| v.to_lowercase());
+    let result = map_field(content, "name", str::to_lowercase);
     assert!(
         result.contains("name: securityarchitect"),
         "quoted value should be unwrapped before mapping: {result}"
@@ -154,7 +154,7 @@ fn map_field_handles_double_quoted_value() {
 #[test]
 fn map_field_handles_single_quoted_value() {
     let content = "---\nname: 'SecurityArchitect'\n---";
-    let result = map_field(content, "name", |v| v.to_lowercase());
+    let result = map_field(content, "name", str::to_lowercase);
     assert!(
         result.contains("name: securityarchitect"),
         "single-quoted value should be unwrapped before mapping: {result}"
@@ -164,7 +164,7 @@ fn map_field_handles_single_quoted_value() {
 #[test]
 fn map_field_returns_unchanged_when_field_missing() {
     let content = "---\ndescription: test\n---\nBody.";
-    let result = map_field(content, "name", |v| v.to_lowercase());
+    let result = map_field(content, "name", str::to_lowercase);
     assert_eq!(result, content);
 }
 

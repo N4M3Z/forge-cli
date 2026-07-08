@@ -6,13 +6,17 @@ use super::source::{
     parse_frontmatter, read_source_companions, resolve_sidecar, strip_frontmatter,
 };
 use super::target::{git_log_in_repo, sidecar_name_warning};
-use commands::view::{ArtifactView, ModuleView};
+use crate::view::{ArtifactView, ModuleView};
 use std::collections::{BTreeMap, HashMap};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-pub(super) fn discover_targets(root: &Path, providers: &[(String, String)]) -> Vec<PathBuf> {
+pub(super) fn discover_targets(
+    root: &Path,
+    providers: &[(String, String)],
+    watched_locations: &[PathBuf],
+) -> Vec<PathBuf> {
     let mut targets = Vec::new();
     let home = dirs::home_dir();
     if let Some(ref home_path) = home
@@ -27,8 +31,8 @@ pub(super) fn discover_targets(root: &Path, providers: &[(String, String)]) -> V
     if !is_home && has_provider_dirs(&root_abs, providers) {
         targets.push(root_abs.clone());
     }
-    for location in configured_locations() {
-        let canonical = fs::canonicalize(&location).unwrap_or(location);
+    for location in watched_locations {
+        let canonical = fs::canonicalize(location).unwrap_or_else(|_| location.clone());
         if canonical != root_abs
             && !targets.contains(&canonical)
             && has_provider_dirs(&canonical, providers)
@@ -39,17 +43,14 @@ pub(super) fn discover_targets(root: &Path, providers: &[(String, String)]) -> V
     targets
 }
 
-/// Additional scan locations from the `forge watch` watchlist
-/// (`~/.config/forge/watchlist.yaml`).
-pub(super) fn configured_locations() -> Vec<PathBuf> {
-    crate::cli::watchlist::watched_locations()
-}
-
 pub(super) fn has_provider_dirs(base: &Path, providers: &[(String, String)]) -> bool {
     providers.iter().any(|(_, dir)| base.join(dir).is_dir())
 }
 
-pub fn discover_local_repos(root: &Path) -> HashMap<String, PathBuf> {
+pub fn discover_local_repos(
+    root: &Path,
+    watched_locations: &[PathBuf],
+) -> HashMap<String, PathBuf> {
     let mut repos = HashMap::new();
     let canonical = fs::canonicalize(root).unwrap_or_else(|_| root.to_path_buf());
 
@@ -57,8 +58,8 @@ pub fn discover_local_repos(root: &Path) -> HashMap<String, PathBuf> {
     if let Some(parent) = canonical.parent() {
         search_dirs.push(parent.to_path_buf());
     }
-    for location in configured_locations() {
-        let loc = fs::canonicalize(&location).unwrap_or(location);
+    for location in watched_locations {
+        let loc = fs::canonicalize(location).unwrap_or_else(|_| location.clone());
         register_repo(&loc, &mut repos);
         if let Some(parent) = loc.parent() {
             search_dirs.push(parent.to_path_buf());

@@ -10,10 +10,8 @@ use super::source::{
     load_manifest, parse_artifact_key, read_artifact_content, read_source_content, resolve_source,
     resolve_source_name, resolve_source_path,
 };
-use commands::manifest::{self, FileStatus, ManifestEntry};
-use commands::view::{
-    ArtifactView, Companion, GitCommit, ModuleView, ProviderStatus, StatusSummary,
-};
+use crate::manifest::{self, FileStatus, ManifestEntry};
+use crate::view::{ArtifactView, Companion, GitCommit, ModuleView, ProviderStatus, StatusSummary};
 use std::collections::{BTreeMap, HashMap};
 use std::fs;
 use std::path::{Path, PathBuf};

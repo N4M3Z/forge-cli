@@ -13,6 +13,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Changed
 
+- Dashboard scan logic moved from the dashboard binary into `commands::services`, shared by the axum dashboard and reusable by a future TUI with no behavioral change.
 - `forge install` and `forge deploy` default `--target` to `--source` when a `.forge` consumer manifest is present and `--target` is omitted. The consumer dir IS the place the user wants provider trees written; the previous behavior forced redundant `--target .` on every consumer-mode invocation. Module-root flows (no `.forge`) are unchanged: an omitted `--target` still resolves provider directories relative to the current working directory. (#52)
 
 ### Fixed

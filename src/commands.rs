@@ -8,6 +8,7 @@ pub mod module;
 pub mod parse;
 pub mod provider;
 pub mod result;
+pub mod services;
 pub mod target;
 pub mod view;
 pub mod yaml;

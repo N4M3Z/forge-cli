@@ -14,23 +14,23 @@ mod sidecar;
 mod source;
 mod target;
 
-pub(super) use adr::build_adr_artifact;
-pub(super) use discovery::discover_local_repos;
-pub(super) use history::{
+pub use adr::build_adr_artifact;
+pub use discovery::discover_local_repos;
+pub use history::{
     extract_frontmatter_field, git_log_for_artifact, read_source_adoption, read_source_sidecar,
     source_at_deploy,
 };
 
+use crate::error::{Error, ErrorKind};
+use crate::provider::ContentKind;
+use crate::view::{DashboardView, ModuleView, StatusSummary, Variant};
 use adr::discover_adrs;
-use commands::error::{Error, ErrorKind};
-use commands::provider::ContentKind;
-use commands::view::{DashboardView, ModuleView, StatusSummary, Variant};
-use discovery::{configured_locations, discover_targets, scan_source_module};
+use discovery::{discover_targets, scan_source_module};
 use provenance::collect_provenance;
 use references::artifact_staleness;
 use std::collections::{BTreeMap, HashSet};
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use target::{PendingCompanion, attach_companions, scan_target};
 
 /// Content kinds scanned, sourced from the shared `ContentKind` enum rather
@@ -43,8 +43,12 @@ pub(super) fn content_kinds() -> [&'static str; 3] {
     ]
 }
 
-pub fn build_view(root: &Path, providers: &[(String, String)]) -> Result<DashboardView, Error> {
-    let targets = discover_targets(root, providers);
+pub fn build_view(
+    root: &Path,
+    providers: &[(String, String)],
+    watched_locations: &[PathBuf],
+) -> Result<DashboardView, Error> {
+    let targets = discover_targets(root, providers, watched_locations);
     if targets.is_empty() {
         return Err(Error::new(
             ErrorKind::Config,
@@ -55,7 +59,7 @@ pub fn build_view(root: &Path, providers: &[(String, String)]) -> Result<Dashboa
         ));
     }
 
-    let local_repos = discover_local_repos(root);
+    let local_repos = discover_local_repos(root, watched_locations);
     let mut modules_by_source: BTreeMap<String, ModuleView> = BTreeMap::new();
     let mut summary = StatusSummary::default();
     let mut pending_companions: Vec<PendingCompanion> = Vec::new();
@@ -75,8 +79,8 @@ pub fn build_view(root: &Path, providers: &[(String, String)]) -> Result<Dashboa
 
     let mut modules: Vec<ModuleView> = modules_by_source.into_values().collect();
 
-    for location in configured_locations() {
-        let module_root = fs::canonicalize(&location).unwrap_or(location);
+    for location in watched_locations {
+        let module_root = fs::canonicalize(location).unwrap_or_else(|_| location.clone());
         if let Some(mut watched_module) = scan_source_module(&module_root) {
             watched_module.is_target = true;
             modules.push(watched_module);
@@ -215,5 +219,68 @@ pub(super) fn make_variant(repo: &Path, provider: &str, model: &str, file: &Path
         model: model.to_string(),
         relative_path,
         mode,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::manifest;
+    use std::fs;
+
+    #[test]
+    fn build_view_reads_deployed_skill_from_provider_manifest() {
+        let temp = tempfile::tempdir().unwrap();
+        let provider_dir = temp.path().join(".claude");
+        let skill_path = provider_dir.join("skills/Demo/SKILL.md");
+        let sidecar_path = provider_dir.join("skills/Demo/.provenance/SKILL.yaml");
+        let skill_content = "---\ndescription: Demo skill\n---\nUse the demo skill.\n";
+        let fingerprint = manifest::content_sha256(skill_content);
+
+        fs::create_dir_all(skill_path.parent().unwrap()).unwrap();
+        fs::write(&skill_path, skill_content).unwrap();
+        fs::create_dir_all(sidecar_path.parent().unwrap()).unwrap();
+        fs::write(
+            &sidecar_path,
+            format!(
+                "source: https://github.com/example/forge-demo.git\n\
+                 subject:\n\
+                 - name: skills/Demo/SKILL.md\n\
+                   digest:\n\
+                     sha256: {fingerprint}\n\
+                 resolvedDependencies:\n\
+                 - uri: skills/Demo/SKILL.md\n\
+                   digest:\n\
+                     sha256: {fingerprint}\n"
+            ),
+        )
+        .unwrap();
+        fs::write(
+            provider_dir.join(".manifest"),
+            format!(
+                "skills:\n  Demo:\n    SKILL.md:\n      fingerprint: {fingerprint}\n      provenance: skills/Demo/.provenance/SKILL.yaml\n"
+            ),
+        )
+        .unwrap();
+
+        let providers = vec![("claude".to_string(), ".claude".to_string())];
+        let view = build_view(temp.path(), &providers, &[]).unwrap();
+        let module = view
+            .modules
+            .iter()
+            .find(|module| module.name == "forge-demo")
+            .unwrap();
+        let artifact = module
+            .artifacts
+            .iter()
+            .find(|artifact| artifact.name == "Demo" && artifact.kind == "skills")
+            .unwrap();
+
+        assert_eq!(artifact.description, "Demo skill");
+        assert_eq!(artifact.content_body, "Use the demo skill.\n");
+        assert_eq!(
+            artifact.providers.get("claude").unwrap().status,
+            manifest::FileStatus::Unchanged
+        );
     }
 }

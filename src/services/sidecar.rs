@@ -1,6 +1,6 @@
 //! SLSA provenance sidecar serde model and direct parsing.
 
-use commands::view::{Adoption, Dependency};
+use crate::view::{Adoption, Dependency};
 
 #[derive(serde::Deserialize)]
 pub(super) struct Sidecar {

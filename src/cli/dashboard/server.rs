@@ -6,7 +6,7 @@ use tokio::sync::RwLock;
 
 use super::routes::{self, DashboardState};
 use super::scan;
-use crate::cli::config;
+use crate::cli::{config, watchlist};
 
 pub async fn start(root: &Path, port: Option<u16>) -> Result<(), Error> {
     let root_owned = root.to_path_buf();
@@ -48,12 +48,13 @@ pub async fn start(root: &Path, port: Option<u16>) -> Result<(), Error> {
 
 pub fn build_state(root: &Path) -> Result<DashboardState, Error> {
     let provider_targets = load_provider_targets(root);
-    let view = scan::build_view(root, &provider_targets)?;
+    let watched_locations = watchlist::watched_locations();
+    let view = scan::build_view(root, &provider_targets, &watched_locations)?;
     Ok(DashboardState {
         view,
         provider_targets,
         settings_filenames: config::load_settings_filenames(root),
-        local_repos: scan::discover_local_repos(root),
+        local_repos: scan::discover_local_repos(root, &watched_locations),
         version: env!("CARGO_PKG_VERSION").to_string(),
         binary_hash: compute_binary_hash(),
         scanned_at: chrono::Utc::now().format("%H:%M:%S").to_string(),
