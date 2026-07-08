@@ -2,8 +2,8 @@
 
 use super::sidecar::{Sidecar, parse_adoption};
 use super::source::resolve_sidecar;
-use commands::manifest;
-use commands::view::{Adoption, GitCommit};
+use crate::manifest;
+use crate::view::{Adoption, GitCommit};
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};

@@ -2,8 +2,8 @@
 //! resolution, and manifest/key parsing.
 
 use super::history::extract_frontmatter_field;
-use commands::manifest::{self, ManifestEntry};
-use commands::view::Companion;
+use crate::manifest::{self, ManifestEntry};
+use crate::view::Companion;
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};

@@ -2,8 +2,8 @@
 
 use super::content_kinds;
 use super::history::recorded_input_sha;
-use commands::manifest;
-use commands::view::{ProvenanceArtifact, ProvenanceView};
+use crate::manifest;
+use crate::view::{ProvenanceArtifact, ProvenanceView};
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};

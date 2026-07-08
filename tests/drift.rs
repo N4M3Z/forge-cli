@@ -206,9 +206,7 @@ fn drift_both_frontmatter_and_body_difference() {
     write_file(
         upstream_directory.path(),
         "rules/Diverged.md",
-        &format!(
-            "---\nname: Diverged\ndescription: different description\nversion: 2.0\n---\n\nUpstream body content.\n"
-        ),
+        "---\nname: Diverged\ndescription: different description\nversion: 2.0\n---\n\nUpstream body content.\n",
     );
 
     let output = forge()
@@ -745,12 +743,12 @@ fn ignore_both_frontmatter_and_body() {
     write_file(
         module_directory.path(),
         "rules/TestRule.md",
-        &format!("---\nname: TestRule\nproject: local\n---\n\nLocal body.\n"),
+        "---\nname: TestRule\nproject: local\n---\n\nLocal body.\n",
     );
     write_file(
         upstream_directory.path(),
         "rules/TestRule.md",
-        &format!("---\nname: TestRule\nproject: upstream\n---\n\nUpstream body.\n"),
+        "---\nname: TestRule\nproject: upstream\n---\n\nUpstream body.\n",
     );
 
     let output = forge()
@@ -782,12 +780,12 @@ fn ignore_body_on_both_drift_keeps_frontmatter() {
     write_file(
         module_directory.path(),
         "rules/TestRule.md",
-        &format!("---\nname: TestRule\nversion: 2.0\n---\n\nLocal body.\n"),
+        "---\nname: TestRule\nversion: 2.0\n---\n\nLocal body.\n",
     );
     write_file(
         upstream_directory.path(),
         "rules/TestRule.md",
-        &format!("---\nname: TestRule\nversion: 1.0\n---\n\nUpstream body.\n"),
+        "---\nname: TestRule\nversion: 1.0\n---\n\nUpstream body.\n",
     );
 
     let output = forge()
