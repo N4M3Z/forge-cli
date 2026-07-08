@@ -34,7 +34,9 @@ use crate::cli::config;
 ///   gemini/agents/security-architect.md  (with remapped tools)
 ///   gemini/agents/security-architect.yaml
 /// ```
-pub fn execute(path: &str) -> Result<ActionResult, Error> {
+/// Assemble, selecting model variants with `model_override` (the `--model`
+/// flag) in place of each provider's configured default model.
+pub fn execute_with_model(path: &str, model_override: Option<&str>) -> Result<ActionResult, Error> {
     let module_root = Path::new(path);
     if !module_root.is_dir() {
         return Err(Error::new(
@@ -95,12 +97,15 @@ pub fn execute(path: &str) -> Result<ActionResult, Error> {
 
         let model_tiers = provider_config.models.clone().unwrap_or_default();
         let effort_tiers = provider_config.effort.clone().unwrap_or_default();
+        let active_model =
+            resolve_active_model(model_override, provider_config, &models, provider_name);
 
         for source in &source_files {
             if let Some(deployed) = assemble_source_for_provider(
                 source,
                 module_root,
                 provider_name,
+                active_model.as_deref(),
                 provider_config,
                 &provider_build_dir,
                 &tool_mappings,
@@ -118,11 +123,32 @@ pub fn execute(path: &str) -> Result<ActionResult, Error> {
     Ok(result)
 }
 
+/// Choose the model ID whose `provider/<model>/` variants win this assembly:
+/// `--model` when it is a valid model for the provider, otherwise the
+/// provider's configured default. An override that names another provider's
+/// model is ignored so a single `--model` flag is safe across all providers.
+fn resolve_active_model(
+    model_override: Option<&str>,
+    provider_config: &commands::provider::ProviderConfig,
+    models: &std::collections::HashMap<String, Vec<String>>,
+    provider_name: &str,
+) -> Option<String> {
+    if let Some(override_id) = model_override
+        && models
+            .get(provider_name)
+            .is_some_and(|ids| ids.iter().any(|id| id == override_id))
+    {
+        return Some(override_id.to_string());
+    }
+    provider_config.model.clone()
+}
+
 #[allow(clippy::too_many_arguments)]
 fn assemble_source_for_provider(
     source: &sources::SourceFile,
     module_root: &Path,
     provider_name: &str,
+    active_model: Option<&str>,
     provider_config: &commands::provider::ProviderConfig,
     provider_build_dir: &Path,
     tool_mappings: &std::collections::HashMap<String, String>,
@@ -159,6 +185,7 @@ fn assemble_source_for_provider(
         source,
         module_root,
         provider_name,
+        active_model,
         &kind_keep_fields,
         model_tiers,
         effort_tiers,
@@ -172,9 +199,12 @@ fn assemble_source_for_provider(
         .relative_path
         .strip_prefix(&format!("{}/", source.kind))
         .unwrap_or(&source.relative_path);
+    // Qualifier-only files live one or two levels deep (rules/<provider>/file
+    // or rules/<provider>/<model>/file); deploy them flat under the kind, so
+    // strip every qualifier segment down to the basename.
     let relative_within_kind = if source.qualifier.is_some() {
         stripped_kind
-            .split_once('/')
+            .rsplit_once('/')
             .map_or(stripped_kind, |(_, filename)| filename)
     } else {
         stripped_kind

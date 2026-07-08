@@ -11,7 +11,16 @@ fn write_module_yaml(directory: &std::path::Path) {
 
 #[test]
 fn execute_errors_on_missing_module() {
-    let result = execute("/nonexistent/module", None, &[], false, false, false, false);
+    let result = execute(
+        "/nonexistent/module",
+        None,
+        &[],
+        false,
+        false,
+        false,
+        false,
+        None,
+    );
     assert!(result.is_err());
 }
 
@@ -26,6 +35,7 @@ fn execute_errors_on_directory_without_module_yaml() {
         false,
         false,
         false,
+        None,
     );
     let error = result.expect_err("expected install to refuse non-module directory");
     let message = error.to_string();
@@ -58,6 +68,7 @@ fn execute_succeeds_on_empty_module() {
         false,
         false,
         false,
+        None,
     );
     assert!(result.is_ok());
 }
@@ -76,6 +87,7 @@ fn execute_unknown_provider_lists_available_choices() {
         false,
         false,
         false,
+        None,
     );
     let error = result.expect_err("unknown provider must error");
     let message = error.to_string();
@@ -110,6 +122,7 @@ fn execute_provider_filter_skips_unrequested_providers() {
         false,
         false,
         false,
+        None,
     )
     .expect("install should succeed for known provider");
 

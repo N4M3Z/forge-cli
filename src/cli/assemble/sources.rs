@@ -22,6 +22,7 @@ fn parse_targets(content: &str) -> Option<Vec<String>> {
 ///     qualifier: None,
 /// }
 /// ```
+#[derive(Debug)]
 pub struct SourceFile {
     /// Relative path from the module root (e.g. "rules/MyRule.md").
     pub relative_path: String,
@@ -172,6 +173,7 @@ fn walk_content_dir(
             module_root,
             sources,
             &base_filenames,
+            valid_qualifiers,
         )?;
     }
 
@@ -181,8 +183,14 @@ fn walk_content_dir(
 /// Walk a qualifier subdirectory, collecting only qualifier-only files.
 ///
 /// Files that share a name with a base file are variant overrides, handled
-/// by `variants::resolve` during assembly of the base file. Only files
-/// with no base counterpart are collected as qualifier-only sources.
+/// by `variants::resolve` during assembly of the base file. Only files with
+/// no base counterpart are collected as qualifier-only sources.
+///
+/// A subdirectory whose name is a valid qualifier (a model ID from
+/// `config/models.yaml`) is descended into so model-only files under
+/// `rules/<provider>/<model>/` are collected, tagged with the model ID as
+/// their qualifier. Any other subdirectory is a validation error rather than
+/// being silently dropped.
 fn walk_qualifier_dir(
     dir: &Path,
     qualifier_name: &str,
@@ -190,6 +198,7 @@ fn walk_qualifier_dir(
     module_root: &Path,
     sources: &mut Vec<SourceFile>,
     base_filenames: &HashSet<String>,
+    valid_qualifiers: &HashSet<String>,
 ) -> Result<(), Error> {
     let entries = fs::read_dir(dir)
         .map_err(|e| Error::new(ErrorKind::Io, format!("cannot read {}: {e}", dir.display())))?;
@@ -198,7 +207,39 @@ fn walk_qualifier_dir(
         let entry =
             entry.map_err(|e| Error::new(ErrorKind::Io, format!("directory entry error: {e}")))?;
         let path = entry.path();
-        if path.is_dir() || path.extension().unwrap_or_default() != "md" {
+
+        if path.is_dir() {
+            let subdir = path
+                .file_name()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .to_string();
+            if valid_qualifiers.contains(&subdir) {
+                walk_qualifier_dir(
+                    &path,
+                    &subdir,
+                    kind,
+                    module_root,
+                    sources,
+                    base_filenames,
+                    valid_qualifiers,
+                )?;
+            } else {
+                // Not an exact model ID from config/models.yaml. Surfacing this
+                // as a warning (rather than silently dropping the files, as
+                // before) lets modules still carrying short or retired model
+                // directory names see what is being skipped. Phase 2 hardens
+                // this to a validation error once those modules migrate to
+                // exact model IDs.
+                eprintln!(
+                    "warning: skipping unknown model qualifier directory '{subdir}' in {} (expected an exact model ID from config/models.yaml)",
+                    dir.display()
+                );
+            }
+            continue;
+        }
+
+        if path.extension().unwrap_or_default() != "md" {
             continue;
         }
         let filename = path
@@ -323,8 +364,9 @@ fn collect_skill_files(
 
 /// Build the set of valid qualifier names from provider names and model IDs.
 ///
-/// A qualifier is valid if it matches either a provider name (e.g., "claude")
-/// or a segment of any model ID (e.g., "sonnet" from "claude-sonnet-4-6").
+/// A qualifier is valid if it is a provider name (e.g. `claude`) or an exact
+/// model ID from `config/models.yaml` (e.g. `claude-opus-4-6`). Model IDs are
+/// never split into segments: a directory named `4` or `6` is not a qualifier.
 pub fn build_valid_qualifiers(
     provider_names: &[String],
     models: &std::collections::HashMap<String, Vec<String>>,
@@ -333,14 +375,8 @@ pub fn build_valid_qualifiers(
     for name in provider_names {
         qualifiers.insert(name.clone());
     }
-    for model_ids in models.values() {
-        for model_id in model_ids {
-            for segment in model_id.split('-') {
-                if !segment.is_empty() {
-                    qualifiers.insert(segment.to_string());
-                }
-            }
-        }
+    for model_id in models.values().flatten() {
+        qualifiers.insert(model_id.clone());
     }
     qualifiers
 }
@@ -396,11 +432,54 @@ mod tests {
     }
 
     #[test]
-    fn build_qualifiers_includes_model_tier_segments() {
+    fn build_qualifiers_uses_exact_model_ids_not_segments() {
         let providers = vec!["claude".to_string()];
         let qualifiers = build_valid_qualifiers(&providers, &make_models());
-        assert!(qualifiers.contains("sonnet"));
-        assert!(qualifiers.contains("opus"));
+        assert!(qualifiers.contains("claude-opus-4-6"));
+        assert!(qualifiers.contains("claude-sonnet-4-6"));
+        // Segments of model IDs are not qualifiers — this is the junk-qualifier
+        // bug the exact-ID rule fixes.
+        assert!(!qualifiers.contains("sonnet"));
+        assert!(!qualifiers.contains("opus"));
+        assert!(!qualifiers.contains("4"));
+        assert!(!qualifiers.contains("6"));
+    }
+
+    #[test]
+    fn unknown_subdirectory_in_qualifier_dir_is_skipped() {
+        let dir = tempfile::tempdir().unwrap();
+        let rules = scaffold_kind(dir.path(), "rules");
+        std::fs::write(rules.join("BaseRule.md"), BASE_RULE).unwrap();
+        let provider = rules.join("claude");
+        std::fs::create_dir(&provider).unwrap();
+        let stray = provider.join("not-a-model");
+        std::fs::create_dir(&stray).unwrap();
+        std::fs::write(stray.join("Stray.md"), QUALIFIER_ONLY).unwrap();
+
+        let valid = HashSet::from(["claude".to_string(), "claude-opus-4-6".to_string()]);
+        let sources = collect(dir.path(), &valid).expect("unknown subdir warns, not errors");
+        assert!(
+            sources.iter().all(|s| !s.relative_path.contains("Stray")),
+            "files under an unknown model qualifier dir are skipped"
+        );
+    }
+
+    #[test]
+    fn model_only_file_collected_with_model_qualifier() {
+        let dir = tempfile::tempdir().unwrap();
+        let rules = scaffold_kind(dir.path(), "rules");
+        std::fs::write(rules.join("BaseRule.md"), BASE_RULE).unwrap();
+        let model_dir = rules.join("claude").join("claude-opus-4-6");
+        std::fs::create_dir_all(&model_dir).unwrap();
+        std::fs::write(model_dir.join("OpusOnly.md"), QUALIFIER_ONLY).unwrap();
+
+        let valid = HashSet::from(["claude".to_string(), "claude-opus-4-6".to_string()]);
+        let sources = collect(dir.path(), &valid).unwrap();
+        let model_only = sources
+            .iter()
+            .find(|s| s.relative_path.contains("OpusOnly"))
+            .expect("model-only file must be collected, not dropped");
+        assert_eq!(model_only.qualifier, Some("claude-opus-4-6".to_string()));
     }
 
     #[test]

@@ -19,6 +19,7 @@ dashboard:
 providers:
     claude:
         target: ".claude"
+        model: claude-opus-4-6
         aliases:
             - claudecode
         keep_fields:
@@ -51,6 +52,7 @@ providers:
 
     gemini:
         target: ".gemini"
+        model: gemini-2.5-pro
         aliases:
             - geminicli
         assembly:
@@ -68,6 +70,7 @@ providers:
 
     codex:
         target: ".codex"
+        model: gpt-5.5
         aliases:
             - codexcli
         assembly:
@@ -90,6 +93,7 @@ providers:
 
     opencode:
         target: ".opencode"
+        model: claude-opus-4-6
         assembly:
             - kebab-case-agents
             - strip-links

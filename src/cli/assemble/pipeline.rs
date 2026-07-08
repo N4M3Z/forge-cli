@@ -22,10 +22,12 @@ use crate::cli::config::read_file;
 ///   → references stripped
 ///   → tool names remapped (Read → read_file for gemini)
 /// ```
+#[allow(clippy::too_many_arguments)]
 pub fn assemble_source(
     source: &SourceFile,
     module_root: &Path,
     provider_name: &str,
+    model: Option<&str>,
     keep_fields: &[String],
     model_tiers: &HashMap<String, Vec<String>>,
     effort_tiers: &HashMap<String, String>,
@@ -38,7 +40,12 @@ pub fn assemble_source(
     let source_dir = Path::new(&source.full_path).parent().unwrap_or(module_root);
     let filename = extract_filename(&source.full_path);
 
-    let variant = assemble::variants::resolve(source_dir, &filename, &[provider_name.to_string()]);
+    // Resolution precedence (PROV-0005): user/ > provider/model/ > provider/ > base.
+    let mut qualifiers = vec!["user".to_string(), provider_name.to_string()];
+    if let Some(model_id) = model {
+        qualifiers.push(model_id.to_string());
+    }
+    let variant = assemble::variants::resolve(source_dir, &filename, &qualifiers);
 
     let variant_content = match &variant {
         Some(vp) => Some(read_file(vp)?),

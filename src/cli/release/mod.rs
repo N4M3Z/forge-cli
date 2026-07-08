@@ -44,6 +44,7 @@ pub fn execute(path: &str, embed: bool) -> Result<ActionResult, Error> {
         false,
         false,
         false,
+        None,
     )?;
     result.installed.clear();
     result.skipped.clear();

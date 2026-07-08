@@ -61,6 +61,10 @@ pub struct ProviderConfig {
     pub models: Option<HashMap<String, Vec<String>>>,
     pub effort: Option<HashMap<String, String>>,
     pub aliases: Option<Vec<String>>,
+    /// Default target model ID for this provider (an exact ID from
+    /// `config/models.yaml`). Selects which `provider/<model>/` variant
+    /// directory wins during assembly; `--model` overrides it.
+    pub model: Option<String>,
 }
 
 impl ProviderConfig {
