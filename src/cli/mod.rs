@@ -1,5 +1,5 @@
 mod assemble;
-mod config;
+pub(crate) mod config;
 mod copy;
 #[cfg(feature = "dashboard")]
 mod dashboard;
@@ -12,11 +12,13 @@ mod output;
 mod provenance;
 mod release;
 mod validate;
-mod watchlist;
+pub(crate) mod watchlist;
 
 #[cfg(test)]
 mod tests;
 
+#[cfg(not(feature = "tui"))]
+use clap::CommandFactory;
 use clap::{Parser, Subcommand};
 use commands::error::Error;
 use commands::result::ActionResult;
@@ -25,7 +27,7 @@ use commands::result::ActionResult;
 #[command(name = "forge", about = "Forge module toolkit", version)]
 struct Cli {
     #[command(subcommand)]
-    command: Command,
+    command: Option<Command>,
 
     /// Output results as JSON
     #[arg(long, global = true)]
@@ -34,6 +36,10 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
+    /// Launch the terminal dashboard
+    #[cfg(feature = "tui")]
+    Tui,
+
     /// Initialize a new forge module with required files and schemas
     Init {
         /// Directory to scaffold the new module into (created if missing).
@@ -280,7 +286,13 @@ enum WatchAction {
 pub fn run() -> i32 {
     let args = Cli::parse();
 
-    let (result, verb) = match args.command {
+    let Some(command) = args.command else {
+        return bare();
+    };
+
+    let (result, verb) = match command {
+        #[cfg(feature = "tui")]
+        Command::Tui => return crate::tui::run(),
         Command::Init { target } => (init::execute(&target), "initialized"),
         Command::Install {
             source,
@@ -371,6 +383,17 @@ pub fn run() -> i32 {
     };
 
     report(result, args.json, verb)
+}
+
+#[cfg(feature = "tui")]
+fn bare() -> i32 {
+    crate::tui::run()
+}
+
+#[cfg(not(feature = "tui"))]
+fn bare() -> i32 {
+    eprintln!("{}", Cli::command().render_help());
+    2
 }
 
 /// Collapse a subcommand's `Result<exit_code, _>` into a process exit code,

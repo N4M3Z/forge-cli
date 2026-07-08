@@ -16,6 +16,7 @@ fn deploy_owned_file(
     content: &str,
     source_uri: &str,
 ) {
+    use std::fmt::Write as _;
     write(&deployed_base.join(relative), content);
 
     let artifact = std::path::Path::new(relative);
@@ -32,10 +33,11 @@ fn deploy_owned_file(
 
     let manifest_path = deployed_base.join(".manifest");
     let mut manifest_yaml = std::fs::read_to_string(&manifest_path).unwrap_or_default();
-    manifest_yaml.push_str(&format!(
-        "{relative}:\n    fingerprint: {digest}\n    provenance: {provenance_relative}\n",
-        digest = manifest::content_sha256(content)
-    ));
+    let digest = manifest::content_sha256(content);
+    let _ = write!(
+        manifest_yaml,
+        "{relative}:\n    fingerprint: {digest}\n    provenance: {provenance_relative}\n"
+    );
     std::fs::write(&manifest_path, manifest_yaml).unwrap();
 }
 
