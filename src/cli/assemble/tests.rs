@@ -21,41 +21,97 @@ fn make_models() -> HashMap<String, Vec<String>> {
 #[test]
 fn direct_provider_name_matches() {
     let models = make_models();
-    assert!(qualifier_matches_provider("claude", "claude", &models));
-    assert!(qualifier_matches_provider("codex", "codex", &models));
+    assert!(qualifier_matches_provider(
+        "claude", "claude", None, &models
+    ));
+    assert!(qualifier_matches_provider("codex", "codex", None, &models));
 }
 
 #[test]
-fn model_tier_matches_provider_with_that_model() {
+fn active_model_matches_provider_with_that_model() {
     let models = make_models();
-    assert!(qualifier_matches_provider("sonnet", "claude", &models));
-    assert!(qualifier_matches_provider("opus", "claude", &models));
+    assert!(qualifier_matches_provider(
+        "claude-sonnet-4-6",
+        "claude",
+        Some("claude-sonnet-4-6"),
+        &models
+    ));
+    assert!(qualifier_matches_provider(
+        "claude-opus-4-6",
+        "claude",
+        Some("claude-opus-4-6"),
+        &models
+    ));
 }
 
 #[test]
-fn model_tier_matches_across_providers() {
+fn active_model_matches_across_providers_that_list_it() {
     let models = make_models();
-    assert!(qualifier_matches_provider("sonnet", "opencode", &models));
+    assert!(qualifier_matches_provider(
+        "claude-sonnet-4-6",
+        "opencode",
+        Some("claude-sonnet-4-6"),
+        &models
+    ));
 }
 
 #[test]
-fn model_tier_does_not_match_unrelated_provider() {
+fn inactive_model_does_not_match_provider() {
     let models = make_models();
-    assert!(!qualifier_matches_provider("sonnet", "codex", &models));
-    assert!(!qualifier_matches_provider("opus", "codex", &models));
+    assert!(!qualifier_matches_provider(
+        "claude-sonnet-4-6",
+        "claude",
+        Some("claude-opus-4-6"),
+        &models
+    ));
+    assert!(!qualifier_matches_provider(
+        "claude-opus-4-6",
+        "claude",
+        None,
+        &models
+    ));
+}
+
+#[test]
+fn model_does_not_match_unrelated_provider() {
+    let models = make_models();
+    assert!(!qualifier_matches_provider(
+        "claude-sonnet-4-6",
+        "codex",
+        Some("claude-sonnet-4-6"),
+        &models
+    ));
+    assert!(!qualifier_matches_provider(
+        "claude-opus-4-6",
+        "codex",
+        Some("claude-opus-4-6"),
+        &models
+    ));
 }
 
 #[test]
 fn unknown_qualifier_does_not_match() {
     let models = make_models();
-    assert!(!qualifier_matches_provider("gpt5", "claude", &models));
+    assert!(!qualifier_matches_provider(
+        "gpt5",
+        "claude",
+        Some("gpt5"),
+        &models
+    ));
 }
 
 #[test]
 fn provider_not_in_models_only_matches_by_name() {
     let models = make_models();
-    assert!(qualifier_matches_provider("gemini", "gemini", &models));
-    assert!(!qualifier_matches_provider("sonnet", "gemini", &models));
+    assert!(qualifier_matches_provider(
+        "gemini", "gemini", None, &models
+    ));
+    assert!(!qualifier_matches_provider(
+        "claude-sonnet-4-6",
+        "gemini",
+        Some("claude-sonnet-4-6"),
+        &models
+    ));
 }
 
 #[test]

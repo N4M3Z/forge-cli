@@ -102,6 +102,12 @@ enum Command {
         #[arg(long)]
         dry_run: bool,
 
+        /// Continue even when the source git checkout is behind origin/main or
+        /// origin/master. The freshness check uses local refs only and never
+        /// fetches.
+        #[arg(long)]
+        allow_stale: bool,
+
         /// Override each provider's default model when selecting
         /// `provider/<model>/` qualifier variants (exact model ID from
         /// config/models.yaml; ignored for providers that lack it).
@@ -365,6 +371,7 @@ pub fn run() -> i32 {
             interactive,
             no_prune,
             dry_run,
+            allow_stale,
             model,
         } => (
             install::execute(
@@ -376,6 +383,7 @@ pub fn run() -> i32 {
                 interactive,
                 dry_run,
                 model.as_deref(),
+                allow_stale,
             ),
             "deployed",
         ),

@@ -158,11 +158,7 @@ fn assemble_source_for_provider(
     models: &std::collections::HashMap<String, Vec<String>>,
     source_uri: &str,
 ) -> Result<Option<DeployedFile>, Error> {
-    if source
-        .qualifier
-        .as_ref()
-        .is_some_and(|qualifier| !qualifier_matches_provider(qualifier, provider_name, models))
-    {
+    if !source_qualifier_matches_provider(source, provider_name, active_model, models) {
         return Ok(None);
     }
 
@@ -245,22 +241,70 @@ fn assemble_source_for_provider(
     }))
 }
 
-/// Check whether a qualifier directory matches a given provider.
+/// Check whether a qualifier-only source applies to a provider/model target.
 ///
-/// A qualifier matches if it is either the provider name itself, or if
-/// any model ID for that provider contains the qualifier as a substring.
+/// Provider-only files such as `rules/claude/Foo.md` apply to that provider
+/// for every model. Model-only files such as
+/// `rules/claude/claude-sonnet-4-6/Foo.md` apply only when the provider and
+/// active model both match, so a non-active model variant cannot keep a stale
+/// deployed base file alive during prune.
+fn source_qualifier_matches_provider(
+    source: &sources::SourceFile,
+    provider_name: &str,
+    active_model: Option<&str>,
+    models: &std::collections::HashMap<String, Vec<String>>,
+) -> bool {
+    if source.qualifier.is_none() {
+        return true;
+    }
+
+    let segments = qualifier_segments(source);
+    match segments.as_slice() {
+        [provider] => {
+            provider == provider_name
+                || active_model_matches(provider, active_model, provider_name, models)
+        }
+        [provider, model, ..] => provider == provider_name && active_model == Some(model.as_str()),
+        _ => false,
+    }
+}
+
+fn qualifier_segments(source: &sources::SourceFile) -> Vec<String> {
+    let stripped_kind = source
+        .relative_path
+        .strip_prefix(&format!("{}/", source.kind))
+        .unwrap_or(&source.relative_path);
+    let mut segments: Vec<String> = stripped_kind.split('/').map(str::to_string).collect();
+    let _ = segments.pop();
+    segments
+}
+
+fn active_model_matches(
+    qualifier: &str,
+    active_model: Option<&str>,
+    provider_name: &str,
+    models: &std::collections::HashMap<String, Vec<String>>,
+) -> bool {
+    if active_model != Some(qualifier) {
+        return false;
+    }
+    if let Some(model_ids) = models.get(provider_name) {
+        return model_ids.iter().any(|id| id == qualifier);
+    }
+    false
+}
+
+#[cfg(test)]
 fn qualifier_matches_provider(
     qualifier: &str,
     provider_name: &str,
+    active_model: Option<&str>,
     models: &std::collections::HashMap<String, Vec<String>>,
 ) -> bool {
     if qualifier == provider_name {
         return true;
     }
-    if let Some(model_ids) = models.get(provider_name) {
-        return model_ids.iter().any(|id| id.contains(qualifier));
-    }
-    false
+    active_model_matches(qualifier, active_model, provider_name, models)
 }
 
 /// Apply kebab-case transformation to each segment of a path.
