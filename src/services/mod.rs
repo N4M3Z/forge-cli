@@ -15,6 +15,7 @@ mod references;
 mod sidecar;
 mod source;
 mod target;
+mod vcs;
 
 pub use adr::build_adr_artifact;
 pub use discovery::discover_local_repos;
@@ -109,10 +110,14 @@ pub fn build_view(
     for (module_index, module) in modules.iter_mut().enumerate() {
         module.artifacts.sort_by(|a, b| a.name.cmp(&b.name));
         let repo = local_repos.get(module.source_uri.trim_end_matches(".git"));
+        let repo_vcs = repo.and_then(|repo| vcs::repo_vcs(repo));
         let tint = module_index % 8;
         for artifact in &mut module.artifacts {
             artifact.module.clone_from(&module.name);
             artifact.module_tint = tint;
+            artifact.vcs = repo_vcs
+                .as_ref()
+                .map(|state| state.state_for(&artifact.relative_path));
             let (broken, age) = artifact_staleness(
                 repo,
                 &artifact.relative_path,

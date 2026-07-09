@@ -246,6 +246,27 @@ pub struct ArtifactView {
     /// Per-harness and per-model qualifier overrides found in the source tree
     /// (the model-targeting variants from PROV-0005), empty when none.
     pub variants: Vec<Variant>,
+    /// Version-control state of the artifact's source file, `None` when the
+    /// module has no local repo.
+    pub vcs: Option<VcsState>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct VcsState {
+    pub branch: String,
+    pub worktree: WorktreeState,
+    /// Commits on HEAD not yet on the upstream, and vice versa. Both zero when
+    /// the branch has no upstream.
+    pub ahead: usize,
+    pub behind: usize,
+    pub jj_colocated: bool,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
+pub enum WorktreeState {
+    Clean,
+    Modified,
+    Untracked,
 }
 
 /// A harness- or model-qualifier override of a base artifact, discovered in the

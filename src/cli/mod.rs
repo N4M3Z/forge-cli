@@ -45,7 +45,29 @@ struct Cli {
 enum Command {
     /// Launch the terminal dashboard
     #[cfg(feature = "tui")]
-    Tui,
+    Tui {
+        /// Render one frame to stdout as text (headless layout inspection).
+        #[arg(long)]
+        snapshot: bool,
+        /// Snapshot width in columns.
+        #[arg(long, default_value = "120")]
+        width: u16,
+        /// Snapshot height in rows.
+        #[arg(long, default_value = "40")]
+        height: u16,
+        /// Section number (1-based) to display in the snapshot.
+        #[arg(long)]
+        section: Option<usize>,
+        /// Detail tab: preview|code|diff|provenance|frontmatter|history|companions.
+        #[arg(long)]
+        tab: Option<String>,
+        /// Drill right N times (0 = sections focus, 1 = list, 2 = detail).
+        #[arg(long, default_value = "0")]
+        drill: u8,
+        /// Move the list selection down N rows before drilling into detail.
+        #[arg(long, default_value = "0")]
+        row: usize,
+    },
 
     /// Initialize a new forge module with required files and schemas
     Init {
@@ -375,7 +397,21 @@ pub fn run() -> i32 {
 
     let (result, verb) = match command {
         #[cfg(feature = "tui")]
-        Command::Tui => return crate::tui::run(),
+        Command::Tui {
+            snapshot,
+            width,
+            height,
+            section,
+            tab,
+            drill,
+            row,
+        } => {
+            return if snapshot {
+                crate::tui::run_snapshot(width, height, section, tab.as_deref(), drill, row)
+            } else {
+                crate::tui::run()
+            };
+        }
         Command::Init { target } => (init::execute(&target), "initialized"),
         Command::Install {
             source,

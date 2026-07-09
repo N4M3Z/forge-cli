@@ -21,7 +21,10 @@ use commands::{
         self, builders,
         files::{self, FileSections},
     },
-    view::{Adr, ArtifactView, DashboardView, ModuleView, ProvenanceArtifact, StatusSummary},
+    view::{
+        Adr, ArtifactView, DashboardView, ModuleView, ProvenanceArtifact, StatusSummary,
+        WorktreeState,
+    },
 };
 
 use crate::cli::{config, watchlist};
@@ -352,6 +355,9 @@ struct PreviewCache {
     path: String,
     width: u16,
     lines: Vec<Line<'static>>,
+    /// True when glow produced the lines: glow wraps at the pane width itself,
+    /// so the paragraph must not re-wrap (that breaks tables and prose).
+    glow: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -508,6 +514,13 @@ impl App {
 
     pub fn refresh(&mut self) {
         self.start_scan();
+    }
+
+    /// Whether a background scan is still in flight (used by snapshot mode to
+    /// block until real data is available before rendering a frame).
+    #[must_use]
+    pub fn scan_pending(&self) -> bool {
+        self.scan_receiver.is_some()
     }
 
     pub fn poll_scan(&mut self) {
@@ -821,12 +834,13 @@ impl App {
             DetailTab::History => history_lines(artifact),
             DetailTab::Companions => companion_lines(artifact),
         };
-        frame.render_widget(
-            Paragraph::new(Text::from(lines))
-                .wrap(Wrap { trim: false })
-                .scroll((self.detail_scroll, 0)),
-            chunks[1],
-        );
+        let glow_wrapped = self.detail_tab == DetailTab::Preview
+            && self.preview_cache.as_ref().is_some_and(|cache| cache.glow);
+        let mut paragraph = Paragraph::new(Text::from(lines)).scroll((self.detail_scroll, 0));
+        if !glow_wrapped {
+            paragraph = paragraph.wrap(Wrap { trim: false });
+        }
+        frame.render_widget(paragraph, chunks[1]);
     }
 
     fn prepare_artifact_detail_cache(
@@ -845,11 +859,12 @@ impl App {
                     .as_ref()
                     .is_none_or(|cache| cache.path != path || cache.width != cache_width);
                 if needs_build {
-                    let lines = preview_lines_for_width(artifact, cache_width);
+                    let (lines, glow) = preview_lines_for_width(artifact, cache_width);
                     self.preview_cache = Some(PreviewCache {
                         path,
                         width: cache_width,
                         lines,
+                        glow,
                     });
                     #[cfg(test)]
                     {
@@ -1771,7 +1786,7 @@ impl App {
         self.list_selected[self.section as usize] = index;
     }
 
-    fn move_list_selection(&mut self, delta: isize) {
+    pub fn move_list_selection(&mut self, delta: isize) {
         self.ensure_rows();
         let rows = self.cached_rows();
         if rows.is_empty() {
@@ -2175,13 +2190,20 @@ fn column_widths_for_rows(rows: &[ListRow]) -> MillerColumnWidths {
     let left =
         usize_to_u16(section_label_width.saturating_add(6)).clamp(LEFT_MIN_WIDTH, LEFT_MAX_WIDTH);
 
-    let row_label_width = rows
+    let row_width = rows
         .iter()
-        .map(|row| row.label.chars().count())
+        .map(|row| {
+            let detail_width = if row.detail.is_empty() {
+                0
+            } else {
+                row.detail.chars().count().saturating_add(2)
+            };
+            row.label.chars().count().saturating_add(detail_width)
+        })
         .max()
         .unwrap_or_default();
     let middle =
-        usize_to_u16(row_label_width.saturating_add(8)).clamp(MIDDLE_MIN_WIDTH, MIDDLE_MAX_WIDTH);
+        usize_to_u16(row_width.saturating_add(4)).clamp(MIDDLE_MIN_WIDTH, MIDDLE_MAX_WIDTH);
 
     MillerColumnWidths { left, middle }
 }
@@ -2227,21 +2249,9 @@ fn artifact_row(artifact: &ArtifactView, module: &str) -> ListRow {
     } else {
         ""
     };
-    let age = artifact.age_label();
-    let deploy = if artifact.deployed_count() == 0 {
-        "src".to_string()
-    } else {
-        format!("↗{}", artifact.deployed_count())
-    };
     ListRow::item(
         format!("{}{}", artifact.name, warning),
-        format!(
-            "{} · {} · {} · {}",
-            artifact.kind,
-            module,
-            value_or_any(&age),
-            deploy
-        ),
+        module.to_string(),
         ListTarget::Artifact {
             module: module.to_string(),
             kind: artifact.kind.clone(),
@@ -2282,7 +2292,73 @@ fn hint_row() -> String {
         .join("  ·  ")
 }
 
-fn preview_lines_for_width(artifact: &ArtifactView, width: u16) -> Vec<Line<'static>> {
+/// Greedy word-wrap for plain header text, needed because the preview
+/// paragraph does not re-wrap glow output. A single word longer than the
+/// width stays on its own line and clips.
+fn wrap_plain(text: &str, width: usize) -> Vec<Line<'static>> {
+    if width == 0 {
+        return vec![Line::from(text.to_string())];
+    }
+    let mut lines = Vec::new();
+    let mut current = String::new();
+    for word in text.split_whitespace() {
+        let candidate = current.chars().count() + 1 + word.chars().count();
+        if !current.is_empty() && candidate > width {
+            lines.push(Line::from(std::mem::take(&mut current)));
+        }
+        if !current.is_empty() {
+            current.push(' ');
+        }
+        current.push_str(word);
+    }
+    if !current.is_empty() {
+        lines.push(Line::from(current));
+    }
+    lines
+}
+
+/// One line of version-control truth for the artifact: branch (with
+/// ahead/behind arrows), worktree state, last commit, and jj change id.
+fn vcs_line(artifact: &ArtifactView) -> Option<Line<'static>> {
+    use std::fmt::Write as _;
+    let vcs = artifact.vcs.as_ref()?;
+    let mut branch = vcs.branch.clone();
+    if vcs.ahead > 0 {
+        let _ = write!(branch, " ↑{}", vcs.ahead);
+    }
+    if vcs.behind > 0 {
+        let _ = write!(branch, " ↓{}", vcs.behind);
+    }
+    let mut spans = vec![
+        Span::styled(branch, Style::default().fg(Color::Cyan)),
+        Span::raw(" · "),
+    ];
+    let (worktree_label, worktree_style) = match vcs.worktree {
+        WorktreeState::Clean => ("✓ committed", Style::default().fg(Color::Green)),
+        WorktreeState::Modified => ("⚠ uncommitted changes", Style::default().fg(Color::Yellow)),
+        WorktreeState::Untracked => ("● untracked", Style::default().fg(Color::Magenta)),
+    };
+    spans.push(Span::styled(worktree_label, worktree_style));
+    if let Some(commit) = artifact.git_log.first() {
+        let sha_short: String = commit.sha.chars().take(7).collect();
+        let date: String = commit.date.chars().take(10).collect();
+        spans.push(Span::styled(
+            format!(" · {sha_short} {date}"),
+            Style::default().fg(Color::DarkGray),
+        ));
+        if !commit.jj_change.is_empty() {
+            spans.push(Span::styled(
+                format!(" · jj {}", commit.jj_change),
+                Style::default().fg(Color::DarkGray),
+            ));
+        }
+    } else if vcs.jj_colocated {
+        spans.push(Span::styled(" · jj", Style::default().fg(Color::DarkGray)));
+    }
+    Some(Line::from(spans))
+}
+
+fn preview_lines_for_width(artifact: &ArtifactView, width: u16) -> (Vec<Line<'static>>, bool) {
     let mut lines = vec![
         Line::from(Span::styled(
             format!(
@@ -2303,14 +2379,17 @@ fn preview_lines_for_width(artifact: &ArtifactView, width: u16) -> Vec<Line<'sta
             artifact.staleness_label()
         )),
     ];
+    if let Some(vcs) = vcs_line(artifact) {
+        lines.push(vcs);
+    }
     if !artifact.broken_refs.is_empty() {
-        lines.push(Line::from(format!(
-            "broken refs: {}",
-            artifact.broken_refs.join(", ")
-        )));
+        lines.extend(wrap_plain(
+            &format!("broken refs: {}", artifact.broken_refs.join(", ")),
+            width as usize,
+        ));
     }
     if !artifact.description.is_empty() {
-        lines.push(Line::from(artifact.description.clone()));
+        lines.extend(wrap_plain(&artifact.description, width as usize));
     }
     lines.push(Line::from(""));
     let body = if artifact.content_body.is_empty() {
@@ -2320,10 +2399,10 @@ fn preview_lines_for_width(artifact: &ArtifactView, width: u16) -> Vec<Line<'sta
     };
     if let Some(glow_lines) = rich::render_markdown_with_glow(body, width) {
         lines.extend(glow_lines);
-        return lines;
+        return (lines, true);
     }
     lines.extend(body.lines().map(|line| Line::from(line.to_string())));
-    lines
+    (lines, false)
 }
 
 fn diff_lines(artifact: &ArtifactView) -> Vec<Line<'static>> {

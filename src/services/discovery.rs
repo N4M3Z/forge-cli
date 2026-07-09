@@ -244,6 +244,7 @@ fn build_source_artifact(
         module_tint: 0,
         companions: Vec::new(),
         variants: Vec::new(),
+        vcs: None,
     }
 }
 
