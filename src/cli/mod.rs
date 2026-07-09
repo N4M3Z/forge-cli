@@ -4,10 +4,13 @@ mod copy;
 #[cfg(feature = "dashboard")]
 mod dashboard;
 mod deploy;
+mod dispatch;
 mod dotforge;
 mod drift;
+mod exec;
 mod init;
 mod install;
+mod ontology;
 mod output;
 mod provenance;
 mod release;
@@ -22,6 +25,7 @@ use clap::CommandFactory;
 use clap::{Parser, Subcommand};
 use commands::error::Error;
 use commands::result::ActionResult;
+use std::ffi::OsString;
 
 #[derive(Parser)]
 #[command(name = "forge", about = "Forge module toolkit", version)]
@@ -225,6 +229,22 @@ enum Command {
         target: Option<String>,
     },
 
+    /// Show the resolved forge ontology and configuration
+    Config,
+
+    /// Run a script bundled with a forge skill
+    #[command(
+        after_help = "EXEC OPTIONS:\n  --script <NAME>    Script name or relative path inside the skill directory\n  --json <OBJ>       JSON object passed to the child on stdin and as INPUT_* variables\n  --dry-run          Print the resolved command and injected environment without spawning\n  -- ARGS...         Arguments passed to the skill script"
+    )]
+    Exec {
+        /// Skill name to execute.
+        skill: String,
+
+        /// Exec options (`--script`, `--json`, `--dry-run`) and script args after `--`.
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        rest: Vec<OsString>,
+    },
+
     /// Launch a read-only web dashboard showing artifact state, provenance,
     /// and deployment status across all providers
     #[cfg(feature = "dashboard")]
@@ -254,6 +274,10 @@ enum Command {
         #[command(subcommand)]
         action: WatchAction,
     },
+
+    /// Fallback: run an external `forge-<verb>` executable with remaining args.
+    #[command(external_subcommand)]
+    External(Vec<OsString>),
 }
 
 #[derive(Subcommand)]
@@ -283,6 +307,7 @@ enum WatchAction {
 /// Parse CLI arguments, dispatch to subcommand, and return an exit code.
 ///
 /// Exit codes: 0 = success, 1 = errors occurred, 2 = fatal error.
+#[allow(clippy::too_many_lines)]
 pub fn run() -> i32 {
     let args = Cli::parse();
 
@@ -376,10 +401,15 @@ pub fn run() -> i32 {
             deploy::execute(&source, target.as_deref(), &[], false, true, false, false),
             "cleaned",
         ),
+        Command::Config => return exit_code(ontology::show(args.json)),
+        Command::Exec { skill, rest } => {
+            return exit_code(exec::execute_cli(&skill, args.json, &rest));
+        }
         #[cfg(feature = "dashboard")]
         Command::Dashboard { root, port } => return exit_code(dashboard::execute(&root, port)),
         Command::Release { source, embed } => (release::execute(&source, embed), "released"),
         Command::Watch { action } => return run_watch(action, args.json),
+        Command::External(external_args) => return exit_code(dispatch::external(&external_args)),
     };
 
     report(result, args.json, verb)

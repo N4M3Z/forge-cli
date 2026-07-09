@@ -5,6 +5,7 @@ pub const VALIDATE_SH_SHA: &str = env!("VALIDATE_SH_SHA");
 pub mod error;
 pub mod manifest;
 pub mod module;
+pub mod ontology;
 pub mod parse;
 pub mod provider;
 pub mod result;
