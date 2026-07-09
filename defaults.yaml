@@ -68,6 +68,17 @@ providers:
             fast: [gemini-2.5-flash]
             light: [gemini-2.0-flash]
 
+    agentskills:
+        target: ".agents"
+        aliases:
+            - agents
+        assembly:
+            - strip-links
+        keep_fields:
+            agents: [name, description]
+            skills: [name, description, license, compatibility, metadata, allowed-tools]
+            rules: []
+
     codex:
         target: ".codex"
         model: gpt-5.5

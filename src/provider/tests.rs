@@ -16,6 +16,7 @@ fn load_providers_parses_all_providers() {
 
     assert!(providers.contains_key("claude"));
     assert!(providers.contains_key("gemini"));
+    assert!(providers.contains_key("agentskills"));
     assert!(providers.contains_key("codex"));
     assert!(providers.contains_key("opencode"));
 }
@@ -26,6 +27,7 @@ fn load_providers_reads_target() {
 
     assert_eq!(providers["claude"].target, ".claude");
     assert_eq!(providers["gemini"].target, ".gemini");
+    assert_eq!(providers["agentskills"].target, ".agents");
 }
 
 #[test]
@@ -40,6 +42,26 @@ fn load_providers_reads_assembly_steps() {
 
     let claude = &providers["claude"];
     assert!(claude.assembly.is_none());
+}
+
+#[test]
+fn load_providers_reads_agentskills_skill_whitelist() {
+    let providers = load_providers(DEFAULTS).unwrap();
+
+    let agentskills = &providers["agentskills"];
+    let keep_fields = agentskills.keep_fields.as_ref().unwrap();
+    assert_eq!(
+        keep_fields.get("skills"),
+        Some(&vec![
+            "name".to_string(),
+            "description".to_string(),
+            "license".to_string(),
+            "compatibility".to_string(),
+            "metadata".to_string(),
+            "allowed-tools".to_string(),
+        ])
+    );
+    assert!(agentskills.matches_target("agents", "agentskills"));
 }
 
 #[test]

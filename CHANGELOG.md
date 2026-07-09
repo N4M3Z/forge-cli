@@ -8,6 +8,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Added
 
+- The `agentskills` provider installs Agent Skills-compatible `SKILL.md` files under `.agents/skills/<Name>/SKILL.md`, with `agents` as an alias for `--provider agents` and an Agent Skills frontmatter whitelist.
+- `forge adopt <url>` fetches an upstream HTTPS artifact (or `file://` fixture), applies the `align` transform into a module skill or companion file, and writes an `adopt/v1` provenance sidecar with the upstream digest pin.
+- `forge find "<query>"` scans local modules, discovered repos, and already-cached watchlist sources for skills, agents, and rules, ranking matches by name, trigger text, and description with optional JSON output.
 - `forge config` prints the resolved forge ontology from `~/.config/forge/config.yaml`, with `FORGE_*` environment overrides taking precedence over file values and built-in defaults. The legacy `project.yaml` file remains as a deprecated fallback for one release.
 - `forge exec <skill>` runs skill-bundled scripts through a small synchronous runtime table (`uv run`, `bash`, `deno run`, `node`), injects `FORGE_*`/`INPUT_*` environment, supports JSON stdin/stdout wrapping, dry-runs, and output schema validation.
 - Unknown `forge <verb>` commands now dispatch to external `forge-<verb>` scripts from the module `commands/` directory, configured extension directories, or `PATH`, keeping new capabilities out of the Rust kernel.

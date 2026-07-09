@@ -380,6 +380,33 @@ fn install_deploys_skill_with_companion() {
     );
 }
 
+#[test]
+fn install_deploys_skill_to_agentskills_provider() {
+    let module_directory = tempfile::tempdir().unwrap();
+    let target_directory = tempfile::tempdir().unwrap();
+
+    scaffold_module(module_directory.path());
+    create_skill(module_directory.path(), "AgentSkill");
+
+    forge()
+        .args([
+            "install",
+            "--source",
+            module_directory.path().to_str().unwrap(),
+            "--target",
+            target_directory.path().to_str().unwrap(),
+            "--provider",
+            "agents",
+        ])
+        .assert()
+        .success();
+
+    let deployed = target_directory
+        .path()
+        .join(".agents/skills/AgentSkill/SKILL.md");
+    assert!(deployed.is_file(), "expected {}", deployed.display());
+}
+
 // --- Manifest tests ---
 
 #[test]
