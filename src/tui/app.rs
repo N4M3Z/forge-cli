@@ -1,5 +1,8 @@
 use std::{
+    collections::BTreeMap,
+    io::Write,
     path::{Path, PathBuf},
+    process::{Command, Stdio},
     sync::mpsc::{self, Receiver},
     thread,
 };
@@ -27,9 +30,15 @@ use super::components::{
     palette::{Palette, PaletteCommand},
     preview::ArtifactPreview,
 };
+use super::rich;
 
 const SECTION_COUNT: usize = 13;
 const DETAIL_TAB_COUNT: usize = 7;
+const LEFT_MIN_WIDTH: u16 = 14;
+const LEFT_MAX_WIDTH: u16 = 20;
+const MIDDLE_MIN_WIDTH: u16 = 24;
+const MIDDLE_MAX_WIDTH: u16 = 40;
+const MIN_DETAIL_WIDTH: u16 = 20;
 
 pub const KEYBINDINGS: &[(&str, &[(&str, &str)])] = &[
     (
@@ -73,6 +82,8 @@ pub const KEYBINDINGS: &[(&str, &[(&str, &str)])] = &[
             ("d", "diff tab"),
             ("c", "code tab"),
             ("p", "preview tab"),
+            ("m", "comment current code line"),
+            ("Y", "copy tuicr comments"),
         ],
     ),
     ("Global", &[("?", "help"), ("F1", "help"), ("q", "quit")]),
@@ -330,6 +341,67 @@ impl ListRow {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MillerColumnWidths {
+    pub left: u16,
+    pub middle: u16,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct PreviewCache {
+    path: String,
+    width: u16,
+    lines: Vec<Line<'static>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct CodeCache {
+    path: String,
+    lines: Vec<Line<'static>>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum CommentKind {
+    Issue,
+    Note,
+    Suggestion,
+    Praise,
+}
+
+impl CommentKind {
+    pub fn next(self) -> Self {
+        match self {
+            Self::Issue => Self::Note,
+            Self::Note => Self::Suggestion,
+            Self::Suggestion => Self::Praise,
+            Self::Praise => Self::Issue,
+        }
+    }
+
+    fn label(self) -> &'static str {
+        match self {
+            Self::Issue => "ISSUE",
+            Self::Note => "NOTE",
+            Self::Suggestion => "SUGGESTION",
+            Self::Praise => "PRAISE",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct LineComment {
+    kind: CommentKind,
+    text: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct CommentPrompt {
+    path: String,
+    line_number: usize,
+    kind: CommentKind,
+    text: String,
+}
+
 pub struct App {
     root: PathBuf,
     providers: Vec<(String, String)>,
@@ -341,9 +413,18 @@ pub struct App {
     focused: ColumnFocus,
     section: Section,
     cached_rows: Vec<ListRow>,
+    column_widths: MillerColumnWidths,
     rows_dirty: bool,
     #[cfg(test)]
     row_build_count: usize,
+    preview_cache: Option<PreviewCache>,
+    code_cache: Option<CodeCache>,
+    comments: BTreeMap<(String, usize), LineComment>,
+    comment_prompt: Option<CommentPrompt>,
+    #[cfg(test)]
+    preview_cache_build_count: usize,
+    #[cfg(test)]
+    code_cache_build_count: usize,
     list_selected: [usize; SECTION_COUNT],
     detail_tab: DetailTab,
     detail_scroll: u16,
@@ -399,9 +480,18 @@ impl App {
             focused: ColumnFocus::Sections,
             section: Section::Overview,
             cached_rows: Vec::new(),
+            column_widths: default_column_widths(),
             rows_dirty: true,
             #[cfg(test)]
             row_build_count: 0,
+            preview_cache: None,
+            code_cache: None,
+            comments: BTreeMap::new(),
+            comment_prompt: None,
+            #[cfg(test)]
+            preview_cache_build_count: 0,
+            #[cfg(test)]
+            code_cache_build_count: 0,
             list_selected: [0; SECTION_COUNT],
             detail_tab: DetailTab::Preview,
             detail_scroll: 0,
@@ -434,6 +524,7 @@ impl App {
                 self.scan_receiver = None;
                 self.toast = Some("scan complete".to_string());
                 self.invalidate_rows();
+                self.invalidate_detail_caches();
                 self.clamp_list_selection();
             }
             Ok(Err(error)) => {
@@ -501,12 +592,13 @@ impl App {
             ])
             .split(frame.area());
         self.render_status(frame, layout[0]);
+        let fitted_widths = fit_miller_widths(layout[1].width, self.column_widths);
         let columns = Layout::default()
             .direction(Direction::Horizontal)
             .constraints([
-                Constraint::Ratio(1, 3),
-                Constraint::Ratio(1, 3),
-                Constraint::Ratio(1, 3),
+                Constraint::Length(fitted_widths.left),
+                Constraint::Length(fitted_widths.middle),
+                Constraint::Min(0),
             ])
             .split(layout[1]);
         self.render_sections(frame, columns[0]);
@@ -541,7 +633,15 @@ impl App {
     }
 
     fn render_footer(&self, frame: &mut Frame<'_>, area: Rect) {
-        let text = if self.palette.is_open() || self.palette_error.is_some() {
+        let text = if let Some(prompt) = &self.comment_prompt {
+            format!(
+                " comment [{}] {}:{} > {}",
+                prompt.kind.label(),
+                prompt.path,
+                prompt.line_number,
+                prompt.text
+            )
+        } else if self.palette.is_open() || self.palette_error.is_some() {
             self.palette.display_text(self.palette_error.as_deref())
         } else if let Some(toast) = &self.toast {
             format!(" {toast}")
@@ -624,7 +724,7 @@ impl App {
         frame.render_widget(List::new(items), inner);
     }
 
-    fn render_detail(&self, frame: &mut Frame<'_>, area: Rect) {
+    fn render_detail(&mut self, frame: &mut Frame<'_>, area: Rect) {
         let block = column_block(" Detail ", self.focused == ColumnFocus::Detail);
         let inner = block.inner(area);
         frame.render_widget(block, area);
@@ -635,8 +735,10 @@ impl App {
                 ListTarget::Artifact { module, kind, name }
                 | ListTarget::ProvenanceArtifact { module, kind, name },
             ) => {
-                if let Some((module_view, artifact)) = self.find_artifact(&module, &kind, &name) {
-                    self.render_artifact_detail(frame, inner, module_view, artifact);
+                if let Some((module_index, artifact_index)) =
+                    self.find_artifact_indices(&module, &kind, &name)
+                {
+                    self.render_artifact_detail(frame, inner, module_index, artifact_index);
                 } else {
                     frame.render_widget(Paragraph::new("artifact not found"), inner);
                 }
@@ -696,20 +798,23 @@ impl App {
     }
 
     fn render_artifact_detail(
-        &self,
+        &mut self,
         frame: &mut Frame<'_>,
         area: Rect,
-        module: &ModuleView,
-        artifact: &ArtifactView,
+        module_index: usize,
+        artifact_index: usize,
     ) {
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([Constraint::Length(2), Constraint::Min(1)])
             .split(area);
         self.render_tabs(frame, chunks[0]);
+        self.prepare_artifact_detail_cache(module_index, artifact_index, chunks[1].width);
+        let module = &self.view.modules[module_index];
+        let artifact = &module.artifacts[artifact_index];
         let lines = match self.detail_tab {
-            DetailTab::Preview => preview_lines(artifact),
-            DetailTab::Code => code_lines(&artifact.raw_source),
+            DetailTab::Preview => self.preview_cache_lines(),
+            DetailTab::Code => self.code_cache_lines(artifact),
             DetailTab::Diff => diff_lines(artifact),
             DetailTab::Provenance => self.provenance_lines(module, artifact),
             DetailTab::Frontmatter => frontmatter_lines(artifact),
@@ -722,6 +827,95 @@ impl App {
                 .scroll((self.detail_scroll, 0)),
             chunks[1],
         );
+    }
+
+    fn prepare_artifact_detail_cache(
+        &mut self,
+        module_index: usize,
+        artifact_index: usize,
+        width: u16,
+    ) {
+        match self.detail_tab {
+            DetailTab::Preview => {
+                let artifact = &self.view.modules[module_index].artifacts[artifact_index];
+                let path = artifact.relative_path.clone();
+                let cache_width = width.max(1);
+                let needs_build = self
+                    .preview_cache
+                    .as_ref()
+                    .is_none_or(|cache| cache.path != path || cache.width != cache_width);
+                if needs_build {
+                    let lines = preview_lines_for_width(artifact, cache_width);
+                    self.preview_cache = Some(PreviewCache {
+                        path,
+                        width: cache_width,
+                        lines,
+                    });
+                    #[cfg(test)]
+                    {
+                        self.preview_cache_build_count += 1;
+                    }
+                }
+            }
+            DetailTab::Code => {
+                let artifact = &self.view.modules[module_index].artifacts[artifact_index];
+                let path = artifact.relative_path.clone();
+                let needs_build = self
+                    .code_cache
+                    .as_ref()
+                    .is_none_or(|cache| cache.path != path);
+                if needs_build {
+                    let lines = rich::highlight_code(&path, &artifact.raw_source);
+                    self.code_cache = Some(CodeCache { path, lines });
+                    #[cfg(test)]
+                    {
+                        self.code_cache_build_count += 1;
+                    }
+                }
+            }
+            DetailTab::Diff
+            | DetailTab::Provenance
+            | DetailTab::Frontmatter
+            | DetailTab::History
+            | DetailTab::Companions => {}
+        }
+    }
+
+    fn preview_cache_lines(&self) -> Vec<Line<'static>> {
+        self.preview_cache
+            .as_ref()
+            .map_or_else(Vec::new, |cache| cache.lines.clone())
+    }
+
+    fn code_cache_lines(&self, artifact: &ArtifactView) -> Vec<Line<'static>> {
+        let current_line = self.current_code_line(artifact);
+        let path = &artifact.relative_path;
+        self.code_cache.as_ref().map_or_else(Vec::new, |cache| {
+            cache
+                .lines
+                .iter()
+                .cloned()
+                .enumerate()
+                .map(|(index, mut line)| {
+                    let line_number = index + 1;
+                    let has_comment = self.comments.contains_key(&(path.clone(), line_number));
+                    if let Some(marker) = line.spans.first_mut() {
+                        *marker = Span::styled(
+                            if has_comment { "◆ " } else { "  " },
+                            if has_comment {
+                                Style::default().fg(Color::Yellow)
+                            } else {
+                                Style::default().fg(Color::DarkGray)
+                            },
+                        );
+                    }
+                    if line_number == current_line {
+                        line.style = selected_style(self.focused == ColumnFocus::Detail);
+                    }
+                    line
+                })
+                .collect()
+        })
     }
 
     fn render_tabs(&self, frame: &mut Frame<'_>, area: Rect) {
@@ -1063,6 +1257,34 @@ impl App {
         }
     }
 
+    #[must_use]
+    pub fn is_comment_prompt_open(&self) -> bool {
+        self.comment_prompt.is_some()
+    }
+
+    pub fn comment_prompt_key(&mut self, key: KeyEvent) {
+        match key.code {
+            KeyCode::Esc => self.comment_prompt = None,
+            KeyCode::Tab => {
+                if let Some(prompt) = self.comment_prompt.as_mut() {
+                    prompt.kind = prompt.kind.next();
+                }
+            }
+            KeyCode::Enter => self.save_comment_prompt(),
+            KeyCode::Backspace => {
+                if let Some(prompt) = self.comment_prompt.as_mut() {
+                    prompt.text.pop();
+                }
+            }
+            KeyCode::Char(character) => {
+                if let Some(prompt) = self.comment_prompt.as_mut() {
+                    prompt.text.push(character);
+                }
+            }
+            _ => {}
+        }
+    }
+
     #[cfg(test)]
     #[must_use]
     pub fn row_build_count(&self) -> usize {
@@ -1074,6 +1296,104 @@ impl App {
         if let Some(artifact) = self.selected_artifact() {
             self.toast = Some(format!("copied source path: {}", artifact.relative_path));
         }
+    }
+
+    pub fn copy_tuicr_review(&mut self) {
+        if self.comments.is_empty() {
+            self.toast = Some("no comments to copy".to_string());
+            return;
+        }
+
+        let digest = self.tuicr_digest();
+        let copied = copy_to_pbcopy(&digest);
+        if !copied {
+            eprintln!("{digest}");
+        }
+        let count = self.comments.len();
+        self.toast = Some(if copied {
+            format!("copied {count} comments")
+        } else {
+            "pbcopy unavailable".to_string()
+        });
+    }
+
+    #[cfg(test)]
+    pub fn add_comment_for_test(
+        &mut self,
+        path: impl Into<String>,
+        line_number: usize,
+        kind: CommentKind,
+        text: impl Into<String>,
+    ) {
+        self.comments.insert(
+            (path.into(), line_number),
+            LineComment {
+                kind,
+                text: text.into(),
+            },
+        );
+    }
+
+    #[must_use]
+    pub fn tuicr_digest(&self) -> String {
+        let mut lines = vec![
+            "I reviewed your code and have the following comments. Please address them."
+                .to_string(),
+            String::new(),
+        ];
+        lines.extend(self.comments.iter().enumerate().map(
+            |(index, ((path, line_number), comment))| {
+                format!(
+                    "{}. **[{}]** `{}:{}` - {}",
+                    index + 1,
+                    comment.kind.label(),
+                    path,
+                    line_number,
+                    comment.text
+                )
+            },
+        ));
+        lines.join("\n")
+    }
+
+    fn open_comment_prompt(&mut self) {
+        let Some(artifact) = self.selected_artifact() else {
+            return;
+        };
+        let path = artifact.relative_path.clone();
+        let line_number = self.current_code_line(artifact);
+        let (kind, text) = self
+            .comments
+            .get(&(path.clone(), line_number))
+            .map_or((CommentKind::Issue, String::new()), |comment| {
+                (comment.kind, comment.text.clone())
+            });
+        self.comment_prompt = Some(CommentPrompt {
+            path,
+            line_number,
+            kind,
+            text,
+        });
+    }
+
+    fn save_comment_prompt(&mut self) {
+        let Some(prompt) = self.comment_prompt.take() else {
+            return;
+        };
+        let text = prompt.text.trim().to_string();
+        if text.is_empty() {
+            self.comments.remove(&(prompt.path, prompt.line_number));
+            self.toast = Some("comment cleared".to_string());
+            return;
+        }
+        self.comments.insert(
+            (prompt.path, prompt.line_number),
+            LineComment {
+                kind: prompt.kind,
+                text,
+            },
+        );
+        self.toast = Some("comment saved".to_string());
     }
 
     fn section_key(&mut self, key: KeyEvent) {
@@ -1132,6 +1452,9 @@ impl App {
             KeyCode::Char('6') => self.set_detail_tab(DetailTab::History),
             KeyCode::Char('7') => self.set_detail_tab(DetailTab::Companions),
             KeyCode::Tab => self.next_detail_tab(),
+            KeyCode::Char('m') if self.detail_tab == DetailTab::Code => {
+                self.open_comment_prompt();
+            }
             _ => {}
         }
     }
@@ -1151,6 +1474,7 @@ impl App {
     fn ensure_rows(&mut self) {
         if self.rows_dirty {
             self.cached_rows = self.build_list_rows();
+            self.column_widths = column_widths_for_rows(&self.cached_rows);
             self.rows_dirty = false;
             #[cfg(test)]
             {
@@ -1163,8 +1487,32 @@ impl App {
         self.rows_dirty = true;
     }
 
+    fn invalidate_detail_caches(&mut self) {
+        self.preview_cache = None;
+        self.code_cache = None;
+    }
+
     fn cached_rows(&self) -> &[ListRow] {
         &self.cached_rows
+    }
+
+    #[cfg(test)]
+    #[must_use]
+    pub fn column_widths_for_total(&mut self, total_width: u16) -> MillerColumnWidths {
+        self.ensure_rows();
+        fit_miller_widths(total_width, self.column_widths)
+    }
+
+    #[cfg(test)]
+    #[must_use]
+    pub fn preview_cache_build_count(&self) -> usize {
+        self.preview_cache_build_count
+    }
+
+    #[cfg(test)]
+    #[must_use]
+    pub fn code_cache_build_count(&self) -> usize {
+        self.code_cache_build_count
     }
 
     fn build_list_rows(&self) -> Vec<ListRow> {
@@ -1482,6 +1830,13 @@ impl App {
         }
     }
 
+    fn current_code_line(&self, artifact: &ArtifactView) -> usize {
+        let line_count = artifact.raw_source.lines().count().max(1);
+        usize::from(self.detail_scroll)
+            .saturating_add(1)
+            .min(line_count)
+    }
+
     fn find_artifact(
         &self,
         module: &str,
@@ -1498,6 +1853,26 @@ impl App {
                     .iter()
                     .find(|artifact| artifact.kind == kind && artifact.name == name)
                     .map(|artifact| (module_view, artifact))
+            })
+    }
+
+    fn find_artifact_indices(
+        &self,
+        module: &str,
+        kind: &str,
+        name: &str,
+    ) -> Option<(usize, usize)> {
+        self.view
+            .modules
+            .iter()
+            .enumerate()
+            .find(|(_, candidate)| candidate.name == module)
+            .and_then(|(module_index, module_view)| {
+                module_view
+                    .artifacts
+                    .iter()
+                    .position(|artifact| artifact.kind == kind && artifact.name == name)
+                    .map(|artifact_index| (module_index, artifact_index))
             })
     }
 
@@ -1784,6 +2159,55 @@ fn column_block(title: &str, focused: bool) -> Block<'_> {
         })
 }
 
+fn default_column_widths() -> MillerColumnWidths {
+    MillerColumnWidths {
+        left: LEFT_MIN_WIDTH,
+        middle: MIDDLE_MIN_WIDTH,
+    }
+}
+
+fn column_widths_for_rows(rows: &[ListRow]) -> MillerColumnWidths {
+    let section_label_width = Section::ALL
+        .iter()
+        .map(|section| section.label().chars().count())
+        .max()
+        .unwrap_or_default();
+    let left =
+        usize_to_u16(section_label_width.saturating_add(6)).clamp(LEFT_MIN_WIDTH, LEFT_MAX_WIDTH);
+
+    let row_label_width = rows
+        .iter()
+        .map(|row| row.label.chars().count())
+        .max()
+        .unwrap_or_default();
+    let middle =
+        usize_to_u16(row_label_width.saturating_add(8)).clamp(MIDDLE_MIN_WIDTH, MIDDLE_MAX_WIDTH);
+
+    MillerColumnWidths { left, middle }
+}
+
+fn fit_miller_widths(total_width: u16, desired: MillerColumnWidths) -> MillerColumnWidths {
+    let mut left = desired.left;
+    let mut middle = desired.middle;
+    let required = left.saturating_add(middle).saturating_add(MIN_DETAIL_WIDTH);
+    if required <= total_width {
+        return MillerColumnWidths { left, middle };
+    }
+
+    let mut overflow = required.saturating_sub(total_width);
+    let middle_cut = middle.min(overflow);
+    middle = middle.saturating_sub(middle_cut);
+    overflow = overflow.saturating_sub(middle_cut);
+    let left_cut = left.min(overflow);
+    left = left.saturating_sub(left_cut);
+
+    MillerColumnWidths { left, middle }
+}
+
+fn usize_to_u16(value: usize) -> u16 {
+    u16::try_from(value).unwrap_or(u16::MAX)
+}
+
 fn selected_style(focused: bool) -> Style {
     if focused {
         Style::default()
@@ -1858,7 +2282,7 @@ fn hint_row() -> String {
         .join("  ·  ")
 }
 
-fn preview_lines(artifact: &ArtifactView) -> Vec<Line<'static>> {
+fn preview_lines_for_width(artifact: &ArtifactView, width: u16) -> Vec<Line<'static>> {
     let mut lines = vec![
         Line::from(Span::styled(
             format!(
@@ -1889,40 +2313,17 @@ fn preview_lines(artifact: &ArtifactView) -> Vec<Line<'static>> {
         lines.push(Line::from(artifact.description.clone()));
     }
     lines.push(Line::from(""));
-    lines.extend(
-        artifact
-            .content_body
-            .lines()
-            .map(|line| Line::from(line.to_string())),
-    );
-    if artifact.content_body.is_empty() {
-        lines.extend(
-            artifact
-                .content_preview
-                .lines()
-                .map(|line| Line::from(line.to_string())),
-        );
+    let body = if artifact.content_body.is_empty() {
+        artifact.content_preview.as_str()
+    } else {
+        artifact.content_body.as_str()
+    };
+    if let Some(glow_lines) = rich::render_markdown_with_glow(body, width) {
+        lines.extend(glow_lines);
+        return lines;
     }
+    lines.extend(body.lines().map(|line| Line::from(line.to_string())));
     lines
-}
-
-fn code_lines(source: &str) -> Vec<Line<'static>> {
-    if source.is_empty() {
-        return vec![Line::from("no raw source")];
-    }
-    source
-        .lines()
-        .enumerate()
-        .map(|(index, line)| {
-            Line::from(vec![
-                Span::styled(
-                    format!("{:>4} ", index + 1),
-                    Style::default().fg(Color::DarkGray),
-                ),
-                Span::raw(line.to_string()),
-            ])
-        })
-        .collect()
 }
 
 fn diff_lines(artifact: &ArtifactView) -> Vec<Line<'static>> {
@@ -2018,6 +2419,25 @@ fn companion_lines(artifact: &ArtifactView) -> Vec<Line<'static>> {
         lines.push(Line::from(""));
     }
     lines
+}
+
+fn copy_to_pbcopy(text: &str) -> bool {
+    let Ok(mut child) = Command::new("pbcopy")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+    else {
+        return false;
+    };
+    let Some(mut stdin) = child.stdin.take() else {
+        return false;
+    };
+    if stdin.write_all(text.as_bytes()).is_err() {
+        return false;
+    }
+    drop(stdin);
+    child.wait().is_ok_and(|status| status.success())
 }
 
 fn canonical_source(source: &str) -> String {

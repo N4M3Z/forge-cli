@@ -15,7 +15,7 @@ use commands::{
 };
 
 use super::{
-    app::{App, DetailTab, KEYBINDINGS, Section},
+    app::{App, CommentKind, DetailTab, KEYBINDINGS, Section},
     components::palette::{Palette, PaletteCommand},
     event,
 };
@@ -365,6 +365,73 @@ fn render_reuses_cached_list_rows_between_frames() {
 
     let _ = rendered(&mut app);
     assert_eq!(app.row_build_count(), 1);
+}
+
+#[test]
+fn miller_columns_give_detail_the_remaining_width() {
+    let mut app = fixture_app();
+    app.set_section_by_number(2);
+
+    let widths = app.column_widths_for_total(120);
+    let detail_width = 120_u16.saturating_sub(widths.left + widths.middle);
+
+    assert!((14..=20).contains(&widths.left));
+    assert!((24..=40).contains(&widths.middle));
+    assert!(detail_width > widths.left);
+    assert!(detail_width > widths.middle);
+}
+
+#[test]
+fn miller_columns_shrink_fixed_columns_before_detail_on_narrow_widths() {
+    let mut app = fixture_app();
+    app.set_section_by_number(2);
+
+    let widths = app.column_widths_for_total(50);
+    let detail_width = 50_u16.saturating_sub(widths.left + widths.middle);
+
+    assert!(detail_width >= 20);
+}
+
+#[test]
+fn rich_detail_caches_are_reused_between_frames() {
+    let mut app = fixture_app();
+    app.set_section_by_number(2);
+    app.focus_next();
+    app.drill_or_expand();
+
+    let _ = rendered(&mut app);
+    assert_eq!(app.preview_cache_build_count(), 1);
+    let _ = rendered(&mut app);
+    assert_eq!(app.preview_cache_build_count(), 1);
+
+    app.set_detail_tab(DetailTab::Code);
+    let _ = rendered(&mut app);
+    assert_eq!(app.code_cache_build_count(), 1);
+    let _ = rendered(&mut app);
+    assert_eq!(app.code_cache_build_count(), 1);
+}
+
+#[test]
+fn tuicr_digest_exports_line_comments() {
+    let mut app = fixture_app();
+    app.add_comment_for_test(
+        "skills/BuildSkill/SKILL.md",
+        3,
+        CommentKind::Issue,
+        "tighten the wording",
+    );
+
+    let digest = app.tuicr_digest();
+
+    assert!(digest.contains("**[ISSUE]** `skills/BuildSkill/SKILL.md:3`"));
+}
+
+#[test]
+fn tuicr_comment_kind_cycles_in_order() {
+    assert_eq!(CommentKind::Issue.next(), CommentKind::Note);
+    assert_eq!(CommentKind::Note.next(), CommentKind::Suggestion);
+    assert_eq!(CommentKind::Suggestion.next(), CommentKind::Praise);
+    assert_eq!(CommentKind::Praise.next(), CommentKind::Issue);
 }
 
 #[test]
