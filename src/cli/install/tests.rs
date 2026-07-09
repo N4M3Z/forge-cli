@@ -20,6 +20,7 @@ fn execute_errors_on_missing_module() {
         false,
         false,
         None,
+        false,
     );
     assert!(result.is_err());
 }
@@ -36,6 +37,7 @@ fn execute_errors_on_directory_without_module_yaml() {
         false,
         false,
         None,
+        false,
     );
     let error = result.expect_err("expected install to refuse non-module directory");
     let message = error.to_string();
@@ -69,6 +71,7 @@ fn execute_succeeds_on_empty_module() {
         false,
         false,
         None,
+        false,
     );
     assert!(result.is_ok());
 }
@@ -88,6 +91,7 @@ fn execute_unknown_provider_lists_available_choices() {
         false,
         false,
         None,
+        false,
     );
     let error = result.expect_err("unknown provider must error");
     let message = error.to_string();
@@ -123,6 +127,7 @@ fn execute_provider_filter_skips_unrequested_providers() {
         false,
         false,
         None,
+        false,
     )
     .expect("install should succeed for known provider");
 

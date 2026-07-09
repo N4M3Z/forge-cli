@@ -521,13 +521,18 @@ fn prune_ignores_files_not_in_manifest() {
 // --- rule removal (separate code branch from skills) ---
 
 fn create_rule(root: &Path, name: &str) {
+    create_rule_at(
+        root,
+        &format!("{name}.md"),
+        &format!("Rule body for {name}.\n"),
+    );
+}
+
+fn create_rule_at(root: &Path, relative: &str, body: &str) {
     let rules_dir = root.join("rules");
-    fs::create_dir_all(&rules_dir).unwrap();
-    fs::write(
-        rules_dir.join(format!("{name}.md")),
-        format!("Rule body for {name}.\n"),
-    )
-    .unwrap();
+    let rule_path = rules_dir.join(relative);
+    fs::create_dir_all(rule_path.parent().unwrap()).unwrap();
+    fs::write(rule_path, body).unwrap();
 }
 
 #[test]
@@ -568,6 +573,89 @@ fn prune_removes_stale_rule() {
         trash[0].join("rules/DropThis.md").is_file(),
         "DropThis quarantined under {}",
         trash[0].display()
+    );
+}
+
+#[test]
+fn prune_removes_base_rule_when_source_only_has_inactive_model_variant() {
+    let module = tempfile::tempdir().unwrap();
+    let target = tempfile::tempdir().unwrap();
+
+    scaffold_module_with_repo(
+        module.path(),
+        "inactive-model-module",
+        "https://github.com/example/inactive-model-module",
+    );
+    create_rule(module.path(), "KeepThis");
+    create_rule(module.path(), "Foo");
+
+    install(module.path(), target.path(), &[]).success();
+    let deployed = target.path().join(".claude/rules/Foo.md");
+    assert!(deployed.is_file(), "base Foo rule must deploy first");
+
+    fs::remove_file(module.path().join("rules/Foo.md")).unwrap();
+    create_rule_at(
+        module.path(),
+        "claude/claude-sonnet-4-6/Foo.md",
+        "SONNET ONLY BODY\n",
+    );
+
+    install(module.path(), target.path(), &[]).success();
+
+    assert!(
+        target.path().join(".claude/rules/KeepThis.md").is_file(),
+        "real base rule must survive"
+    );
+    assert!(
+        !deployed.exists(),
+        "inactive model-only Foo must not keep the deployed base Foo alive"
+    );
+    let trash = list_trash(target.path(), ".claude");
+    assert_eq!(trash.len(), 1, "exactly one .trash entry expected");
+    assert!(
+        trash[0].join("rules/Foo.md").is_file(),
+        "stale base Foo must be quarantined"
+    );
+}
+
+#[test]
+fn prune_keeps_base_rule_when_active_model_variant_resolves_to_target() {
+    let module = tempfile::tempdir().unwrap();
+    let target = tempfile::tempdir().unwrap();
+
+    scaffold_module_with_repo(
+        module.path(),
+        "active-model-module",
+        "https://github.com/example/active-model-module",
+    );
+    create_rule(module.path(), "KeepThis");
+    create_rule(module.path(), "Foo");
+
+    install(module.path(), target.path(), &[]).success();
+    let deployed = target.path().join(".claude/rules/Foo.md");
+    assert!(deployed.is_file(), "base Foo rule must deploy first");
+
+    fs::remove_file(module.path().join("rules/Foo.md")).unwrap();
+    create_rule_at(
+        module.path(),
+        "claude/claude-opus-4-6/Foo.md",
+        "OPUS ONLY BODY\n",
+    );
+
+    install(module.path(), target.path(), &[]).success();
+
+    assert!(
+        deployed.is_file(),
+        "active model-only Foo is the correct deployed file for this target"
+    );
+    let content = fs::read_to_string(&deployed).unwrap();
+    assert!(
+        content.contains("OPUS ONLY BODY"),
+        "deployed Foo should be refreshed from the active model variant: {content}"
+    );
+    assert!(
+        list_trash(target.path(), ".claude").is_empty(),
+        "active model deployment must not be pruned"
     );
 }
 
