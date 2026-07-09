@@ -162,6 +162,7 @@ pub fn build_adr_artifact(adr: &Adr, local_repos: &HashMap<String, PathBuf>) -> 
         module_tint: 0,
         companions: Vec::new(),
         variants: Vec::new(),
+        vcs: None,
     }
 }
 

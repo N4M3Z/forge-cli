@@ -21,8 +21,9 @@ pub fn render_markdown_with_glow(body: &str, width: u16) -> Option<Vec<Line<'sta
         return None;
     }
 
+    let style = glow_style_path()?;
     let mut child = Command::new("glow")
-        .args(["-s", "dark", "-w", &width.to_string()])
+        .args(["-s", &style, "-w", &width.to_string()])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
@@ -40,6 +41,20 @@ pub fn render_markdown_with_glow(body: &str, width: u16) -> Option<Vec<Line<'sta
 
     let text = output.stdout.into_text().ok()?;
     Some(text_to_static_lines(text))
+}
+
+/// Glamour's built-in styles indent the whole document by a margin, which
+/// floats the body off the pane's left border. Ship a dark style with the
+/// document margin zeroed and hand it to glow as a style file.
+fn glow_style_path() -> Option<String> {
+    static STYLE_PATH: OnceLock<Option<String>> = OnceLock::new();
+    STYLE_PATH
+        .get_or_init(|| {
+            let path = std::env::temp_dir().join("forge-glow-style.json");
+            std::fs::write(&path, include_str!("glow_style.json")).ok()?;
+            Some(path.to_string_lossy().into_owned())
+        })
+        .clone()
 }
 
 pub fn highlight_code(path: &str, source: &str) -> Vec<Line<'static>> {

@@ -14,9 +14,9 @@ use crossterm::{
     event as terminal_event, execute,
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
-use ratatui::{Terminal, backend::CrosstermBackend};
+use ratatui::{Terminal, backend::CrosstermBackend, backend::TestBackend};
 
-use app::App;
+use app::{App, DetailTab};
 
 #[cfg(test)]
 mod tests;
@@ -30,6 +30,75 @@ pub fn run() -> i32 {
             eprintln!("fatal: {error}");
             2
         }
+    }
+}
+
+/// Render a single frame to plain text on stdout, for headless inspection of the
+/// layout at a given size and view. Waits for the background scan to deliver real
+/// data before drawing. This is the verification tool: run it, read the output.
+pub fn run_snapshot(
+    width: u16,
+    height: u16,
+    section: Option<usize>,
+    tab: Option<&str>,
+    drill: u8,
+    row: usize,
+) -> i32 {
+    let mut app = App::load(PathBuf::from("."));
+    for _ in 0..3000 {
+        app.poll_scan();
+        if !app.scan_pending() {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    if let Some(number) = section {
+        app.set_section_by_number(number);
+    }
+    for step in 0..drill {
+        app.drill_or_expand();
+        if step == 0 {
+            for _ in 0..row {
+                app.move_list_selection(1);
+            }
+        }
+    }
+    if let Some(detail_tab) = tab.and_then(detail_tab_from_name) {
+        app.set_detail_tab(detail_tab);
+    }
+    let backend = TestBackend::new(width, height);
+    let mut terminal = match Terminal::new(backend) {
+        Ok(terminal) => terminal,
+        Err(error) => {
+            eprintln!("fatal: {error}");
+            return 2;
+        }
+    };
+    if let Err(error) = terminal.draw(|frame| app.render(frame)) {
+        eprintln!("fatal: {error}");
+        return 2;
+    }
+    let buffer = terminal.backend().buffer();
+    for y in 0..buffer.area.height {
+        let mut line = String::new();
+        for x in 0..buffer.area.width {
+            line.push_str(buffer[(x, y)].symbol());
+        }
+        println!("{}", line.trim_end());
+    }
+    0
+}
+
+fn detail_tab_from_name(name: &str) -> Option<DetailTab> {
+    match name.to_ascii_lowercase().as_str() {
+        "preview" => Some(DetailTab::Preview),
+        "code" => Some(DetailTab::Code),
+        "diff" => Some(DetailTab::Diff),
+        "provenance" => Some(DetailTab::Provenance),
+        "frontmatter" => Some(DetailTab::Frontmatter),
+        "history" => Some(DetailTab::History),
+        "companions" => Some(DetailTab::Companions),
+        _ => None,
     }
 }
 

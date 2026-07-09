@@ -188,6 +188,7 @@ pub(super) fn build_deployed_artifact(
         module_tint: 0,
         companions: Vec::new(),
         variants: Vec::new(),
+        vcs: None,
     }
 }
 
