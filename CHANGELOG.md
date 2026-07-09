@@ -8,6 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Added
 
+- `forge launch <tool>` composes coding-tool launches through ordered middleware (`pxpipe`, `otel`, `presidio`, `squid`, `docker`, `tmux`) plus external `forge-launch-mw-*` script middleware. It supports configured default chains and tool base-url env mappings, `--with a,b,c`, legacy `--pxpipe`/`--direct`, `--tmux[=name]`, scoped child env injection, best-effort proxy preflight, and `--dry-run` plan output.
 - The `agentskills` provider installs Agent Skills-compatible `SKILL.md` files under `.agents/skills/<Name>/SKILL.md`, with `agents` as an alias for `--provider agents` and an Agent Skills frontmatter whitelist.
 - `forge adopt <url>` fetches an upstream HTTPS artifact (or `file://` fixture), applies the `align` transform into a module skill or companion file, and writes an `adopt/v1` provenance sidecar with the upstream digest pin.
 - `forge find "<query>"` scans local modules, discovered repos, and already-cached watchlist sources for skills, agents, and rules, ranking matches by name, trigger text, and description with optional JSON output.
@@ -30,6 +31,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Deferred
 
+- Porting the shell `forge project` spine remains a separate environment-coupled follow-up.
 - Line-level annotation export from the TUI Code tab remains follow-up work.
 
 ### Fixed

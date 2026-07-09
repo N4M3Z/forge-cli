@@ -65,7 +65,11 @@ fn absolutize(path: &Path) -> Result<PathBuf, String> {
         .map_err(|error| error.to_string())
 }
 
-fn resolve_external(command_name: &str, root: &Path, extensions: &[PathBuf]) -> Option<PathBuf> {
+pub(crate) fn resolve_external(
+    command_name: &str,
+    root: &Path,
+    extensions: &[PathBuf],
+) -> Option<PathBuf> {
     let local = root.join("commands").join(command_name);
     if local.is_file() {
         return Some(local);
