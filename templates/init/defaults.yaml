@@ -1,3 +1,14 @@
 providers:
     claude:
         target: ".claude"
+
+    agentskills:
+        target: ".agents"
+        aliases:
+            - agents
+        assembly:
+            - strip-links
+        keep_fields:
+            agents: [name, description]
+            skills: [name, description, license, compatibility, metadata, allowed-tools]
+            rules: []

@@ -1,3 +1,4 @@
+mod adopt;
 mod assemble;
 pub(crate) mod config;
 mod copy;
@@ -8,6 +9,7 @@ mod dispatch;
 mod dotforge;
 mod drift;
 mod exec;
+mod find;
 mod init;
 mod install;
 mod ontology;
@@ -232,6 +234,42 @@ enum Command {
     /// Show the resolved forge ontology and configuration
     Config,
 
+    /// Adopt an upstream skill artifact into a module with provenance
+    Adopt {
+        /// HTTPS URL of the upstream artifact. file:// is allowed for tests.
+        url: String,
+
+        /// Target module root. Defaults to the current directory.
+        #[arg(long, value_name = "DIR", default_value = ".")]
+        module: String,
+
+        /// Skill name to place under skills/<Name>/SKILL.md.
+        #[arg(long, value_name = "PascalCase")]
+        name: Option<String>,
+
+        /// Place the fetched body as this companion file instead of a skill.
+        #[arg(long, value_name = "FILE")]
+        companion: Option<String>,
+
+        /// Artifact kind to adopt.
+        #[arg(long, value_enum, default_value_t = adopt::Kind::Skill)]
+        kind: adopt::Kind,
+
+        /// Print the planned fetch, placement, and sidecar without writing files.
+        #[arg(long)]
+        dry_run: bool,
+    },
+
+    /// Find local skills, agents, and rules by relevance
+    Find {
+        /// Search query.
+        query: String,
+
+        /// Restrict results to one artifact kind.
+        #[arg(long, value_enum)]
+        kind: Option<find::KindFilter>,
+    },
+
     /// Run a script bundled with a forge skill
     #[command(
         after_help = "EXEC OPTIONS:\n  --script <NAME>    Script name or relative path inside the skill directory\n  --json <OBJ>       JSON object passed to the child on stdin and as INPUT_* variables\n  --dry-run          Print the resolved command and injected environment without spawning\n  -- ARGS...         Arguments passed to the skill script"
@@ -402,6 +440,24 @@ pub fn run() -> i32 {
             "cleaned",
         ),
         Command::Config => return exit_code(ontology::show(args.json)),
+        Command::Adopt {
+            url,
+            module,
+            name,
+            companion,
+            kind,
+            dry_run,
+        } => {
+            return exit_code(adopt::execute(
+                &url,
+                &module,
+                name.as_deref(),
+                companion.as_deref(),
+                kind,
+                dry_run,
+            ));
+        }
+        Command::Find { query, kind } => return exit_code(find::execute(&query, kind, args.json)),
         Command::Exec { skill, rest } => {
             return exit_code(exec::execute_cli(&skill, args.json, &rest));
         }

@@ -8,6 +8,17 @@ providers:
             - kebab-case-agents
             - remap-tools
 
+    agentskills:
+        target: ".agents"
+        aliases:
+            - agents
+        assembly:
+            - strip-links
+        keep_fields:
+            agents: [name, description]
+            skills: [name, description, license, compatibility, metadata, allowed-tools]
+            rules: []
+
     codex:
         target: ".codex"
         assembly:

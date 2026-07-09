@@ -4,6 +4,12 @@ use std::process::Command;
 
 use crate::cli::config;
 
+const SEMGREP_ENVIRONMENT: &[(&str, &str)] = &[
+    ("OTEL_SDK_DISABLED", "true"),
+    ("SEMGREP_ENABLE_VERSION_CHECK", "0"),
+    ("SEMGREP_SEND_METRICS", "off"),
+];
+
 pub fn run_external_checks(module_root: &Path, result: &mut ActionResult) {
     let exclude_patterns = load_exclude_patterns(module_root);
 
@@ -198,12 +204,12 @@ fn check_ruff(module_root: &Path, result: &mut ActionResult) {
 }
 
 fn check_semgrep(module_root: &Path, result: &mut ActionResult) {
-    if !has_tool("semgrep") {
+    if !has_usable_semgrep(module_root) {
         return;
     }
 
     println!("  semgrep OWASP");
-    if !run_command(
+    if !run_command_with_env(
         "semgrep",
         &[
             "scan",
@@ -213,6 +219,7 @@ fn check_semgrep(module_root: &Path, result: &mut ActionResult) {
             ".",
         ],
         module_root,
+        SEMGREP_ENVIRONMENT,
     ) {
         result.errors.push("semgrep found issues".to_string());
     }
@@ -240,12 +247,38 @@ fn has_tool(name: &str) -> bool {
         .is_ok_and(|output| output.status.success())
 }
 
+fn has_usable_semgrep(working_directory: &Path) -> bool {
+    if !has_tool("semgrep") {
+        return false;
+    }
+    let mut command = Command::new("semgrep");
+    command
+        .arg("--version")
+        .current_dir(working_directory)
+        .envs(SEMGREP_ENVIRONMENT.iter().copied());
+    command.output().is_ok_and(|output| output.status.success())
+}
+
 fn run_command(program: &str, arguments: &[&str], working_directory: &Path) -> bool {
     Command::new(program)
         .args(arguments)
         .current_dir(working_directory)
         .status()
         .is_ok_and(|status| status.success())
+}
+
+fn run_command_with_env(
+    program: &str,
+    arguments: &[&str],
+    working_directory: &Path,
+    environment: &[(&str, &str)],
+) -> bool {
+    let mut command = Command::new(program);
+    command.args(arguments).current_dir(working_directory);
+    for (key, value) in environment {
+        command.env(key, value);
+    }
+    command.status().is_ok_and(|status| status.success())
 }
 
 fn find_text_files(module_root: &Path) -> Vec<std::path::PathBuf> {

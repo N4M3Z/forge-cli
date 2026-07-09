@@ -90,16 +90,17 @@ impl BuildDefinition {
 
 /// External build parameters. `source` is the forge-side origin URI;
 /// `upstream_url` / `upstream_commit` / `transforms_applied` appear instead on
-/// `adopt/v1` sidecars. All but `source` are skipped on serialization when
-/// empty so generated `assemble/v1` sidecars are unchanged.
+/// `adopt/v1` sidecars. Adopt statements set `upstream_commit` to `Some("")`
+/// for plain HTTPS so the empty pin is explicit; generated `assemble/v1`
+/// sidecars leave it as `None` so their output is unchanged.
 #[derive(Debug, Default, Deserialize, Serialize)]
 pub struct ExternalParameters {
     #[serde(default)]
     pub source: String,
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub upstream_url: String,
-    #[serde(default, skip_serializing_if = "String::is_empty")]
-    pub upstream_commit: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub upstream_commit: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub transforms_applied: Vec<String>,
 }

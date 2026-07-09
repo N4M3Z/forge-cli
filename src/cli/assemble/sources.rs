@@ -432,6 +432,14 @@ mod tests {
     }
 
     #[test]
+    fn build_qualifiers_uses_agentskills_key_not_agents_alias() {
+        let providers = vec!["agentskills".to_string(), "claude".to_string()];
+        let qualifiers = build_valid_qualifiers(&providers, &make_models());
+        assert!(qualifiers.contains("agentskills"));
+        assert!(!qualifiers.contains("agents"));
+    }
+
+    #[test]
     fn build_qualifiers_uses_exact_model_ids_not_segments() {
         let providers = vec!["claude".to_string()];
         let qualifiers = build_valid_qualifiers(&providers, &make_models());
