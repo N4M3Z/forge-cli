@@ -1,29 +1,58 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
-use commands::error::Error;
-
 use super::app::App;
 
-pub fn handle_key(app: &mut App, key: KeyEvent) -> Result<(), Error> {
+pub fn handle_key(app: &mut App, key: KeyEvent) {
     if app.is_preview_open() {
         handle_preview_key(app, key);
-        return Ok(());
+        return;
+    }
+    if app.is_help_open() {
+        match key.code {
+            KeyCode::Esc | KeyCode::Char('?') | KeyCode::F(1) => app.close_help(),
+            _ => {}
+        }
+        return;
     }
     if app.is_palette_open() {
-        return handle_palette_key(app, key);
+        handle_palette_key(app, key);
+        return;
+    }
+    if app.is_search_input_active()
+        && matches!(
+            key.code,
+            KeyCode::Char(_) | KeyCode::Backspace | KeyCode::Esc | KeyCode::Enter
+        )
+    {
+        app.search_input_key(key);
+        return;
+    }
+    if app.has_section_digit_shortcuts()
+        && let KeyCode::Char(character) = key.code
+        && app.set_section_by_shortcut(character)
+    {
+        return;
     }
 
     match key.code {
         KeyCode::Esc | KeyCode::Char('q') => app.request_quit(),
+        KeyCode::Char('?') | KeyCode::F(1) => app.toggle_help(),
         KeyCode::Char(':') => app.open_palette(),
-        KeyCode::Char('r') => app.refresh()?,
-        KeyCode::Enter => app.open_preview(),
+        KeyCode::Char('/') => {
+            app.set_section_by_number(9);
+        }
+        KeyCode::Char('r') => app.refresh(),
+        KeyCode::Char('y') => app.copy_selected(),
+        KeyCode::Enter | KeyCode::Right | KeyCode::Char('l') => app.drill_or_expand(),
+        KeyCode::Left | KeyCode::Char('h') => app.move_back(),
         KeyCode::Tab if key.modifiers.contains(KeyModifiers::SHIFT) => app.focus_previous(),
         KeyCode::BackTab => app.focus_previous(),
         KeyCode::Tab => app.focus_next(),
+        KeyCode::Char('p') => app.set_detail_tab(super::app::DetailTab::Preview),
+        KeyCode::Char('c') => app.set_detail_tab(super::app::DetailTab::Code),
+        KeyCode::Char('d') => app.set_detail_tab(super::app::DetailTab::Diff),
         _ => app.focused_key(key),
     }
-    Ok(())
 }
 
 fn handle_preview_key(app: &mut App, key: KeyEvent) {
@@ -39,11 +68,10 @@ fn handle_preview_key(app: &mut App, key: KeyEvent) {
     }
 }
 
-fn handle_palette_key(app: &mut App, key: KeyEvent) -> Result<(), Error> {
+fn handle_palette_key(app: &mut App, key: KeyEvent) {
     match key.code {
         KeyCode::Esc => app.close_palette(),
-        KeyCode::Enter => app.execute_palette()?,
+        KeyCode::Enter => app.execute_palette(),
         _ => app.palette_key(key),
     }
-    Ok(())
 }

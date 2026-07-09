@@ -8,9 +8,8 @@ use super::{AppState, DashboardState};
 use crate::cli::dashboard::scan;
 use crate::cli::dashboard::server;
 use crate::cli::dashboard::templates;
-use commands::view::{
-    ArtifactView, DashboardView, DeployGroup, DeployHarness, ModuleView, ProvenanceArtifact,
-};
+use commands::services::builders::{group_deployments, resolve_dep_links};
+use commands::view::{ArtifactView, DashboardView, ModuleView, ProvenanceArtifact};
 
 /// Artifact detail: `/artifact/{module}/{kind}/{name}`. The module qualifier
 /// disambiguates the same artifact present in more than one module (e.g. an
@@ -107,39 +106,6 @@ fn render_artifact(
         schema_applies,
     };
     Html(template.to_string()).into_response()
-}
-
-/// Resolves each adoption dependency to the module containing a skill of that
-/// name (first match), so the dep chip links to the correct copy. An unresolved
-/// dependency gets an empty module and renders as plain text (no link, no 404).
-pub(super) fn resolve_dep_links(
-    view: &DashboardView,
-    adoption: Option<&commands::view::Adoption>,
-) -> Vec<templates::DepLink> {
-    let Some(adoption) = adoption else {
-        return Vec::new();
-    };
-    adoption
-        .dependencies
-        .iter()
-        .map(|dependency| {
-            let module = view
-                .modules
-                .iter()
-                .find(|candidate| {
-                    candidate
-                        .artifacts
-                        .iter()
-                        .any(|art| art.kind == "skills" && art.name == dependency.name)
-                })
-                .map_or_else(String::new, |candidate| candidate.name.clone());
-            templates::DepLink {
-                name: dependency.name.clone(),
-                uri: dependency.uri.clone(),
-                module,
-            }
-        })
-        .collect()
 }
 
 /// Falls back to the deployed `assemble/v1` sidecar (at the target's
@@ -291,46 +257,6 @@ pub(super) async fn companion_detail(
         schema_applies: String::new(),
     };
     Html(template.to_string()).into_response()
-}
-
-/// Groups deployment provenance entries by target location, so the graph
-/// shows one node per directory (expandable) rather than a flat harness list.
-fn group_deployments(entries: &[&ProvenanceArtifact]) -> Vec<DeployGroup> {
-    let mut order: Vec<String> = Vec::new();
-    let mut groups: std::collections::HashMap<String, DeployGroup> =
-        std::collections::HashMap::new();
-    for entry in entries {
-        let group = groups.entry(entry.target.clone()).or_insert_with(|| {
-            order.push(entry.target.clone());
-            DeployGroup {
-                target: entry.target.clone(),
-                verified: 0,
-                total: 0,
-                harnesses: Vec::new(),
-            }
-        });
-        group.total += 1;
-        if entry.verified {
-            group.verified += 1;
-        }
-        let deployed_dir = entry
-            .deployed_path
-            .rsplit_once('/')
-            .map_or_else(String::new, |(dir, _)| dir.to_string());
-        group.harnesses.push(DeployHarness {
-            harness: entry.harness.clone(),
-            deployed_path: entry.deployed_path.clone(),
-            deployed_dir,
-            verified: entry.verified,
-        });
-    }
-    for group in groups.values_mut() {
-        group.harnesses.sort_by(|a, b| a.harness.cmp(&b.harness));
-    }
-    order
-        .into_iter()
-        .filter_map(|target| groups.remove(&target))
-        .collect()
 }
 
 pub(super) async fn refresh(State(app): State<AppState>) -> impl IntoResponse {

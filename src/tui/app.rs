@@ -1,58 +1,367 @@
-use std::path::{Path, PathBuf};
-
-use crossterm::event::KeyEvent;
-use ratatui::{
-    Frame,
-    layout::{Constraint, Direction, Layout},
+use std::{
+    path::{Path, PathBuf},
+    sync::mpsc::{self, Receiver},
+    thread,
 };
 
-use commands::{error::Error, services, view::DashboardView};
+use crossterm::event::{KeyCode, KeyEvent};
+use ratatui::{
+    Frame,
+    layout::{Constraint, Direction, Layout, Rect},
+    style::{Color, Modifier, Style},
+    text::{Line, Span, Text},
+    widgets::{Block, Borders, Clear, List, ListItem, Paragraph, Wrap},
+};
+
+use commands::{
+    services::{
+        self, builders,
+        files::{self, FileSections},
+    },
+    view::{Adr, ArtifactView, DashboardView, ModuleView, ProvenanceArtifact, StatusSummary},
+};
 
 use crate::cli::{config, watchlist};
 
 use super::components::{
-    Component,
-    artifacts::ArtifactsPane,
     palette::{Palette, PaletteCommand},
     preview::ArtifactPreview,
-    projects::ProjectsPane,
-    provenance::ProvenancePane,
-    sources::SourcesPane,
 };
 
-const PANE_COUNT: usize = 4;
+const SECTION_COUNT: usize = 13;
+const DETAIL_TAB_COUNT: usize = 7;
+
+pub const KEYBINDINGS: &[(&str, &[(&str, &str)])] = &[
+    (
+        "Navigation",
+        &[
+            ("h/j/k/l", "move, drill, and go back"),
+            ("arrows", "move, drill, and go back"),
+            ("Tab", "next column or detail tab"),
+            ("BackTab", "previous column"),
+            ("Enter", "drill or expand detail"),
+            ("Esc", "back, close overlay, or quit"),
+            ("g/G", "top or bottom"),
+            ("PgUp/PgDn", "scroll detail"),
+        ],
+    ),
+    (
+        "Sections",
+        &[
+            ("1", "overview"),
+            ("2", "skills"),
+            ("3", "agents"),
+            ("4", "rules"),
+            ("5", "repositories"),
+            ("6", "ADRs"),
+            ("7", "provenance"),
+            ("8", "variants"),
+            ("9", "search"),
+            ("t", "settings"),
+            ("h", "hooks"),
+            ("c", "config"),
+            ("m", "schemas"),
+        ],
+    ),
+    (
+        "Actions",
+        &[
+            ("/", "search"),
+            (":", "palette"),
+            ("r", "refresh"),
+            ("y", "copy install snippet or path"),
+            ("d", "diff tab"),
+            ("c", "code tab"),
+            ("p", "preview tab"),
+        ],
+    ),
+    ("Global", &[("?", "help"), ("F1", "help"), ("q", "quit")]),
+];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Pane {
-    Artifacts = 0,
-    Provenance = 1,
-    Projects = 2,
-    Sources = 3,
+pub enum ColumnFocus {
+    Sections,
+    List,
+    Detail,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Section {
+    Overview = 0,
+    Skills = 1,
+    Agents = 2,
+    Rules = 3,
+    Repositories = 4,
+    Adrs = 5,
+    Provenance = 6,
+    Variants = 7,
+    Search = 8,
+    Settings = 9,
+    Hooks = 10,
+    Config = 11,
+    Schemas = 12,
+}
+
+impl Section {
+    const ALL: [Self; SECTION_COUNT] = [
+        Self::Overview,
+        Self::Skills,
+        Self::Agents,
+        Self::Rules,
+        Self::Repositories,
+        Self::Adrs,
+        Self::Provenance,
+        Self::Variants,
+        Self::Search,
+        Self::Settings,
+        Self::Hooks,
+        Self::Config,
+        Self::Schemas,
+    ];
+
+    fn label(self) -> &'static str {
+        match self {
+            Self::Overview => "Overview",
+            Self::Skills => "Skills",
+            Self::Agents => "Agents",
+            Self::Rules => "Rules",
+            Self::Repositories => "Repositories",
+            Self::Adrs => "ADRs",
+            Self::Provenance => "Provenance",
+            Self::Variants => "Variants",
+            Self::Search => "Search",
+            Self::Settings => "Settings",
+            Self::Hooks => "Hooks",
+            Self::Config => "Config",
+            Self::Schemas => "Schemas",
+        }
+    }
+
+    fn from_index(index: usize) -> Self {
+        Self::ALL[index.min(SECTION_COUNT - 1)]
+    }
+
+    fn from_name(name: &str) -> Option<Self> {
+        match name {
+            "overview" | "o" => Some(Self::Overview),
+            "skills" | "skill" | "s" => Some(Self::Skills),
+            "agents" | "agent" | "a" => Some(Self::Agents),
+            "rules" | "rule" => Some(Self::Rules),
+            "repos" | "repositories" | "repository" => Some(Self::Repositories),
+            "adrs" | "adr" => Some(Self::Adrs),
+            "provenance" | "integrity" => Some(Self::Provenance),
+            "variants" | "variant" => Some(Self::Variants),
+            "search" | "find" => Some(Self::Search),
+            "settings" | "setting" => Some(Self::Settings),
+            "hooks" | "hook" => Some(Self::Hooks),
+            "config" | "configuration" => Some(Self::Config),
+            "schemas" | "schema" | "manifests" | "manifest" => Some(Self::Schemas),
+            _ => None,
+        }
+    }
+
+    fn from_shortcut(character: char) -> Option<Self> {
+        match character {
+            '1' => Some(Self::Overview),
+            '2' => Some(Self::Skills),
+            '3' => Some(Self::Agents),
+            '4' => Some(Self::Rules),
+            '5' => Some(Self::Repositories),
+            '6' => Some(Self::Adrs),
+            '7' => Some(Self::Provenance),
+            '8' => Some(Self::Variants),
+            '9' => Some(Self::Search),
+            't' | 'T' => Some(Self::Settings),
+            'h' | 'H' => Some(Self::Hooks),
+            'c' | 'C' => Some(Self::Config),
+            'm' | 'M' => Some(Self::Schemas),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DetailTab {
+    Preview = 0,
+    Code = 1,
+    Diff = 2,
+    Provenance = 3,
+    Frontmatter = 4,
+    History = 5,
+    Companions = 6,
+}
+
+impl DetailTab {
+    const ALL: [Self; DETAIL_TAB_COUNT] = [
+        Self::Preview,
+        Self::Code,
+        Self::Diff,
+        Self::Provenance,
+        Self::Frontmatter,
+        Self::History,
+        Self::Companions,
+    ];
+
+    fn label(self) -> &'static str {
+        match self {
+            Self::Preview => "Preview",
+            Self::Code => "Code",
+            Self::Diff => "Diff",
+            Self::Provenance => "Provenance",
+            Self::Frontmatter => "Frontmatter",
+            Self::History => "History",
+            Self::Companions => "Companions",
+        }
+    }
+
+    fn from_index(index: usize) -> Self {
+        Self::ALL[index.min(DETAIL_TAB_COUNT - 1)]
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ScanState {
+    Idle,
+    Loading,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RunState {
+    Running,
+    Quit,
+}
+
+struct ScanResult {
+    providers: Vec<(String, String)>,
+    watched_locations: Vec<PathBuf>,
+    view: DashboardView,
+    file_sections: FileSections,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum OverviewMode {
+    Nested,
+    Matrix,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum HelpState {
+    Closed,
+    Open,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum ListTarget {
+    None,
+    Overview,
+    Artifact {
+        module: String,
+        kind: String,
+        name: String,
+    },
+    Module(String),
+    Adr {
+        repo: String,
+        id: String,
+    },
+    ProvenanceArtifact {
+        module: String,
+        kind: String,
+        name: String,
+    },
+    Variant {
+        module: String,
+        kind: String,
+        name: String,
+        qualifier: String,
+    },
+    SettingsFile {
+        group: usize,
+        index: usize,
+    },
+    Hook {
+        group: usize,
+        index: usize,
+    },
+    ConfigFile(usize),
+    SchemaFile {
+        group: usize,
+        index: usize,
+    },
 }
 
 #[derive(Debug, Clone)]
+struct ListRow {
+    label: String,
+    detail: String,
+    target: ListTarget,
+    header: bool,
+    status: &'static str,
+}
+
+impl ListRow {
+    fn header(label: impl Into<String>) -> Self {
+        Self {
+            label: label.into(),
+            detail: String::new(),
+            target: ListTarget::None,
+            header: true,
+            status: "source",
+        }
+    }
+
+    fn item(
+        label: impl Into<String>,
+        detail: impl Into<String>,
+        target: ListTarget,
+        status: &'static str,
+    ) -> Self {
+        Self {
+            label: label.into(),
+            detail: detail.into(),
+            target,
+            header: false,
+            status,
+        }
+    }
+
+    fn is_selectable(&self) -> bool {
+        !self.header && !matches!(self.target, ListTarget::None)
+    }
+}
+
 pub struct App {
     root: PathBuf,
     providers: Vec<(String, String)>,
     watched_locations: Vec<PathBuf>,
     view: DashboardView,
-    focused: Pane,
-    should_quit: bool,
+    file_sections: FileSections,
+    scan_receiver: Option<Receiver<Result<ScanResult, String>>>,
+    scan_state: ScanState,
+    focused: ColumnFocus,
+    section: Section,
+    cached_rows: Vec<ListRow>,
+    rows_dirty: bool,
+    #[cfg(test)]
+    row_build_count: usize,
+    list_selected: [usize; SECTION_COUNT],
+    detail_tab: DetailTab,
+    detail_scroll: u16,
+    overview_mode: OverviewMode,
+    search: builders::SearchFilters,
+    run_state: RunState,
     pub palette_error: Option<String>,
+    toast: Option<String>,
     preview: Option<ArtifactPreview>,
-    artifacts: ArtifactsPane,
-    provenance: ProvenancePane,
-    projects: ProjectsPane,
-    sources: SourcesPane,
+    help_state: HelpState,
     palette: Palette,
 }
 
 impl App {
-    pub fn load(root: PathBuf) -> Result<Self, Error> {
-        let providers = load_provider_targets(&root);
-        let watched_locations = watchlist::watched_locations();
-        let view = services::build_view(&root, &providers, &watched_locations)?;
-        Ok(Self::from_view(root, providers, watched_locations, view))
+    pub fn load(root: PathBuf) -> Self {
+        let mut app = Self::from_view(root, Vec::new(), Vec::new(), empty_dashboard_view());
+        app.start_scan();
+        app
     }
 
     #[must_use]
@@ -62,34 +371,117 @@ impl App {
         watched_locations: Vec<PathBuf>,
         view: DashboardView,
     ) -> Self {
-        let artifacts = ArtifactsPane::new(view.clone());
-        let provenance = ProvenancePane::new(view.clone());
-        let projects = ProjectsPane::new(view.clone());
-        let sources = SourcesPane::new(view.clone(), watched_locations.clone());
-        let mut app = Self {
+        Self::from_view_with_files(
             root,
             providers,
             watched_locations,
             view,
-            focused: Pane::Artifacts,
-            should_quit: false,
-            palette_error: None,
-            preview: None,
-            artifacts,
-            provenance,
-            projects,
-            sources,
-            palette: Palette::new(),
-        };
-        app.sync_components();
-        app
+            FileSections::default(),
+        )
     }
 
-    pub fn refresh(&mut self) -> Result<(), Error> {
-        self.view = services::build_view(&self.root, &self.providers, &self.watched_locations)?;
-        self.sync_snapshot();
-        self.sync_components();
-        Ok(())
+    #[must_use]
+    pub fn from_view_with_files(
+        root: PathBuf,
+        providers: Vec<(String, String)>,
+        watched_locations: Vec<PathBuf>,
+        view: DashboardView,
+        file_sections: FileSections,
+    ) -> Self {
+        Self {
+            root,
+            providers,
+            watched_locations,
+            view,
+            file_sections,
+            scan_receiver: None,
+            scan_state: ScanState::Idle,
+            focused: ColumnFocus::Sections,
+            section: Section::Overview,
+            cached_rows: Vec::new(),
+            rows_dirty: true,
+            #[cfg(test)]
+            row_build_count: 0,
+            list_selected: [0; SECTION_COUNT],
+            detail_tab: DetailTab::Preview,
+            detail_scroll: 0,
+            overview_mode: OverviewMode::Nested,
+            search: builders::SearchFilters::empty(),
+            run_state: RunState::Running,
+            palette_error: None,
+            toast: None,
+            preview: None,
+            help_state: HelpState::Closed,
+            palette: Palette::new(),
+        }
+    }
+
+    pub fn refresh(&mut self) {
+        self.start_scan();
+    }
+
+    pub fn poll_scan(&mut self) {
+        let Some(receiver) = &self.scan_receiver else {
+            return;
+        };
+        match receiver.try_recv() {
+            Ok(Ok(scan_result)) => {
+                self.providers = scan_result.providers;
+                self.watched_locations = scan_result.watched_locations;
+                self.view = scan_result.view;
+                self.file_sections = scan_result.file_sections;
+                self.scan_state = ScanState::Idle;
+                self.scan_receiver = None;
+                self.toast = Some("scan complete".to_string());
+                self.invalidate_rows();
+                self.clamp_list_selection();
+            }
+            Ok(Err(error)) => {
+                self.scan_state = ScanState::Idle;
+                self.scan_receiver = None;
+                self.palette_error = Some(error);
+            }
+            Err(mpsc::TryRecvError::Empty) => {}
+            Err(mpsc::TryRecvError::Disconnected) => {
+                self.scan_state = ScanState::Idle;
+                self.scan_receiver = None;
+                self.palette_error = Some("scan worker disconnected".to_string());
+            }
+        }
+    }
+
+    fn start_scan(&mut self) {
+        let root = self.root.clone();
+        let (sender, receiver) = mpsc::channel();
+        thread::spawn(move || {
+            let providers = load_provider_targets(&root);
+            let watched_locations = watchlist::watched_locations();
+            let settings_filenames = config::load_settings_filenames(&root);
+            let result = services::build_view(&root, &providers, &watched_locations)
+                .map(|view| {
+                    let local_repos = services::discover_local_repos(&root, &watched_locations);
+                    let allowed_sources = services::active_repo_names(&view.modules, &root);
+                    let file_sections = files::collect_file_sections(
+                        &root,
+                        &providers,
+                        &settings_filenames,
+                        &local_repos,
+                        &allowed_sources,
+                    );
+                    ScanResult {
+                        providers,
+                        watched_locations,
+                        view,
+                        file_sections,
+                    }
+                })
+                .map_err(|error| format!("{error}"));
+            let _ = sender.send(result);
+        });
+        self.scan_receiver = Some(receiver);
+        self.scan_state = ScanState::Loading;
+        self.palette_error = None;
+        self.toast = None;
     }
 
     pub fn render(&mut self, frame: &mut Frame<'_>) {
@@ -97,35 +489,354 @@ impl App {
             preview.render(frame, frame.area());
             return;
         }
-        self.sync_components();
+
+        self.ensure_rows();
+        self.clamp_list_selection();
         let layout = Layout::default()
             .direction(Direction::Vertical)
-            .constraints([Constraint::Min(1), Constraint::Length(3)])
+            .constraints([
+                Constraint::Length(1),
+                Constraint::Min(1),
+                Constraint::Length(1),
+            ])
             .split(frame.area());
+        self.render_status(frame, layout[0]);
+        let columns = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([
+                Constraint::Ratio(1, 3),
+                Constraint::Ratio(1, 3),
+                Constraint::Ratio(1, 3),
+            ])
+            .split(layout[1]);
+        self.render_sections(frame, columns[0]);
+        self.render_list(frame, columns[1]);
+        self.render_detail(frame, columns[2]);
+        self.render_footer(frame, layout[2]);
 
-        let rows = Layout::default()
+        if self.help_state == HelpState::Open {
+            render_help(frame, frame.area());
+        }
+    }
+
+    fn render_status(&self, frame: &mut Frame<'_>, area: Rect) {
+        let scan = if self.scan_state == ScanState::Loading {
+            "Scanning modules..."
+        } else {
+            "ready"
+        };
+        let summary = &self.view.summary;
+        let text = format!(
+            " forge tui | {scan} | ok {} stale {} modified {} new {} | {} modules",
+            summary.unchanged,
+            summary.stale,
+            summary.modified,
+            summary.new,
+            self.view.modules.len()
+        );
+        frame.render_widget(
+            Paragraph::new(text).style(Style::default().fg(Color::Gray)),
+            area,
+        );
+    }
+
+    fn render_footer(&self, frame: &mut Frame<'_>, area: Rect) {
+        let text = if self.palette.is_open() || self.palette_error.is_some() {
+            self.palette.display_text(self.palette_error.as_deref())
+        } else if let Some(toast) = &self.toast {
+            format!(" {toast}")
+        } else {
+            hint_row()
+        };
+        frame.render_widget(
+            Paragraph::new(text).style(Style::default().fg(Color::DarkGray)),
+            area,
+        );
+    }
+
+    fn render_sections(&self, frame: &mut Frame<'_>, area: Rect) {
+        let block = column_block(" Sections ", self.focused == ColumnFocus::Sections);
+        let inner = block.inner(area);
+        frame.render_widget(block, area);
+
+        let items: Vec<ListItem<'_>> = Section::ALL
+            .iter()
+            .enumerate()
+            .map(|(index, section)| {
+                let prefix = format!("{} ", index + 1);
+                let style = if *section == self.section {
+                    selected_style(self.focused == ColumnFocus::Sections)
+                } else {
+                    Style::default()
+                };
+                ListItem::new(Line::from(vec![
+                    Span::styled(prefix, Style::default().fg(Color::DarkGray)),
+                    Span::styled(section.label(), style),
+                ]))
+            })
+            .collect();
+        frame.render_widget(List::new(items), inner);
+    }
+
+    fn render_list(&self, frame: &mut Frame<'_>, area: Rect) {
+        let title = format!(" {} ", self.section.label());
+        let block = column_block(&title, self.focused == ColumnFocus::List);
+        let inner = block.inner(area);
+        frame.render_widget(block, area);
+
+        let rows = self.cached_rows();
+        if self.scan_state == ScanState::Loading && rows.is_empty() {
+            frame.render_widget(
+                Paragraph::new("Scanning modules...").style(Style::default().fg(Color::Gray)),
+                inner,
+            );
+            return;
+        }
+        let selected = self.selected_list_index(rows);
+        let items: Vec<ListItem<'_>> = if rows.is_empty() {
+            vec![ListItem::new("no rows")]
+        } else {
+            rows.iter()
+                .enumerate()
+                .map(|(index, row)| {
+                    if row.header {
+                        return ListItem::new(Line::from(Span::styled(
+                            row.label.clone(),
+                            Style::default()
+                                .fg(Color::Magenta)
+                                .add_modifier(Modifier::BOLD),
+                        )));
+                    }
+                    let base = if index == selected {
+                        selected_style(self.focused == ColumnFocus::List)
+                    } else {
+                        Style::default()
+                    };
+                    ListItem::new(Line::from(vec![
+                        Span::styled(status_dot(row.status), status_style(row.status)),
+                        Span::raw(" "),
+                        Span::styled(row.label.clone(), base),
+                        Span::styled(format!("  {}", row.detail), base.fg(Color::DarkGray)),
+                    ]))
+                })
+                .collect()
+        };
+        frame.render_widget(List::new(items), inner);
+    }
+
+    fn render_detail(&self, frame: &mut Frame<'_>, area: Rect) {
+        let block = column_block(" Detail ", self.focused == ColumnFocus::Detail);
+        let inner = block.inner(area);
+        frame.render_widget(block, area);
+
+        let target = self.selected_target();
+        match target {
+            Some(
+                ListTarget::Artifact { module, kind, name }
+                | ListTarget::ProvenanceArtifact { module, kind, name },
+            ) => {
+                if let Some((module_view, artifact)) = self.find_artifact(&module, &kind, &name) {
+                    self.render_artifact_detail(frame, inner, module_view, artifact);
+                } else {
+                    frame.render_widget(Paragraph::new("artifact not found"), inner);
+                }
+            }
+            Some(ListTarget::Adr { repo, id }) => {
+                if let Some(adr) = self.find_adr(&repo, &id) {
+                    render_adr_detail(frame, inner, adr);
+                } else {
+                    frame.render_widget(Paragraph::new("ADR not found"), inner);
+                }
+            }
+            Some(ListTarget::Module(name)) => {
+                if let Some(module) = self.view.modules.iter().find(|module| module.name == name) {
+                    render_module_detail(frame, inner, module);
+                } else {
+                    frame.render_widget(Paragraph::new("repository not found"), inner);
+                }
+            }
+            Some(ListTarget::Variant {
+                module,
+                kind,
+                name,
+                qualifier,
+            }) => {
+                self.render_variant_detail(frame, inner, &module, &kind, &name, &qualifier);
+            }
+            Some(ListTarget::SettingsFile { group, index }) => {
+                if let Some(file) = self.settings_file(group, index) {
+                    render_file_body(frame, inner, &file.content, self.detail_scroll);
+                } else {
+                    frame.render_widget(Paragraph::new("settings file not found"), inner);
+                }
+            }
+            Some(ListTarget::Hook { group, index }) => {
+                if let Some(hook) = self.hook_entry(group, index) {
+                    render_hook_detail(frame, inner, hook, self.detail_scroll);
+                } else {
+                    frame.render_widget(Paragraph::new("hook not found"), inner);
+                }
+            }
+            Some(ListTarget::ConfigFile(index)) => {
+                if let Some(file) = self.file_sections.config.get(index) {
+                    render_file_body(frame, inner, &file.content, self.detail_scroll);
+                } else {
+                    frame.render_widget(Paragraph::new("config file not found"), inner);
+                }
+            }
+            Some(ListTarget::SchemaFile { group, index }) => {
+                if let Some(file) = self.schema_file(group, index) {
+                    render_file_body(frame, inner, &file.content, self.detail_scroll);
+                } else {
+                    frame.render_widget(Paragraph::new("schema file not found"), inner);
+                }
+            }
+            _ => self.render_overview_detail(frame, inner),
+        }
+    }
+
+    fn render_artifact_detail(
+        &self,
+        frame: &mut Frame<'_>,
+        area: Rect,
+        module: &ModuleView,
+        artifact: &ArtifactView,
+    ) {
+        let chunks = Layout::default()
             .direction(Direction::Vertical)
-            .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
-            .split(layout[0]);
-        let top = Layout::default()
-            .direction(Direction::Horizontal)
-            .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
-            .split(rows[0]);
-        let bottom = Layout::default()
-            .direction(Direction::Horizontal)
-            .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
-            .split(rows[1]);
+            .constraints([Constraint::Length(2), Constraint::Min(1)])
+            .split(area);
+        self.render_tabs(frame, chunks[0]);
+        let lines = match self.detail_tab {
+            DetailTab::Preview => preview_lines(artifact),
+            DetailTab::Code => code_lines(&artifact.raw_source),
+            DetailTab::Diff => diff_lines(artifact),
+            DetailTab::Provenance => self.provenance_lines(module, artifact),
+            DetailTab::Frontmatter => frontmatter_lines(artifact),
+            DetailTab::History => history_lines(artifact),
+            DetailTab::Companions => companion_lines(artifact),
+        };
+        frame.render_widget(
+            Paragraph::new(Text::from(lines))
+                .wrap(Wrap { trim: false })
+                .scroll((self.detail_scroll, 0)),
+            chunks[1],
+        );
+    }
 
-        self.artifacts.render(frame, top[0]);
-        self.provenance.render(frame, top[1]);
-        self.projects.render(frame, bottom[0]);
-        self.sources.render(frame, bottom[1]);
-        self.palette
-            .render_with_error(frame, layout[1], self.palette_error.as_deref());
+    fn render_tabs(&self, frame: &mut Frame<'_>, area: Rect) {
+        let spans = DetailTab::ALL
+            .iter()
+            .enumerate()
+            .flat_map(|(index, tab)| {
+                let style = if *tab == self.detail_tab {
+                    Style::default()
+                        .fg(Color::Black)
+                        .bg(Color::Cyan)
+                        .add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default().fg(Color::DarkGray)
+                };
+                [
+                    Span::raw(" "),
+                    Span::styled(format!("{} {}", index + 1, tab.label()), style),
+                ]
+            })
+            .collect::<Vec<_>>();
+        frame.render_widget(Paragraph::new(Line::from(spans)), area);
+    }
+
+    fn render_overview_detail(&self, frame: &mut Frame<'_>, area: Rect) {
+        let mut lines = vec![Line::from(Span::styled(
+            "Status summary",
+            Style::default().add_modifier(Modifier::BOLD),
+        ))];
+        let summary = &self.view.summary;
+        lines.push(Line::from(format!(
+            "unchanged {} · stale {} · modified {} · new {}",
+            summary.unchanged, summary.stale, summary.modified, summary.new
+        )));
+        lines.push(Line::from(""));
+        if self.overview_mode == OverviewMode::Matrix {
+            let matrix = builders::build_matrix(&self.view);
+            lines.push(Line::from(Span::styled(
+                "Matrix",
+                Style::default().fg(Color::Magenta),
+            )));
+            lines.push(Line::from(format!("columns: {}", matrix.cols.join(", "))));
+            for row in matrix.rows {
+                let cells = row
+                    .cells
+                    .iter()
+                    .map(|cell| format!("{}:{}{}", cell.kind, cell.count, status_dot(&cell.status)))
+                    .collect::<Vec<_>>()
+                    .join("  ");
+                lines.push(Line::from(format!("{}  {cells}", row.module)));
+            }
+        } else {
+            lines.push(Line::from(Span::styled(
+                "Nested",
+                Style::default().fg(Color::Magenta),
+            )));
+            for group in builders::build_nested(&self.view, "kind") {
+                lines.push(Line::from(format!("{} ({})", group.label, group.count)));
+                for subgroup in group.subgroups {
+                    lines.push(Line::from(format!(
+                        "  {} ({})",
+                        subgroup.label, subgroup.count
+                    )));
+                }
+            }
+        }
+        frame.render_widget(
+            Paragraph::new(Text::from(lines)).wrap(Wrap { trim: false }),
+            area,
+        );
+    }
+
+    fn render_variant_detail(
+        &self,
+        frame: &mut Frame<'_>,
+        area: Rect,
+        module: &str,
+        kind: &str,
+        name: &str,
+        qualifier: &str,
+    ) {
+        let mut lines = vec![
+            Line::from(Span::styled(
+                format!("{module} / {kind} / {name}"),
+                Style::default().add_modifier(Modifier::BOLD),
+            )),
+            Line::from(format!("qualifier: {qualifier}")),
+            Line::from(""),
+        ];
+        if let Some((_, artifact)) = self.find_artifact(module, kind, name)
+            && let Some(variant) = artifact
+                .variants
+                .iter()
+                .find(|variant| variant.qualifier == qualifier)
+        {
+            lines.push(Line::from(format!("merge mode: {}", variant.mode)));
+            lines.push(Line::from(format!("path: {}", variant.relative_path)));
+            lines.push(Line::from(""));
+            lines.push(Line::from(
+                "effective merge preview is deferred to the dashboard route",
+            ));
+        }
+        frame.render_widget(
+            Paragraph::new(Text::from(lines)).wrap(Wrap { trim: false }),
+            area,
+        );
     }
 
     pub fn request_quit(&mut self) {
-        self.should_quit = true;
+        self.run_state = RunState::Quit;
+    }
+
+    #[must_use]
+    pub fn should_quit(&self) -> bool {
+        self.run_state == RunState::Quit
     }
 
     #[must_use]
@@ -133,10 +844,20 @@ impl App {
         self.preview.is_some()
     }
 
-    pub fn open_preview(&mut self) {
-        if let Some(artifact) = self.artifacts.selected_artifact() {
-            self.preview = Some(ArtifactPreview::from_artifact(artifact));
-        }
+    #[must_use]
+    pub fn is_help_open(&self) -> bool {
+        self.help_state == HelpState::Open
+    }
+
+    pub fn toggle_help(&mut self) {
+        self.help_state = match self.help_state {
+            HelpState::Closed => HelpState::Open,
+            HelpState::Open => HelpState::Closed,
+        };
+    }
+
+    pub fn close_help(&mut self) {
+        self.help_state = HelpState::Closed;
     }
 
     pub fn close_preview(&mut self) {
@@ -168,11 +889,6 @@ impl App {
     }
 
     #[must_use]
-    pub fn should_quit(&self) -> bool {
-        self.should_quit
-    }
-
-    #[must_use]
     pub fn is_palette_open(&self) -> bool {
         self.palette.is_open()
     }
@@ -190,74 +906,847 @@ impl App {
         let _ = self.palette.on_key(key);
     }
 
-    pub fn execute_palette(&mut self) -> Result<(), Error> {
+    pub fn execute_palette(&mut self) {
         let command = self.palette.take_command();
-        self.execute_palette_command(command)
+        self.execute_palette_command(command);
     }
 
-    pub fn execute_palette_command(&mut self, command: PaletteCommand) -> Result<(), Error> {
+    pub fn execute_palette_command(&mut self, command: PaletteCommand) {
         self.palette_error = None;
         match command {
             PaletteCommand::Refresh => self.refresh(),
             PaletteCommand::Quit => {
                 self.request_quit();
-                Ok(())
             }
             PaletteCommand::Find(query) => {
-                self.sources.set_query(query);
-                self.focused = Pane::Sources;
-                Ok(())
+                self.search.query = query;
+                self.set_section(Section::Search);
+                self.focused = ColumnFocus::List;
+                self.list_selected[self.section as usize] = 0;
+                self.invalidate_rows();
             }
-            PaletteCommand::Empty => Ok(()),
+            PaletteCommand::GoTo(section) => {
+                if let Some(section) = Section::from_name(&section) {
+                    self.set_section(section);
+                } else {
+                    self.palette_error = Some(format!("unknown section: {section}"));
+                }
+            }
+            PaletteCommand::Sort(field) => {
+                self.search.sort = field;
+                self.set_section(Section::Search);
+                self.invalidate_rows();
+            }
+            PaletteCommand::Filter(value) => {
+                if matches!(value.as_str(), "skills" | "agents" | "rules") {
+                    self.search.kind = value;
+                } else {
+                    self.search.status = value;
+                }
+                self.set_section(Section::Search);
+                self.invalidate_rows();
+            }
+            PaletteCommand::Empty => {}
             PaletteCommand::Unknown(verb) => {
                 self.palette_error = Some(format!("unknown command: {verb}"));
-                Ok(())
             }
         }
     }
 
     pub fn focus_next(&mut self) {
-        self.focused = pane_from_index((self.focused as usize + 1) % PANE_COUNT);
+        self.focused = match self.focused {
+            ColumnFocus::Sections => ColumnFocus::List,
+            ColumnFocus::List | ColumnFocus::Detail => ColumnFocus::Detail,
+        };
     }
 
     pub fn focus_previous(&mut self) {
-        self.focused = pane_from_index((self.focused as usize + PANE_COUNT - 1) % PANE_COUNT);
+        self.focused = match self.focused {
+            ColumnFocus::Sections | ColumnFocus::List => ColumnFocus::Sections,
+            ColumnFocus::Detail => ColumnFocus::List,
+        };
     }
 
-    pub fn focused_key(&mut self, key: KeyEvent) {
+    pub fn drill_or_expand(&mut self) {
+        self.ensure_rows();
         match self.focused {
-            Pane::Artifacts => {
-                let _ = self.artifacts.on_key(key);
+            ColumnFocus::Sections => self.focused = ColumnFocus::List,
+            ColumnFocus::List => {
+                if let Some(ListTarget::ProvenanceArtifact { .. }) = self.selected_target() {
+                    self.detail_tab = DetailTab::Provenance;
+                }
+                self.focused = ColumnFocus::Detail;
+                self.detail_scroll = 0;
             }
-            Pane::Provenance => {
-                let _ = self.provenance.on_key(key);
-            }
-            Pane::Projects => {
-                let _ = self.projects.on_key(key);
-            }
-            Pane::Sources => {
-                let _ = self.sources.on_key(key);
+            ColumnFocus::Detail => {
+                if let Some(artifact) = self.selected_artifact().cloned() {
+                    self.preview = Some(ArtifactPreview::from_artifact(&artifact));
+                }
             }
         }
     }
 
-    fn sync_components(&mut self) {
-        self.artifacts.set_focused(self.focused == Pane::Artifacts);
-        self.provenance
-            .set_focused(self.focused == Pane::Provenance);
-        self.projects.set_focused(self.focused == Pane::Projects);
-        self.sources.set_focused(self.focused == Pane::Sources);
-
-        let selected = self.artifacts.selected_artifact().cloned();
-        self.provenance.set_selected_artifact(selected);
+    pub fn move_back(&mut self) {
+        self.focus_previous();
     }
 
-    fn sync_snapshot(&mut self) {
-        self.artifacts.set_view(self.view.clone());
-        self.provenance.set_view(self.view.clone());
-        self.projects.set_view(self.view.clone());
-        self.sources
-            .set_view(self.view.clone(), self.watched_locations.clone());
+    pub fn focused_key(&mut self, key: KeyEvent) {
+        match self.focused {
+            ColumnFocus::Sections => self.section_key(key),
+            ColumnFocus::List => self.list_key(key),
+            ColumnFocus::Detail => self.detail_key(key),
+        }
+    }
+
+    pub fn set_section_by_number(&mut self, number: usize) {
+        if (1..=SECTION_COUNT).contains(&number) {
+            self.set_section(Section::from_index(number - 1));
+        }
+    }
+
+    pub fn set_section_by_shortcut(&mut self, character: char) -> bool {
+        let Some(section) = Section::from_shortcut(character) else {
+            return false;
+        };
+        self.set_section(section);
+        true
+    }
+
+    pub fn set_detail_tab(&mut self, tab: DetailTab) {
+        self.detail_tab = tab;
+        self.detail_scroll = 0;
+    }
+
+    #[cfg(test)]
+    #[must_use]
+    pub fn detail_tab(&self) -> DetailTab {
+        self.detail_tab
+    }
+
+    #[cfg(test)]
+    #[must_use]
+    pub fn section(&self) -> Section {
+        self.section
+    }
+
+    #[cfg(test)]
+    #[must_use]
+    pub fn search_query(&self) -> &str {
+        &self.search.query
+    }
+
+    #[must_use]
+    pub fn has_section_digit_shortcuts(&self) -> bool {
+        self.focused == ColumnFocus::Sections
+    }
+
+    #[must_use]
+    pub fn is_search_input_active(&self) -> bool {
+        self.section == Section::Search && self.focused == ColumnFocus::List
+    }
+
+    pub fn search_input_key(&mut self, key: KeyEvent) {
+        match key.code {
+            KeyCode::Esc => self.focus_previous(),
+            KeyCode::Enter => self.clamp_list_selection(),
+            KeyCode::Backspace => {
+                self.search.query.pop();
+                self.list_selected[self.section as usize] = 0;
+                self.invalidate_rows();
+            }
+            KeyCode::Char(character) => {
+                self.search.query.push(character);
+                self.list_selected[self.section as usize] = 0;
+                self.invalidate_rows();
+            }
+            _ => {}
+        }
+    }
+
+    #[cfg(test)]
+    #[must_use]
+    pub fn row_build_count(&self) -> usize {
+        self.row_build_count
+    }
+
+    pub fn copy_selected(&mut self) {
+        self.ensure_rows();
+        if let Some(artifact) = self.selected_artifact() {
+            self.toast = Some(format!("copied source path: {}", artifact.relative_path));
+        }
+    }
+
+    fn section_key(&mut self, key: KeyEvent) {
+        match key.code {
+            KeyCode::Down | KeyCode::Char('j') => {
+                let next = (self.section as usize + 1).min(SECTION_COUNT - 1);
+                self.set_section(Section::from_index(next));
+            }
+            KeyCode::Up | KeyCode::Char('k') => {
+                let next = (self.section as usize).saturating_sub(1);
+                self.set_section(Section::from_index(next));
+            }
+            KeyCode::Home | KeyCode::Char('g') => self.set_section(Section::Overview),
+            KeyCode::End | KeyCode::Char('G') => self.set_section(Section::Schemas),
+            _ => {}
+        }
+    }
+
+    fn list_key(&mut self, key: KeyEvent) {
+        match key.code {
+            KeyCode::Down | KeyCode::Char('j') => self.move_list_selection(1),
+            KeyCode::Up | KeyCode::Char('k') => self.move_list_selection(-1),
+            KeyCode::Home | KeyCode::Char('g') => self.select_first_row(),
+            KeyCode::End | KeyCode::Char('G') => self.select_last_row(),
+            KeyCode::Char('m') if self.section == Section::Overview => {
+                self.overview_mode = match self.overview_mode {
+                    OverviewMode::Nested => OverviewMode::Matrix,
+                    OverviewMode::Matrix => OverviewMode::Nested,
+                };
+                self.invalidate_rows();
+            }
+            _ => {}
+        }
+    }
+
+    fn detail_key(&mut self, key: KeyEvent) {
+        match key.code {
+            KeyCode::Down | KeyCode::Char('j') => {
+                self.detail_scroll = self.detail_scroll.saturating_add(1);
+            }
+            KeyCode::Up | KeyCode::Char('k') => {
+                self.detail_scroll = self.detail_scroll.saturating_sub(1);
+            }
+            KeyCode::PageDown => {
+                self.detail_scroll = self.detail_scroll.saturating_add(10);
+            }
+            KeyCode::PageUp => {
+                self.detail_scroll = self.detail_scroll.saturating_sub(10);
+            }
+            KeyCode::Home | KeyCode::Char('g') => self.detail_scroll = 0,
+            KeyCode::Char('p' | '1') => self.set_detail_tab(DetailTab::Preview),
+            KeyCode::Char('c' | '2') => self.set_detail_tab(DetailTab::Code),
+            KeyCode::Char('d' | '3') => self.set_detail_tab(DetailTab::Diff),
+            KeyCode::Char('4') => self.set_detail_tab(DetailTab::Provenance),
+            KeyCode::Char('5') => self.set_detail_tab(DetailTab::Frontmatter),
+            KeyCode::Char('6') => self.set_detail_tab(DetailTab::History),
+            KeyCode::Char('7') => self.set_detail_tab(DetailTab::Companions),
+            KeyCode::Tab => self.next_detail_tab(),
+            _ => {}
+        }
+    }
+
+    fn next_detail_tab(&mut self) {
+        let next = (self.detail_tab as usize + 1) % DETAIL_TAB_COUNT;
+        self.set_detail_tab(DetailTab::from_index(next));
+    }
+
+    fn set_section(&mut self, section: Section) {
+        self.section = section;
+        self.detail_scroll = 0;
+        self.invalidate_rows();
+        self.clamp_list_selection();
+    }
+
+    fn ensure_rows(&mut self) {
+        if self.rows_dirty {
+            self.cached_rows = self.build_list_rows();
+            self.rows_dirty = false;
+            #[cfg(test)]
+            {
+                self.row_build_count += 1;
+            }
+        }
+    }
+
+    fn invalidate_rows(&mut self) {
+        self.rows_dirty = true;
+    }
+
+    fn cached_rows(&self) -> &[ListRow] {
+        &self.cached_rows
+    }
+
+    fn build_list_rows(&self) -> Vec<ListRow> {
+        match self.section {
+            Section::Overview => self.overview_rows(),
+            Section::Skills => self.artifact_rows(Some("skills")),
+            Section::Agents => self.artifact_rows(Some("agents")),
+            Section::Rules => self.artifact_rows(Some("rules")),
+            Section::Repositories => self.repository_rows(),
+            Section::Adrs => self.adr_rows(),
+            Section::Provenance => self.provenance_rows(),
+            Section::Variants => self.variant_rows(),
+            Section::Search => self.search_rows(),
+            Section::Settings => self.settings_rows(),
+            Section::Hooks => self.hook_rows(),
+            Section::Config => self.config_rows(),
+            Section::Schemas => self.schema_rows(),
+        }
+    }
+
+    fn overview_rows(&self) -> Vec<ListRow> {
+        vec![
+            ListRow::item("Summary", "status counts", ListTarget::Overview, "ok"),
+            ListRow::item(
+                if self.overview_mode == OverviewMode::Matrix {
+                    "Matrix"
+                } else {
+                    "Nested"
+                },
+                "press m to toggle",
+                ListTarget::Overview,
+                "ok",
+            ),
+        ]
+    }
+
+    fn artifact_rows(&self, kind_filter: Option<&str>) -> Vec<ListRow> {
+        let mut rows = Vec::new();
+        for (kind, artifacts) in self.view.artifacts_by_kind() {
+            if kind_filter.is_some_and(|filter| filter != kind) {
+                continue;
+            }
+            rows.push(ListRow::header(kind));
+            for (artifact, module) in artifacts {
+                rows.push(artifact_row(artifact, module));
+            }
+        }
+        rows
+    }
+
+    fn repository_rows(&self) -> Vec<ListRow> {
+        let mut rows = vec![ListRow::header("Sources")];
+        for module in self.view.source_modules() {
+            rows.push(ListRow::item(
+                module.name.clone(),
+                format!("{} artifacts", module.artifacts.len()),
+                ListTarget::Module(module.name.clone()),
+                "source",
+            ));
+        }
+        rows.push(ListRow::header("Targets"));
+        for module in self.view.target_modules() {
+            rows.push(ListRow::item(
+                module.name.clone(),
+                format!("{} artifacts", module.artifacts.len()),
+                ListTarget::Module(module.name.clone()),
+                "new",
+            ));
+        }
+        rows
+    }
+
+    fn adr_rows(&self) -> Vec<ListRow> {
+        let mut rows = Vec::new();
+        for repo in self.view.adrs_grouped() {
+            rows.push(ListRow::header(format!("{} ({})", repo.repo, repo.total)));
+            for group in repo.prefix_groups {
+                rows.push(ListRow::header(format!("  {}", group.prefix)));
+                for adr in group.adrs {
+                    rows.push(ListRow::item(
+                        format!("{} {}", adr.id, adr.title),
+                        format!("{} · {}", adr.state, adr.summary),
+                        ListTarget::Adr {
+                            repo: adr.repo.clone(),
+                            id: adr.id.clone(),
+                        },
+                        "source",
+                    ));
+                }
+            }
+        }
+        rows
+    }
+
+    fn provenance_rows(&self) -> Vec<ListRow> {
+        let mut rows = vec![ListRow::header("Needs attention")];
+        for module in &self.view.modules {
+            for artifact in &module.artifacts {
+                let status = artifact.overall_status();
+                if matches!(status, "modified" | "stale") || artifact.has_broken_refs() {
+                    rows.push(ListRow::item(
+                        artifact.name.clone(),
+                        format!("{} · {}", artifact.kind, artifact.staleness_label()),
+                        ListTarget::ProvenanceArtifact {
+                            module: module.name.clone(),
+                            kind: artifact.kind.clone(),
+                            name: artifact.name.clone(),
+                        },
+                        status,
+                    ));
+                }
+            }
+        }
+        if rows.len() == 1 {
+            rows.push(ListRow::item(
+                "No attention items",
+                "integrity clean",
+                ListTarget::Overview,
+                "ok",
+            ));
+        }
+        rows
+    }
+
+    fn variant_rows(&self) -> Vec<ListRow> {
+        let coverage = builders::build_variant_coverage(&self.view);
+        let mut rows = Vec::new();
+        rows.push(ListRow::header(format!(
+            "{} qualifiers",
+            coverage.cols.len()
+        )));
+        for row in coverage.rows {
+            for (index, cell) in row.cells.iter().enumerate() {
+                if cell.mode.is_empty() {
+                    continue;
+                }
+                let qualifier = coverage.cols[index].qualifier.clone();
+                rows.push(ListRow::item(
+                    row.name.clone(),
+                    format!("{} · {} · {}", row.kind, qualifier, cell.mode),
+                    ListTarget::Variant {
+                        module: row.module.clone(),
+                        kind: row.kind.clone(),
+                        name: row.name.clone(),
+                        qualifier,
+                    },
+                    "source",
+                ));
+            }
+        }
+        rows
+    }
+
+    fn search_rows(&self) -> Vec<ListRow> {
+        let mut rows = vec![ListRow::header(format!(
+            "query: {}  kind: {}  status: {}  sort: {}",
+            value_or_any(&self.search.query),
+            value_or_any(&self.search.kind),
+            value_or_any(&self.search.status),
+            value_or_any(&self.search.sort)
+        ))];
+        for (artifact, module) in builders::search_results(&self.view, &self.search) {
+            rows.push(artifact_row(artifact, module));
+        }
+        rows
+    }
+
+    fn settings_rows(&self) -> Vec<ListRow> {
+        let mut rows = Vec::new();
+        for (group_index, group) in self.file_sections.settings.iter().enumerate() {
+            rows.push(ListRow::header(group.harness.clone()));
+            for (file_index, file) in group.files.iter().enumerate() {
+                rows.push(ListRow::item(
+                    format!("{} · {}", group.harness, file.label),
+                    file.path.clone(),
+                    ListTarget::SettingsFile {
+                        group: group_index,
+                        index: file_index,
+                    },
+                    "source",
+                ));
+            }
+        }
+        rows
+    }
+
+    fn hook_rows(&self) -> Vec<ListRow> {
+        let mut rows = Vec::new();
+        for (group_index, group) in self.file_sections.hooks.iter().enumerate() {
+            rows.push(ListRow::header(group.harness.clone()));
+            for (hook_index, hook) in group.hooks.iter().enumerate() {
+                let (_, command) = files::unwrap_shell(&hook.command);
+                rows.push(ListRow::item(
+                    format!("{} · {}", hook.event, value_or_any(&hook.matcher)),
+                    command,
+                    ListTarget::Hook {
+                        group: group_index,
+                        index: hook_index,
+                    },
+                    "source",
+                ));
+            }
+        }
+        rows
+    }
+
+    fn config_rows(&self) -> Vec<ListRow> {
+        self.file_sections
+            .config
+            .iter()
+            .enumerate()
+            .map(|(index, file)| {
+                ListRow::item(
+                    file.path.clone(),
+                    file.label.clone(),
+                    ListTarget::ConfigFile(index),
+                    "source",
+                )
+            })
+            .collect()
+    }
+
+    fn schema_rows(&self) -> Vec<ListRow> {
+        let mut rows = Vec::new();
+        for (group_index, group) in self.file_sections.schemas.iter().enumerate() {
+            rows.push(ListRow::header(group.source.clone()));
+            for (file_index, file) in group.files.iter().enumerate() {
+                rows.push(ListRow::item(
+                    format!("{} · {}", file.label, group.source),
+                    file.path.clone(),
+                    ListTarget::SchemaFile {
+                        group: group_index,
+                        index: file_index,
+                    },
+                    "source",
+                ));
+            }
+        }
+        rows
+    }
+
+    fn selected_list_index(&self, rows: &[ListRow]) -> usize {
+        let selected = self.list_selected[self.section as usize];
+        if rows.get(selected).is_some_and(ListRow::is_selectable) {
+            return selected;
+        }
+        rows.iter()
+            .position(ListRow::is_selectable)
+            .unwrap_or_default()
+    }
+
+    fn clamp_list_selection(&mut self) {
+        self.ensure_rows();
+        let rows = self.cached_rows();
+        let index = self.selected_list_index(rows);
+        self.list_selected[self.section as usize] = index;
+    }
+
+    fn move_list_selection(&mut self, delta: isize) {
+        self.ensure_rows();
+        let rows = self.cached_rows();
+        if rows.is_empty() {
+            self.list_selected[self.section as usize] = 0;
+            return;
+        }
+        let mut index = self.selected_list_index(rows);
+        loop {
+            let next = if delta.is_negative() {
+                index.checked_sub(1)
+            } else {
+                (index + 1 < rows.len()).then_some(index + 1)
+            };
+            let Some(next) = next else {
+                break;
+            };
+            index = next;
+            if rows[index].is_selectable() {
+                break;
+            }
+        }
+        self.list_selected[self.section as usize] = index;
+    }
+
+    fn select_first_row(&mut self) {
+        self.ensure_rows();
+        let rows = self.cached_rows();
+        self.list_selected[self.section as usize] = rows
+            .iter()
+            .position(ListRow::is_selectable)
+            .unwrap_or_default();
+    }
+
+    fn select_last_row(&mut self) {
+        self.ensure_rows();
+        let rows = self.cached_rows();
+        self.list_selected[self.section as usize] = rows
+            .iter()
+            .rposition(ListRow::is_selectable)
+            .unwrap_or_default();
+    }
+
+    fn selected_target(&self) -> Option<ListTarget> {
+        let rows = self.cached_rows();
+        let selected = self.selected_list_index(rows);
+        rows.get(selected).map(|row| row.target.clone())
+    }
+
+    fn selected_artifact(&self) -> Option<&ArtifactView> {
+        match self.selected_target()? {
+            ListTarget::Artifact { module, kind, name }
+            | ListTarget::ProvenanceArtifact { module, kind, name } => self
+                .find_artifact(&module, &kind, &name)
+                .map(|(_, artifact)| artifact),
+            _ => None,
+        }
+    }
+
+    fn find_artifact(
+        &self,
+        module: &str,
+        kind: &str,
+        name: &str,
+    ) -> Option<(&ModuleView, &ArtifactView)> {
+        self.view
+            .modules
+            .iter()
+            .find(|candidate| candidate.name == module)
+            .and_then(|module_view| {
+                module_view
+                    .artifacts
+                    .iter()
+                    .find(|artifact| artifact.kind == kind && artifact.name == name)
+                    .map(|artifact| (module_view, artifact))
+            })
+    }
+
+    fn find_adr(&self, repo: &str, id: &str) -> Option<&Adr> {
+        self.view
+            .adrs
+            .iter()
+            .find(|adr| adr.repo == repo && adr.id == id)
+    }
+
+    fn settings_file(&self, group: usize, index: usize) -> Option<&files::ConfigFile> {
+        self.file_sections
+            .settings
+            .get(group)
+            .and_then(|group| group.files.get(index))
+    }
+
+    fn hook_entry(&self, group: usize, index: usize) -> Option<&files::HookEntry> {
+        self.file_sections
+            .hooks
+            .get(group)
+            .and_then(|group| group.hooks.get(index))
+    }
+
+    fn schema_file(&self, group: usize, index: usize) -> Option<&files::ConfigFile> {
+        self.file_sections
+            .schemas
+            .get(group)
+            .and_then(|group| group.files.get(index))
+    }
+
+    fn provenance_entries<'a>(
+        &'a self,
+        module: &ModuleView,
+        artifact: &ArtifactView,
+    ) -> Vec<&'a ProvenanceArtifact> {
+        self.view
+            .provenance
+            .iter()
+            .filter(|record| {
+                canonical_source(&record.source_uri) == canonical_source(&module.source_uri)
+            })
+            .flat_map(|record| record.artifacts.iter())
+            .filter(|entry| entry.source_path.ends_with(&artifact.relative_path))
+            .collect()
+    }
+
+    fn provenance_lines(&self, module: &ModuleView, artifact: &ArtifactView) -> Vec<Line<'static>> {
+        let mut lines = vec![
+            Line::from(Span::styled(
+                "Provenance chain",
+                Style::default().add_modifier(Modifier::BOLD),
+            )),
+            Line::from(format!(
+                "status: {} · {}",
+                artifact.overall_status(),
+                artifact.staleness_label()
+            )),
+        ];
+        if let Some(adoption) = &artifact.adoption {
+            lines.push(Line::from(format!(
+                "Upstream: {} @ {}",
+                adoption.source_label, adoption.source_sha
+            )));
+            lines.push(Line::from(format!(
+                "adopt/copy: {} · by {}",
+                adoption.kind, adoption.author
+            )));
+            if !adoption.dependencies.is_empty() {
+                let deps = builders::resolve_dep_links(&self.view, artifact.adoption.as_ref())
+                    .iter()
+                    .map(|dep| {
+                        if dep.module.is_empty() {
+                            dep.name.clone()
+                        } else {
+                            format!("{} -> {}", dep.name, dep.module)
+                        }
+                    })
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                lines.push(Line::from(format!("dependencies: {deps}")));
+            }
+            if !adoption.transforms.is_empty() {
+                lines.push(Line::from(format!(
+                    "transforms: {}",
+                    adoption.transforms.join(", ")
+                )));
+            }
+            lines.push(Line::from(format!("license: {}", adoption.license)));
+            lines.push(Line::from(format!("adopted by: {}", adoption.adopted_by)));
+        } else {
+            lines.push(Line::from("Upstream: authored source"));
+        }
+        lines.push(Line::from(format!("source module: {}", module.name)));
+        lines.push(Line::from(
+            "assemble: current binary metadata available in dashboard",
+        ));
+        let entries = self.provenance_entries(module, artifact);
+        let groups = builders::group_deployments(&entries);
+        if groups.is_empty() {
+            lines.push(Line::from("deploy groups: none"));
+        } else {
+            lines.push(Line::from("deploy groups"));
+            for group in groups {
+                lines.push(Line::from(format!(
+                    "  {} {}/{} verified",
+                    group.target, group.verified, group.total
+                )));
+                for harness in group.harnesses {
+                    lines.push(Line::from(format!(
+                        "    {} {} {}",
+                        harness.harness,
+                        if harness.verified { "OK" } else { "DRIFT" },
+                        harness.deployed_path
+                    )));
+                }
+            }
+        }
+        if !artifact.sidecar_warning.is_empty() {
+            lines.push(Line::from(format!("sidecar: {}", artifact.sidecar_warning)));
+        }
+        lines
+    }
+}
+
+fn render_module_detail(frame: &mut Frame<'_>, area: Rect, module: &ModuleView) {
+    let lines = vec![
+        Line::from(Span::styled(
+            module.name.clone(),
+            Style::default().add_modifier(Modifier::BOLD),
+        )),
+        Line::from(format!("version: {}", module.version)),
+        Line::from(format!("source: {}", module.source_uri)),
+        Line::from(format!(
+            "role: {}",
+            if module.is_target { "target" } else { "source" }
+        )),
+        Line::from(""),
+        Line::from(module.description.clone()),
+        Line::from(""),
+        Line::from(format!("artifacts: {}", module.artifacts.len())),
+    ];
+    frame.render_widget(
+        Paragraph::new(Text::from(lines)).wrap(Wrap { trim: false }),
+        area,
+    );
+}
+
+fn render_adr_detail(frame: &mut Frame<'_>, area: Rect, adr: &Adr) {
+    let lines = vec![
+        Line::from(Span::styled(
+            format!("{} {}", adr.id, adr.title),
+            Style::default().add_modifier(Modifier::BOLD),
+        )),
+        Line::from(format!("repo: {}", adr.repo)),
+        Line::from(format!("state: {}", adr.state)),
+        Line::from(format!("status: {}", adr.status)),
+        Line::from(format!("path: {}", adr.relative_path)),
+        Line::from(""),
+        Line::from(adr.summary.clone()),
+    ];
+    frame.render_widget(
+        Paragraph::new(Text::from(lines)).wrap(Wrap { trim: false }),
+        area,
+    );
+}
+
+fn render_file_body(frame: &mut Frame<'_>, area: Rect, content: &str, scroll: u16) {
+    let lines = if content.is_empty() {
+        vec![Line::from("")]
+    } else {
+        content
+            .lines()
+            .map(|line| Line::from(line.to_string()))
+            .collect()
+    };
+    frame.render_widget(
+        Paragraph::new(Text::from(lines))
+            .wrap(Wrap { trim: false })
+            .scroll((scroll, 0)),
+        area,
+    );
+}
+
+fn render_hook_detail(frame: &mut Frame<'_>, area: Rect, hook: &files::HookEntry, scroll: u16) {
+    let (_, command) = files::unwrap_shell(&hook.command);
+    let lines = vec![
+        Line::from(vec![
+            Span::styled("event: ", Style::default().fg(Color::Magenta)),
+            Span::raw(hook.event.clone()),
+        ]),
+        Line::from(vec![
+            Span::styled("matcher: ", Style::default().fg(Color::Magenta)),
+            Span::raw(value_or_any(&hook.matcher).to_string()),
+        ]),
+        Line::from(vec![
+            Span::styled("source: ", Style::default().fg(Color::Magenta)),
+            Span::raw(hook.source.clone()),
+        ]),
+        Line::from(""),
+        Line::from(command),
+    ];
+    frame.render_widget(
+        Paragraph::new(Text::from(lines))
+            .wrap(Wrap { trim: false })
+            .scroll((scroll, 0)),
+        area,
+    );
+}
+
+fn render_help(frame: &mut Frame<'_>, area: Rect) {
+    frame.render_widget(Clear, area);
+    let block = Block::default()
+        .title(" Help ")
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::Magenta));
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+
+    let columns = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Ratio(1, 2), Constraint::Ratio(1, 2)])
+        .split(inner);
+    for (column_index, column) in columns.iter().enumerate() {
+        let groups = KEYBINDINGS
+            .iter()
+            .enumerate()
+            .filter(|(index, _)| index % 2 == column_index)
+            .map(|(_, group)| *group);
+        let mut lines = Vec::new();
+        for (group, bindings) in groups {
+            lines.push(Line::from(Span::styled(
+                group,
+                Style::default()
+                    .fg(Color::Magenta)
+                    .add_modifier(Modifier::BOLD),
+            )));
+            for (key, description) in bindings {
+                lines.push(Line::from(vec![
+                    Span::styled(
+                        format!("{key:<12}"),
+                        Style::default().add_modifier(Modifier::BOLD),
+                    ),
+                    Span::styled(*description, Style::default().fg(Color::DarkGray)),
+                ]));
+            }
+            lines.push(Line::from(""));
+        }
+        frame.render_widget(Paragraph::new(Text::from(lines)), *column);
     }
 }
 
@@ -275,11 +1764,262 @@ pub fn load_provider_targets(root: &Path) -> Vec<(String, String)> {
     targets
 }
 
-fn pane_from_index(index: usize) -> Pane {
-    match index {
-        0 => Pane::Artifacts,
-        1 => Pane::Provenance,
-        2 => Pane::Projects,
-        _ => Pane::Sources,
+fn empty_dashboard_view() -> DashboardView {
+    DashboardView {
+        modules: Vec::new(),
+        summary: StatusSummary::default(),
+        provenance: Vec::new(),
+        adrs: Vec::new(),
     }
+}
+
+fn column_block(title: &str, focused: bool) -> Block<'_> {
+    Block::default()
+        .title(title)
+        .borders(Borders::ALL)
+        .border_style(if focused {
+            Style::default().fg(Color::Cyan)
+        } else {
+            Style::default().fg(Color::DarkGray)
+        })
+}
+
+fn selected_style(focused: bool) -> Style {
+    if focused {
+        Style::default()
+            .fg(Color::Black)
+            .bg(Color::Cyan)
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default()
+            .fg(Color::White)
+            .add_modifier(Modifier::BOLD)
+    }
+}
+
+fn artifact_row(artifact: &ArtifactView, module: &str) -> ListRow {
+    let warning = if artifact.has_broken_refs() || !artifact.sidecar_warning.is_empty() {
+        " ⚠"
+    } else {
+        ""
+    };
+    let age = artifact.age_label();
+    let deploy = if artifact.deployed_count() == 0 {
+        "src".to_string()
+    } else {
+        format!("↗{}", artifact.deployed_count())
+    };
+    ListRow::item(
+        format!("{}{}", artifact.name, warning),
+        format!(
+            "{} · {} · {} · {}",
+            artifact.kind,
+            module,
+            value_or_any(&age),
+            deploy
+        ),
+        ListTarget::Artifact {
+            module: module.to_string(),
+            kind: artifact.kind.clone(),
+            name: artifact.name.clone(),
+        },
+        artifact.overall_status(),
+    )
+}
+
+fn status_dot(status: &str) -> &'static str {
+    match status {
+        "modified" | "stale" | "new" => "●",
+        _ => "·",
+    }
+}
+
+fn status_style(status: &str) -> Style {
+    match status {
+        "modified" => Style::default().fg(Color::Red),
+        "stale" => Style::default().fg(Color::Yellow),
+        "new" => Style::default().fg(Color::Blue),
+        "source" => Style::default().fg(Color::DarkGray),
+        _ => Style::default().fg(Color::Green),
+    }
+}
+
+fn value_or_any(value: &str) -> &str {
+    if value.is_empty() { "any" } else { value }
+}
+
+fn hint_row() -> String {
+    KEYBINDINGS
+        .iter()
+        .flat_map(|(_, bindings)| bindings.iter())
+        .take(8)
+        .map(|(key, description)| format!("{key} {description}"))
+        .collect::<Vec<_>>()
+        .join("  ·  ")
+}
+
+fn preview_lines(artifact: &ArtifactView) -> Vec<Line<'static>> {
+    let mut lines = vec![
+        Line::from(Span::styled(
+            format!(
+                "{} · {} · {}",
+                artifact.kind, artifact.name, artifact.module
+            ),
+            Style::default().add_modifier(Modifier::BOLD),
+        )),
+        Line::from(format!(
+            "{} lines · {} · {} {}",
+            artifact.total_lines(),
+            value_or_any(&artifact.age_label()),
+            if artifact.staleness_rank() == 0 {
+                "✓"
+            } else {
+                "⚠"
+            },
+            artifact.staleness_label()
+        )),
+    ];
+    if !artifact.broken_refs.is_empty() {
+        lines.push(Line::from(format!(
+            "broken refs: {}",
+            artifact.broken_refs.join(", ")
+        )));
+    }
+    if !artifact.description.is_empty() {
+        lines.push(Line::from(artifact.description.clone()));
+    }
+    lines.push(Line::from(""));
+    lines.extend(
+        artifact
+            .content_body
+            .lines()
+            .map(|line| Line::from(line.to_string())),
+    );
+    if artifact.content_body.is_empty() {
+        lines.extend(
+            artifact
+                .content_preview
+                .lines()
+                .map(|line| Line::from(line.to_string())),
+        );
+    }
+    lines
+}
+
+fn code_lines(source: &str) -> Vec<Line<'static>> {
+    if source.is_empty() {
+        return vec![Line::from("no raw source")];
+    }
+    source
+        .lines()
+        .enumerate()
+        .map(|(index, line)| {
+            Line::from(vec![
+                Span::styled(
+                    format!("{:>4} ", index + 1),
+                    Style::default().fg(Color::DarkGray),
+                ),
+                Span::raw(line.to_string()),
+            ])
+        })
+        .collect()
+}
+
+fn diff_lines(artifact: &ArtifactView) -> Vec<Line<'static>> {
+    let mut lines = vec![
+        Line::from(Span::styled(
+            "Diff",
+            Style::default().add_modifier(Modifier::BOLD),
+        )),
+        Line::from("vs deployed and source-at-deploy are computed by the dashboard route today"),
+        Line::from(
+            "TUI keeps this tab lazy and off the scan path; target reads remain a follow-up seam",
+        ),
+        Line::from(""),
+    ];
+    lines.extend(
+        artifact
+            .raw_source
+            .lines()
+            .take(30)
+            .map(|line| Line::from(format!("  {line}"))),
+    );
+    lines
+}
+
+fn frontmatter_lines(artifact: &ArtifactView) -> Vec<Line<'static>> {
+    if artifact.metadata.is_empty() {
+        return vec![Line::from("no frontmatter metadata")];
+    }
+    artifact
+        .metadata
+        .iter()
+        .map(|(key, value)| {
+            Line::from(vec![
+                Span::styled(format!("{key:<18}"), Style::default().fg(Color::Magenta)),
+                Span::raw(value.clone()),
+            ])
+        })
+        .collect()
+}
+
+fn history_lines(artifact: &ArtifactView) -> Vec<Line<'static>> {
+    if artifact.git_log.is_empty() {
+        return vec![Line::from("no git history")];
+    }
+    let mut lines = Vec::new();
+    for commit in &artifact.git_log {
+        lines.push(Line::from(Span::styled(
+            commit.message.clone(),
+            Style::default().add_modifier(Modifier::BOLD),
+        )));
+        lines.push(Line::from(format!(
+            "{} · {} · {}",
+            commit.date, commit.author, commit.sha
+        )));
+        if !commit.jj_change.is_empty() {
+            lines.push(Line::from(format!("jj: {}", commit.jj_change)));
+        }
+        if !commit.checkpoint.is_empty() {
+            lines.push(Line::from(format!(
+                "checkpoint {} · {} sessions",
+                commit.checkpoint, commit.session_count
+            )));
+            if !commit.prompt.is_empty() {
+                lines.push(Line::from(format!("intent: {}", commit.prompt)));
+            }
+        }
+        lines.push(Line::from(""));
+    }
+    lines
+}
+
+fn companion_lines(artifact: &ArtifactView) -> Vec<Line<'static>> {
+    if artifact.companions.is_empty() {
+        return vec![Line::from("no companions")];
+    }
+    let mut lines = Vec::new();
+    for companion in &artifact.companions {
+        lines.push(Line::from(Span::styled(
+            companion.name.clone(),
+            Style::default().add_modifier(Modifier::BOLD),
+        )));
+        lines.push(Line::from(format!("path: {}", companion.relative_path)));
+        if !companion.description.is_empty() {
+            lines.push(Line::from(companion.description.clone()));
+        }
+        lines.push(Line::from(""));
+        lines.extend(
+            companion
+                .content_body
+                .lines()
+                .map(|line| Line::from(line.to_string())),
+        );
+        lines.push(Line::from(""));
+    }
+    lines
+}
+
+fn canonical_source(source: &str) -> String {
+    source.trim_end_matches(".git").to_string()
 }

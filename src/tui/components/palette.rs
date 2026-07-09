@@ -1,18 +1,13 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-use ratatui::{
-    Frame,
-    layout::Rect,
-    style::{Color, Style},
-    widgets::{Block, Borders, Paragraph},
-};
-
-use super::{Component, Outcome};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PaletteCommand {
     Refresh,
     Quit,
     Find(String),
+    GoTo(String),
+    Sort(String),
+    Filter(String),
     Empty,
     Unknown(String),
 }
@@ -63,53 +58,38 @@ impl Palette {
             "r" | "refresh" => PaletteCommand::Refresh,
             "q" | "quit" => PaletteCommand::Quit,
             "find" => PaletteCommand::Find(rest.to_string()),
+            "sort" => PaletteCommand::Sort(rest.to_string()),
+            "filter" => PaletteCommand::Filter(rest.to_string()),
+            "overview" | "skills" | "agents" | "rules" | "repos" | "repositories" | "adrs"
+            | "provenance" | "variants" | "search" | "settings" | "hooks" | "config"
+            | "schemas" => PaletteCommand::GoTo(verb.to_string()),
             other => PaletteCommand::Unknown(other.to_string()),
         }
     }
 
-    pub fn render_with_error(&self, frame: &mut Frame<'_>, area: Rect, error: Option<&str>) {
-        let border_style = if self.open {
-            Style::default().fg(Color::Cyan)
-        } else {
-            Style::default().fg(Color::DarkGray)
-        };
-        let text = if let Some(error) = error {
+    pub fn display_text(&self, error: Option<&str>) -> String {
+        if let Some(error) = error {
             format!("error: {error}")
         } else {
             let prefix = if self.open { ":" } else { "" };
             format!("{prefix}{}", self.input)
-        };
-        frame.render_widget(
-            Paragraph::new(text).block(
-                Block::default()
-                    .title(" Command ")
-                    .borders(Borders::ALL)
-                    .border_style(border_style),
-            ),
-            area,
-        );
-    }
-}
-
-impl Component for Palette {
-    fn render(&self, frame: &mut Frame<'_>, area: Rect) {
-        self.render_with_error(frame, area, None);
+        }
     }
 
-    fn on_key(&mut self, key: KeyEvent) -> Outcome {
+    pub fn on_key(&mut self, key: KeyEvent) -> bool {
         match key.code {
             KeyCode::Backspace => {
                 self.input.pop();
-                Outcome::Handled
+                true
             }
             KeyCode::Char(character)
                 if key.modifiers.is_empty() || key.modifiers == KeyModifiers::SHIFT =>
             {
                 self.input.push(character);
-                Outcome::Handled
+                true
             }
             // TODO: numbered selection and 3-level tab-completion for v2.
-            _ => Outcome::Ignored,
+            _ => false,
         }
     }
 }

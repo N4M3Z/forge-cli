@@ -1,4 +1,6 @@
 use askama::Template;
+pub use commands::services::builders::{DepLink, MatrixView, NestedGroup, VariantCoverage};
+pub use commands::services::files::{ConfigFile, HarnessHooks};
 use commands::view::{ArtifactView, DashboardView, ModuleView};
 
 /// Shared status + search bar loaded into card-list views via htmx.
@@ -23,82 +25,12 @@ pub struct OverviewTemplate<'a> {
     pub matrix: Option<MatrixView>,
 }
 
-/// A primary-facet section in the nested overview (e.g. one kind, or one module).
-pub struct NestedGroup<'a> {
-    pub label: String,
-    /// Kind name when the outer facet is kind (drives the color class); else empty.
-    pub kind: String,
-    pub count: usize,
-    pub subgroups: Vec<NestedSub<'a>>,
-}
-
-/// A secondary-facet sub-section holding the artifact rows.
-pub struct NestedSub<'a> {
-    pub label: String,
-    pub kind: String,
-    pub count: usize,
-    pub items: Vec<&'a ArtifactView>,
-}
-
-/// Count matrix: rows = modules, columns = kinds, cells = counts.
-pub struct MatrixView {
-    pub cols: Vec<String>,
-    pub rows: Vec<MatrixRow>,
-    pub col_totals: Vec<usize>,
-    pub total: usize,
-}
-
-pub struct MatrixRow {
-    pub module: String,
-    pub cells: Vec<MatrixCell>,
-    pub total: usize,
-}
-
-pub struct MatrixCell {
-    pub kind: String,
-    pub module: String,
-    pub count: usize,
-    /// Worst status among the cell's artifacts, or empty when the cell is empty.
-    pub status: String,
-}
-
-/// Coverage grid for model/harness variants: rows = artifacts that carry at
-/// least one qualifier override, columns = the distinct qualifiers seen across
-/// all such artifacts, cells = the merge mode for that (artifact, qualifier).
 #[derive(Template)]
 #[template(path = "dashboard/pages/variants.html")]
 pub struct VariantsTemplate<'a> {
     pub tab: &'a str,
     pub version: &'a str,
     pub coverage: VariantCoverage,
-}
-
-pub struct VariantCoverage {
-    pub cols: Vec<VariantCol>,
-    pub rows: Vec<VariantCoverageRow>,
-    pub col_totals: Vec<usize>,
-}
-
-pub struct VariantCol {
-    pub qualifier: String,
-    /// Provider segment, drives the column tint.
-    pub provider: String,
-    /// Short header label: the model segment, or the provider when there is none.
-    pub label: String,
-}
-
-pub struct VariantCoverageRow {
-    pub module: String,
-    pub kind: String,
-    pub name: String,
-    pub cells: Vec<VariantCoverageCell>,
-}
-
-pub struct VariantCoverageCell {
-    /// Merge mode (`replace`/`append`/`prepend`) when a variant exists, else empty.
-    pub mode: String,
-    /// `/effective/...` link for a present cell, else empty.
-    pub link: String,
 }
 
 #[derive(Template)]
@@ -123,15 +55,6 @@ pub struct ModulesTemplate<'a> {
 #[template(path = "dashboard/pages/module_detail.html")]
 pub struct ModuleDetailTemplate<'a> {
     pub module: &'a ModuleView,
-}
-
-/// A resolved adoption dependency: its module is filled in when a scanned
-/// module contains a skill of that name, so the chip can link to the right
-/// copy. An empty module renders as plain text (no link).
-pub struct DepLink {
-    pub name: String,
-    pub uri: String,
-    pub module: String,
 }
 
 #[derive(Template)]
@@ -217,40 +140,6 @@ pub struct DeployedTemplate<'a> {
     pub content_body: String,
     pub raw_source: String,
     pub source: String,
-}
-
-/// A read-only config/settings file shown in the dashboard.
-pub struct ConfigFile {
-    pub label: String,
-    pub path: String,
-    pub language: String,
-    pub content: String,
-}
-
-/// One registered hook parsed from a settings.json `hooks` block.
-pub struct HookEntry {
-    pub event: String,
-    pub matcher: String,
-    pub command: String,
-    pub source: String,
-}
-
-/// Settings/config files found in one harness's target directory.
-pub struct HarnessFiles {
-    pub harness: String,
-    pub files: Vec<ConfigFile>,
-}
-
-/// Hooks parsed from one harness's settings files.
-pub struct HarnessHooks {
-    pub harness: String,
-    pub hooks: Vec<HookEntry>,
-}
-
-/// `.mdschema` and `.manifest` files from one source (a repo or a deploy target).
-pub struct SchemaGroup {
-    pub source: String,
-    pub files: Vec<ConfigFile>,
 }
 
 #[derive(Template)]

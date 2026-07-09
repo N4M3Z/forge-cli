@@ -6,7 +6,9 @@
 //! and groups artifacts by their source module (via provenance `source_uri`).
 
 mod adr;
+pub mod builders;
 mod discovery;
+pub mod files;
 mod history;
 mod provenance;
 mod references;
