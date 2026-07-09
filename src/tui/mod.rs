@@ -33,7 +33,7 @@ pub fn run() -> i32 {
 }
 
 fn launch() -> Result<(), Box<dyn std::error::Error>> {
-    let mut app = App::load(PathBuf::from("."))?;
+    let mut app = App::load(PathBuf::from("."));
     let mut terminal = setup_terminal()?;
     install_panic_hook();
 
@@ -71,11 +71,12 @@ fn install_panic_hook() {
 
 fn event_loop(terminal: &mut TuiTerminal, app: &mut App) -> Result<(), Box<dyn std::error::Error>> {
     while !app.should_quit() {
+        app.poll_scan();
         terminal.draw(|frame| app.render(frame))?;
         if terminal_event::poll(Duration::from_millis(200))?
             && let terminal_event::Event::Key(key) = terminal_event::read()?
         {
-            event::handle_key(app, key)?;
+            event::handle_key(app, key);
         }
     }
     Ok(())
