@@ -1,5 +1,6 @@
 use crate::error::{Error, ErrorKind};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -32,9 +33,120 @@ pub struct Ontology {
     pub domain: Option<String>,
 }
 
-#[derive(Debug, Clone, Deserialize, Default)]
+#[derive(Debug, Clone, Deserialize, Default, PartialEq, Eq)]
 #[serde(default)]
-pub struct Launch {}
+pub struct Launch {
+    #[serde(alias = "default-with")]
+    pub default_with: Vec<String>,
+    pub tools: HashMap<String, LaunchTool>,
+    pub middleware: LaunchMiddleware,
+}
+
+#[derive(Debug, Clone, Deserialize, Default, PartialEq, Eq)]
+#[serde(default)]
+pub struct LaunchTool {
+    pub binary: Option<String>,
+    #[serde(alias = "base-url-env")]
+    pub base_url_env: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Default, PartialEq, Eq)]
+#[serde(default)]
+pub struct LaunchMiddleware {
+    pub pxpipe: PxpipeConfig,
+    pub otel: OtelConfig,
+    pub presidio: PresidioConfig,
+    pub squid: SquidConfig,
+    pub docker: DockerConfig,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[serde(default)]
+pub struct PxpipeConfig {
+    pub base_url: String,
+    pub host: String,
+    pub port: u16,
+    pub command: String,
+    pub log_path: String,
+}
+
+impl Default for PxpipeConfig {
+    fn default() -> Self {
+        Self {
+            base_url: "http://127.0.0.1:47821".to_string(),
+            host: "127.0.0.1".to_string(),
+            port: 47_821,
+            command: "pxpipe".to_string(),
+            log_path: "~/.pxpipe/proxy.log".to_string(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[serde(default)]
+pub struct OtelConfig {
+    pub endpoint: String,
+    pub service_name: String,
+}
+
+impl Default for OtelConfig {
+    fn default() -> Self {
+        Self {
+            endpoint: "http://127.0.0.1:4318".to_string(),
+            service_name: "forge-launch".to_string(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[serde(default)]
+pub struct PresidioConfig {
+    pub base_url: String,
+    pub host: String,
+    pub port: u16,
+}
+
+impl Default for PresidioConfig {
+    fn default() -> Self {
+        Self {
+            base_url: "http://127.0.0.1:47822".to_string(),
+            host: "127.0.0.1".to_string(),
+            port: 47_822,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[serde(default)]
+pub struct SquidConfig {
+    pub http_proxy: String,
+    pub https_proxy: String,
+}
+
+impl Default for SquidConfig {
+    fn default() -> Self {
+        Self {
+            http_proxy: "http://127.0.0.1:3128".to_string(),
+            https_proxy: "http://127.0.0.1:3128".to_string(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[serde(default)]
+pub struct DockerConfig {
+    pub image: String,
+    pub args: Vec<String>,
+}
+
+impl Default for DockerConfig {
+    fn default() -> Self {
+        Self {
+            image: "ghcr.io/n4m3z/forge-coding-tool:latest".to_string(),
+            args: Vec::new(),
+        }
+    }
+}
 
 #[derive(Debug, Clone, Deserialize, Default)]
 #[serde(default)]
@@ -81,6 +193,8 @@ pub struct ResolvedValue {
 pub struct ResolvedConfig {
     pub ontology: ResolvedOntology,
     pub extensions: Vec<PathBuf>,
+    #[serde(skip)]
+    pub launch: Launch,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -323,6 +437,7 @@ fn resolve_config(config: &Config, env: &dyn Fn(&str) -> Option<String>) -> Reso
     ResolvedConfig {
         ontology,
         extensions,
+        launch: config.launch.clone(),
     }
 }
 

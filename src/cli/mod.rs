@@ -12,6 +12,7 @@ mod exec;
 mod find;
 mod init;
 mod install;
+mod launch;
 mod ontology;
 mod output;
 mod provenance;
@@ -283,6 +284,19 @@ enum Command {
         rest: Vec<OsString>,
     },
 
+    /// Launch a coding tool with composable environment middleware
+    #[command(
+        after_help = "LAUNCH OPTIONS:\n  --with <A,B>      Middleware chain to apply in order\n  --pxpipe          Legacy sugar for --with pxpipe\n  --direct          Clear the configured/default middleware chain\n  --tmux[=NAME]     Wrap the launch in a tmux session\n  --dry-run         Print the resolved launch plan without spawning\n  -- ARGS...        Arguments passed to the launched tool"
+    )]
+    Launch {
+        /// Coding tool to launch, such as `claude`.
+        tool: String,
+
+        /// Launch options and tool args after `--`.
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        rest: Vec<OsString>,
+    },
+
     /// Launch a read-only web dashboard showing artifact state, provenance,
     /// and deployment status across all providers
     #[cfg(feature = "dashboard")]
@@ -460,6 +474,9 @@ pub fn run() -> i32 {
         Command::Find { query, kind } => return exit_code(find::execute(&query, kind, args.json)),
         Command::Exec { skill, rest } => {
             return exit_code(exec::execute_cli(&skill, args.json, &rest));
+        }
+        Command::Launch { tool, rest } => {
+            return exit_code(launch::execute_cli(&tool, &rest));
         }
         #[cfg(feature = "dashboard")]
         Command::Dashboard { root, port } => return exit_code(dashboard::execute(&root, port)),
