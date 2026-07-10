@@ -115,9 +115,12 @@ pub fn build_view(
         for artifact in &mut module.artifacts {
             artifact.module.clone_from(&module.name);
             artifact.module_tint = tint;
-            artifact.vcs = repo_vcs
-                .as_ref()
-                .map(|state| state.state_for(&artifact.relative_path));
+            let vcs_path = if artifact.source_path.is_empty() {
+                &artifact.relative_path
+            } else {
+                &artifact.source_path
+            };
+            artifact.vcs = repo_vcs.as_ref().map(|state| state.state_for(vcs_path));
             let (broken, age) = artifact_staleness(
                 repo,
                 &artifact.relative_path,

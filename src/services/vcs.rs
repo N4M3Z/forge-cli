@@ -59,13 +59,8 @@ pub(super) fn repo_vcs(module_dir: &Path) -> Option<RepoVcs> {
     let root = std::fs::canonicalize(root_raw.trim()).ok()?;
     let jj_colocated = root.join(".jj").is_dir();
     let branch = branch_label(module_dir, jj_colocated);
-    let (behind, ahead) = git_stdout(
-        module_dir,
-        &["rev-list", "--left-right", "--count", "@{upstream}...HEAD"],
-    )
-    .and_then(|out| parse_counts(&out))
-    .unwrap_or((0, 0));
-    let status = git_stdout(module_dir, &["status", "--porcelain"]).unwrap_or_default();
+    let (behind, ahead) = upstream_counts(module_dir, &branch);
+    let status = git_stdout(module_dir, &["status", "--porcelain", "-z"]).unwrap_or_default();
     let (dirty, untracked) = parse_status(&status);
     let module_canonical = std::fs::canonicalize(module_dir).ok()?;
     let prefix = module_canonical
@@ -149,6 +144,37 @@ fn command_stdout(dir: &Path, program: &str, args: &[&str]) -> Option<String> {
     Some(String::from_utf8_lossy(&output.stdout).into_owned())
 }
 
+/// Ahead/behind relative to the upstream. `@{upstream}` needs an attached
+/// HEAD, which jj-colocated repos never have — fall back to the resolved
+/// branch's configured upstream, then to `origin/<branch>`.
+fn upstream_counts(dir: &Path, branch: &str) -> (usize, usize) {
+    for range in upstream_ranges(branch) {
+        let counts = git_stdout(dir, &["rev-list", "--left-right", "--count", &range])
+            .and_then(|out| parse_counts(&out));
+        if let Some(counts) = counts {
+            return counts;
+        }
+    }
+    (0, 0)
+}
+
+/// The branch label may carry jj artifacts: several bookmarks joined by
+/// commas, or a `??` conflicted-bookmark suffix. Use the first bookmark,
+/// stripped, for the fallback ranges.
+fn upstream_ranges(branch: &str) -> Vec<String> {
+    let mut ranges = vec!["@{upstream}...HEAD".to_string()];
+    let cleaned = branch
+        .split(',')
+        .next()
+        .unwrap_or_default()
+        .trim_end_matches('?');
+    if !cleaned.is_empty() && !cleaned.starts_with("detached ") {
+        ranges.push(format!("{cleaned}@{{upstream}}...HEAD"));
+        ranges.push(format!("origin/{cleaned}...HEAD"));
+    }
+    ranges
+}
+
 /// `git rev-list --left-right --count @{upstream}...HEAD` prints
 /// `<behind>\t<ahead>`: left side counts commits only on the upstream.
 fn parse_counts(raw: &str) -> Option<(usize, usize)> {
@@ -158,26 +184,27 @@ fn parse_counts(raw: &str) -> Option<(usize, usize)> {
     Some((behind, ahead))
 }
 
-/// Splits porcelain v1 status lines into (dirty, untracked) path sets.
-/// Renames keep the new path; quoted paths are unquoted.
+/// Splits `git status --porcelain -z` output into (dirty, untracked) path
+/// sets. NUL separation means paths arrive verbatim — no C-style quoting to
+/// decode and no ` -> ` rename ambiguity. A rename or copy entry carries the
+/// new path inline and its original path as the following NUL field, which is
+/// consumed and dropped.
 fn parse_status(raw: &str) -> (HashSet<String>, HashSet<String>) {
     let mut dirty = HashSet::new();
     let mut untracked = HashSet::new();
-    for line in raw.lines() {
-        if line.len() < 4 {
+    let mut fields = raw.split('\0');
+    while let Some(entry) = fields.next() {
+        if entry.len() < 4 || !entry.is_char_boundary(3) {
             continue;
         }
-        let (code, rest) = line.split_at(3);
-        let path = rest
-            .rsplit(" -> ")
-            .next()
-            .unwrap_or(rest)
-            .trim_matches('"')
-            .to_string();
+        let (code, path) = entry.split_at(3);
         if code.starts_with("??") {
-            untracked.insert(path);
-        } else {
-            dirty.insert(path);
+            untracked.insert(path.to_string());
+            continue;
+        }
+        dirty.insert(path.to_string());
+        if code.contains('R') || code.contains('C') {
+            let _original_path = fields.next();
         }
     }
     (dirty, untracked)
@@ -190,7 +217,7 @@ mod tests {
     #[test]
     fn parse_status_separates_dirty_and_untracked() {
         let (dirty, untracked) =
-            parse_status(" M agents/Analyst.md\n?? skills/NewSkill/\nR  old.md -> rules/new.md\n");
+            parse_status(" M agents/Analyst.md\0?? skills/NewSkill/\0R  rules/new.md\0old.md\0");
         assert!(dirty.contains("agents/Analyst.md"));
         assert!(dirty.contains("rules/new.md"));
         assert!(untracked.contains("skills/NewSkill/"));
@@ -198,8 +225,15 @@ mod tests {
     }
 
     #[test]
+    fn parse_status_keeps_special_characters_verbatim() {
+        let (dirty, _) = parse_status(" M skills/Nový/SKILL.md\0 M skills/a -> b/SKILL.md\0");
+        assert!(dirty.contains("skills/Nový/SKILL.md"));
+        assert!(dirty.contains("skills/a -> b/SKILL.md"));
+    }
+
+    #[test]
     fn untracked_directory_covers_children() {
-        let (dirty, untracked) = parse_status("?? skills/NewSkill/\n");
+        let (dirty, untracked) = parse_status("?? skills/NewSkill/\0");
         let repo = RepoVcs {
             branch: "main".to_string(),
             ahead: 0,

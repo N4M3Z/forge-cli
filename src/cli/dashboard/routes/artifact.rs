@@ -212,6 +212,7 @@ pub(super) async fn companion_detail(
         kind: "skills".to_string(),
         module: module_name,
         relative_path: companion.relative_path.clone(),
+        source_path: companion.relative_path.clone(),
         description: companion.description.clone(),
         content_preview: String::new(),
         content_body: companion.content_body.clone(),
@@ -234,6 +235,7 @@ pub(super) async fn companion_detail(
         module_tint: 0,
         companions: Vec::new(),
         variants: Vec::new(),
+        vcs: None,
     };
     let companion_label = format!("{parent} / {name}");
     let provenance_raw = scan::read_source_sidecar(

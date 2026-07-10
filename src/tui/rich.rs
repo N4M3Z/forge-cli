@@ -51,7 +51,12 @@ fn glow_style_path() -> Option<String> {
     STYLE_PATH
         .get_or_init(|| {
             let path = std::env::temp_dir().join("forge-glow-style.json");
-            std::fs::write(&path, include_str!("glow_style.json")).ok()?;
+            let staging = std::env::temp_dir()
+                .join(format!("forge-glow-style-{}.json.tmp", std::process::id()));
+            // Write-then-rename keeps concurrent forge processes from ever
+            // observing a truncated style file.
+            std::fs::write(&staging, include_str!("glow_style.json")).ok()?;
+            std::fs::rename(&staging, &path).ok()?;
             Some(path.to_string_lossy().into_owned())
         })
         .clone()

@@ -230,6 +230,7 @@ fn build_source_artifact(
         kind: kind.to_string(),
         module: String::new(),
         relative_path: relative_path.to_string(),
+        source_path: relative_path.to_string(),
         description,
         content_preview,
         content_body,
