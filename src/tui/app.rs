@@ -22,7 +22,7 @@ use commands::{
         files::{self, FileSections},
     },
     view::{
-        Adr, ArtifactView, DashboardView, ModuleView, ProvenanceArtifact, StatusSummary,
+        Adr, ArtifactView, DashboardView, ModuleView, ProvenanceArtifact, StatusSummary, VcsState,
         WorktreeState,
     },
 };
@@ -87,6 +87,7 @@ pub const KEYBINDINGS: &[(&str, &[(&str, &str)])] = &[
             ("p", "preview tab"),
             ("m", "comment line (from any detail tab)"),
             ("Y", "copy tuicr comments"),
+            ("o/O", "open gitui / jjui on repository"),
         ],
     ),
     ("Global", &[("?", "help"), ("F1", "help"), ("q", "quit")]),
@@ -206,7 +207,7 @@ pub enum DetailTab {
 }
 
 impl DetailTab {
-    const ALL: [Self; DETAIL_TAB_COUNT] = [
+    pub(super) const ALL: [Self; DETAIL_TAB_COUNT] = [
         Self::Preview,
         Self::Code,
         Self::Diff,
@@ -216,7 +217,7 @@ impl DetailTab {
         Self::Companions,
     ];
 
-    fn label(self) -> &'static str {
+    pub(super) fn label(self) -> &'static str {
         match self {
             Self::Preview => "Preview",
             Self::Code => "Code",
@@ -360,14 +361,17 @@ struct MouseRegions {
     tabs: Rect,
 }
 
+/// Rendered lines for the current detail view, rebuilt only when the target,
+/// tab, or pane width changes — per-frame rebuilds are what made the detail
+/// pane feel slow.
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct PreviewCache {
-    path: String,
+struct DetailCache {
+    key: String,
     width: u16,
     lines: Vec<Line<'static>>,
-    /// True when glow produced the lines: glow wraps at the pane width itself,
-    /// so the paragraph must not re-wrap (that breaks tables and prose).
-    glow: bool,
+    /// Lines already wrapped at the pane width (glow output): render a
+    /// scrolled window without Paragraph wrap, which would break tables.
+    windowed: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -433,7 +437,7 @@ pub struct App {
     rows_dirty: bool,
     #[cfg(test)]
     row_build_count: usize,
-    preview_cache: Option<PreviewCache>,
+    preview_cache: Option<DetailCache>,
     code_cache: Option<CodeCache>,
     comments: BTreeMap<(String, usize), LineComment>,
     comment_prompt: Option<CommentPrompt>,
@@ -453,6 +457,9 @@ pub struct App {
     help_state: HelpState,
     palette: Palette,
     mouse_regions: MouseRegions,
+    /// External TUI (gitui/jjui) queued to run in a repo; the event loop
+    /// suspends the terminal, runs it, and resumes.
+    pending_external: Option<(String, PathBuf)>,
 }
 
 impl App {
@@ -521,6 +528,7 @@ impl App {
             help_state: HelpState::Closed,
             palette: Palette::new(),
             mouse_regions: MouseRegions::default(),
+            pending_external: None,
         }
     }
 
@@ -601,8 +609,35 @@ impl App {
     }
 
     pub fn render(&mut self, frame: &mut Frame<'_>) {
-        if let Some(preview) = self.preview.as_mut() {
-            preview.render(frame, frame.area());
+        if self.preview.is_some() {
+            let area = frame.area();
+            let inner_width = area.width.saturating_sub(2).max(1);
+            let tab = self.detail_tab;
+            let needs_rebuild = self
+                .preview
+                .as_ref()
+                .is_some_and(|preview| preview.needs_rebuild(tab, inner_width));
+            if needs_rebuild {
+                let artifact = self
+                    .preview
+                    .as_ref()
+                    .map(|preview| preview.artifact().clone())
+                    .expect("preview is open");
+                let (lines, windowed) = {
+                    let module = self
+                        .view
+                        .modules
+                        .iter()
+                        .find(|module| module.name == artifact.module);
+                    self.build_detail_lines(module, &artifact, tab, inner_width)
+                };
+                if let Some(preview) = self.preview.as_mut() {
+                    preview.set_lines(tab, inner_width, lines, windowed);
+                }
+            }
+            if let Some(preview) = self.preview.as_mut() {
+                preview.render(frame, area);
+            }
             return;
         }
 
@@ -773,15 +808,15 @@ impl App {
                 }
             }
             Some(ListTarget::Adr { repo, id }) => {
-                if let Some(adr) = self.find_adr(&repo, &id) {
-                    render_adr_detail(frame, inner, adr);
+                if let Some(adr) = self.find_adr(&repo, &id).cloned() {
+                    self.render_adr_rich(frame, inner, &adr);
                 } else {
                     frame.render_widget(Paragraph::new("ADR not found"), inner);
                 }
             }
             Some(ListTarget::Module(name)) => {
                 if let Some(module) = self.view.modules.iter().find(|module| module.name == name) {
-                    render_module_detail(frame, inner, module);
+                    render_module_detail(frame, inner, module, self.detail_scroll);
                 } else {
                     frame.render_widget(Paragraph::new("repository not found"), inner);
                 }
@@ -840,65 +875,97 @@ impl App {
         self.mouse_regions.tabs = chunks[0];
         self.render_tabs(frame, chunks[0]);
         self.prepare_artifact_detail_cache(module_index, artifact_index, chunks[1].width);
-        let viewport = usize::from(chunks[1].height.max(1));
-        // Pre-wrapped tabs render only the visible window of their cached
-        // lines: cloning and laying out a whole file per frame makes large
-        // code views unusably slow.
-        let windowed = match self.detail_tab {
-            DetailTab::Code => true,
-            DetailTab::Preview => self.preview_cache.as_ref().is_some_and(|cache| cache.glow),
-            _ => false,
-        };
-        if windowed {
-            self.clamp_detail_scroll(viewport);
-        }
-        let module = &self.view.modules[module_index];
-        let artifact = &module.artifacts[artifact_index];
-        let lines = match self.detail_tab {
-            DetailTab::Preview if windowed => self.preview_window(viewport),
-            DetailTab::Preview => self.preview_cache_lines(),
-            DetailTab::Code => self.code_window(artifact, viewport),
-            DetailTab::Diff => diff_lines(artifact),
-            DetailTab::Provenance => self.provenance_lines(module, artifact),
-            DetailTab::Frontmatter => frontmatter_lines(artifact),
-            DetailTab::History => history_lines(artifact),
-            DetailTab::Companions => companion_lines(artifact),
-        };
-        let mut paragraph = Paragraph::new(Text::from(lines));
-        match (windowed, self.detail_tab) {
-            // The code window is pre-sliced; wrapping the visible slice keeps
-            // long lines readable without paying whole-file layout costs.
-            (true, DetailTab::Code) => paragraph = paragraph.wrap(Wrap { trim: false }),
-            // Glow output is pre-wrapped at pane width; re-wrapping breaks
-            // tables.
-            (true, _) => {}
-            (false, _) => {
-                paragraph = paragraph
-                    .wrap(Wrap { trim: false })
-                    .scroll((self.detail_scroll, 0));
-            }
-        }
-        frame.render_widget(paragraph, chunks[1]);
-    }
-
-    fn clamp_detail_scroll(&mut self, viewport: usize) {
-        // The Code tab's cursor is the top visible line, so every line must be
-        // able to reach the top — clamp to the last line, not the last page.
-        let max_scroll = match self.detail_tab {
-            DetailTab::Code => self
+        if self.detail_tab == DetailTab::Code {
+            let viewport = usize::from(chunks[1].height.max(1));
+            // The cursor is the top visible line, so every line must be able
+            // to reach the top — clamp to the last line, not the last page.
+            let max_scroll = self
                 .code_cache
                 .as_ref()
                 .map_or(0, |cache| cache.lines.len())
-                .saturating_sub(1),
-            _ => self
+                .saturating_sub(1);
+            self.detail_scroll = self
+                .detail_scroll
+                .min(u16::try_from(max_scroll).unwrap_or(u16::MAX));
+            let artifact = &self.view.modules[module_index].artifacts[artifact_index];
+            let lines = self.code_window(artifact, viewport);
+            // The window is pre-sliced; wrapping the visible slice keeps long
+            // lines readable without paying whole-file layout costs.
+            frame.render_widget(
+                Paragraph::new(Text::from(lines)).wrap(Wrap { trim: false }),
+                chunks[1],
+            );
+        } else {
+            self.render_cached_detail(frame, chunks[1]);
+        }
+    }
+
+    /// Full ADR document rendered through the markdown pipeline, replacing the
+    /// one-paragraph summary that used to cut the body off.
+    fn render_adr_rich(&mut self, frame: &mut Frame<'_>, area: Rect, adr: &Adr) {
+        let cache_width = area.width.max(1);
+        let key = format!("adr:{}", adr.local_path);
+        let needs_build = self
+            .preview_cache
+            .as_ref()
+            .is_none_or(|cache| cache.key != key || cache.width != cache_width);
+        if needs_build {
+            let raw = std::fs::read_to_string(&adr.local_path)
+                .unwrap_or_else(|error| format!("could not read {}: {error}", adr.local_path));
+            let body = commands::services::strip_frontmatter(&raw);
+            let mut lines = vec![
+                Line::from(Span::styled(
+                    format!("{} {}", adr.id, adr.title),
+                    Style::default().add_modifier(Modifier::BOLD),
+                )),
+                Line::from(format!(
+                    "{} · {} · {} · {}",
+                    adr.repo, adr.state, adr.status, adr.relative_path
+                )),
+                Line::from(""),
+            ];
+            let rendered = rich::render_markdown_with_glow(&body, cache_width);
+            let windowed = rendered.is_some();
+            match rendered {
+                Some(rendered) => lines.extend(rendered),
+                None => lines.extend(body.lines().map(|line| Line::from(line.to_string()))),
+            }
+            self.preview_cache = Some(DetailCache {
+                key,
+                width: cache_width,
+                lines,
+                windowed,
+            });
+        }
+        self.render_cached_detail(frame, area);
+    }
+
+    /// Draws the current detail cache: windowed when the lines are already
+    /// wrapped at pane width (glow), wrap-and-scroll otherwise.
+    fn render_cached_detail(&mut self, frame: &mut Frame<'_>, area: Rect) {
+        let viewport = usize::from(area.height.max(1));
+        let windowed = self
+            .preview_cache
+            .as_ref()
+            .is_some_and(|cache| cache.windowed);
+        if windowed {
+            let total = self
                 .preview_cache
                 .as_ref()
-                .map_or(0, |cache| cache.lines.len())
-                .saturating_sub(viewport),
-        };
-        self.detail_scroll = self
-            .detail_scroll
-            .min(u16::try_from(max_scroll).unwrap_or(u16::MAX));
+                .map_or(0, |cache| cache.lines.len());
+            let max_scroll = u16::try_from(total.saturating_sub(viewport)).unwrap_or(u16::MAX);
+            self.detail_scroll = self.detail_scroll.min(max_scroll);
+            let lines = self.preview_window(viewport);
+            frame.render_widget(Paragraph::new(Text::from(lines)), area);
+        } else {
+            let lines = self.preview_cache_lines();
+            frame.render_widget(
+                Paragraph::new(Text::from(lines))
+                    .wrap(Wrap { trim: false })
+                    .scroll((self.detail_scroll, 0)),
+                area,
+            );
+        }
     }
 
     fn preview_window(&self, viewport: usize) -> Vec<Line<'static>> {
@@ -920,50 +987,77 @@ impl App {
         artifact_index: usize,
         width: u16,
     ) {
-        match self.detail_tab {
-            DetailTab::Preview => {
-                let artifact = &self.view.modules[module_index].artifacts[artifact_index];
-                let path = artifact.relative_path.clone();
-                let cache_width = width.max(1);
-                let needs_build = self
-                    .preview_cache
-                    .as_ref()
-                    .is_none_or(|cache| cache.path != path || cache.width != cache_width);
-                if needs_build {
-                    let (lines, glow) = preview_lines_for_width(artifact, cache_width);
-                    self.preview_cache = Some(PreviewCache {
-                        path,
-                        width: cache_width,
-                        lines,
-                        glow,
-                    });
-                    #[cfg(test)]
-                    {
-                        self.preview_cache_build_count += 1;
-                    }
+        let cache_width = width.max(1);
+        if self.detail_tab == DetailTab::Code {
+            let artifact = &self.view.modules[module_index].artifacts[artifact_index];
+            let path = artifact.relative_path.clone();
+            let needs_build = self
+                .code_cache
+                .as_ref()
+                .is_none_or(|cache| cache.path != path);
+            if needs_build {
+                let lines = rich::highlight_code(&path, &artifact.raw_source);
+                self.code_cache = Some(CodeCache { path, lines });
+                #[cfg(test)]
+                {
+                    self.code_cache_build_count += 1;
                 }
             }
-            DetailTab::Code => {
-                let artifact = &self.view.modules[module_index].artifacts[artifact_index];
-                let path = artifact.relative_path.clone();
-                let needs_build = self
-                    .code_cache
-                    .as_ref()
-                    .is_none_or(|cache| cache.path != path);
-                if needs_build {
-                    let lines = rich::highlight_code(&path, &artifact.raw_source);
-                    self.code_cache = Some(CodeCache { path, lines });
-                    #[cfg(test)]
-                    {
-                        self.code_cache_build_count += 1;
-                    }
-                }
+            return;
+        }
+        let key = {
+            let artifact = &self.view.modules[module_index].artifacts[artifact_index];
+            detail_cache_key(self.detail_tab, &artifact.relative_path)
+        };
+        let needs_build = self
+            .preview_cache
+            .as_ref()
+            .is_none_or(|cache| cache.key != key || cache.width != cache_width);
+        if needs_build {
+            let (lines, windowed) = {
+                let module = &self.view.modules[module_index];
+                let artifact = &module.artifacts[artifact_index];
+                self.build_detail_lines(Some(module), artifact, self.detail_tab, cache_width)
+            };
+            self.preview_cache = Some(DetailCache {
+                key,
+                width: cache_width,
+                lines,
+                windowed,
+            });
+            #[cfg(test)]
+            {
+                self.preview_cache_build_count += 1;
             }
-            DetailTab::Diff
-            | DetailTab::Provenance
-            | DetailTab::Frontmatter
-            | DetailTab::History
-            | DetailTab::Companions => {}
+        }
+    }
+
+    /// Renders one detail tab to lines: the single pipeline behind the detail
+    /// pane and the fullscreen zoom, so both show the same rich content.
+    fn build_detail_lines(
+        &self,
+        module: Option<&ModuleView>,
+        artifact: &ArtifactView,
+        tab: DetailTab,
+        width: u16,
+    ) -> (Vec<Line<'static>>, bool) {
+        match tab {
+            DetailTab::Preview => preview_lines_for_width(artifact, width),
+            DetailTab::Code => (
+                rich::highlight_code(&artifact.relative_path, &artifact.raw_source),
+                true,
+            ),
+            DetailTab::Diff => (diff_lines(module, artifact), false),
+            DetailTab::Provenance => (
+                module.map_or_else(
+                    || vec![Line::from("module not found")],
+                    |module| self.provenance_lines(module, artifact),
+                ),
+                false,
+            ),
+            DetailTab::Frontmatter => (frontmatter_lines(artifact), false),
+            DetailTab::History => (history_lines(artifact), false),
+            DetailTab::Companions => (companion_lines(artifact), false),
         }
     }
 
@@ -1356,6 +1450,32 @@ impl App {
     /// hint row.
     pub fn clear_toast(&mut self) {
         self.toast = None;
+    }
+
+    pub fn set_toast(&mut self, message: String) {
+        self.toast = Some(message);
+    }
+
+    /// Queue gitui (or jjui) for the selected repository; the event loop
+    /// suspends the TUI, runs the tool in the repo, and resumes on exit.
+    pub fn open_repo_tool(&mut self, jj: bool) {
+        let program = if jj { "jjui" } else { "gitui" };
+        let Some(ListTarget::Module(name)) = self.selected_target() else {
+            self.toast = Some(format!("{program}: select a repository first (section 5)"));
+            return;
+        };
+        let Some(module) = self.view.modules.iter().find(|module| module.name == name) else {
+            return;
+        };
+        let Some(path) = module.local_path.clone() else {
+            self.toast = Some(format!("{program}: no local clone for {name}"));
+            return;
+        };
+        self.pending_external = Some((program.to_string(), path));
+    }
+
+    pub fn take_external(&mut self) -> Option<(String, PathBuf)> {
+        self.pending_external.take()
     }
 
     pub fn set_section_by_shortcut(&mut self, character: char) -> bool {
@@ -2175,12 +2295,42 @@ impl App {
         if !artifact.sidecar_warning.is_empty() {
             lines.push(Line::from(format!("sidecar: {}", artifact.sidecar_warning)));
         }
+        lines.extend(sidecar_yaml_lines(module, artifact));
         lines
     }
 }
 
-fn render_module_detail(frame: &mut Frame<'_>, area: Rect, module: &ModuleView) {
-    let lines = vec![
+/// The raw adoption sidecar, syntax-highlighted as YAML, appended to the
+/// provenance chain when the file exists next to the source.
+fn sidecar_yaml_lines(module: &ModuleView, artifact: &ArtifactView) -> Vec<Line<'static>> {
+    let Some(repo) = module.local_path.as_ref() else {
+        return Vec::new();
+    };
+    let source = if artifact.source_path.is_empty() {
+        artifact.relative_path.as_str()
+    } else {
+        artifact.source_path.as_str()
+    };
+    let sidecar = Path::new(source).with_extension("yaml");
+    let Ok(content) = std::fs::read_to_string(repo.join(&sidecar)) else {
+        return Vec::new();
+    };
+    let mut lines = vec![
+        Line::from(""),
+        Line::from(Span::styled(
+            format!("Sidecar · {}", sidecar.display()),
+            Style::default().add_modifier(Modifier::BOLD),
+        )),
+    ];
+    lines.extend(rich::highlight_code(
+        &sidecar.to_string_lossy(),
+        content.trim_end(),
+    ));
+    lines
+}
+
+fn render_module_detail(frame: &mut Frame<'_>, area: Rect, module: &ModuleView, scroll: u16) {
+    let mut lines = vec![
         Line::from(Span::styled(
             module.name.clone(),
             Style::default().add_modifier(Modifier::BOLD),
@@ -2191,34 +2341,79 @@ fn render_module_detail(frame: &mut Frame<'_>, area: Rect, module: &ModuleView) 
             "role: {}",
             if module.is_target { "target" } else { "source" }
         )),
-        Line::from(""),
-        Line::from(module.description.clone()),
-        Line::from(""),
-        Line::from(format!("artifacts: {}", module.artifacts.len())),
     ];
+    if let Some(local_path) = &module.local_path {
+        lines.push(Line::from(format!("local: {}", local_path.display())));
+    }
+    if let Some(vcs) = &module.vcs {
+        lines.push(module_vcs_line(vcs));
+    }
+    if !module.description.is_empty() {
+        lines.push(Line::from(""));
+        lines.push(Line::from(module.description.clone()));
+    }
+    lines.push(Line::from(""));
+    lines.push(Line::from(format!("artifacts: {}", module.artifacts.len())));
+    if !module.git_log.is_empty() {
+        lines.push(Line::from(""));
+        lines.push(Line::from(Span::styled(
+            "Recent commits",
+            Style::default().add_modifier(Modifier::BOLD),
+        )));
+        for commit in &module.git_log {
+            let sha_short: String = commit.sha.chars().take(7).collect();
+            let date: String = commit.date.chars().take(10).collect();
+            let mut spans = vec![
+                Span::styled(
+                    format!("{sha_short} {date} "),
+                    Style::default().fg(Color::DarkGray),
+                ),
+                Span::raw(commit.message.clone()),
+            ];
+            if !commit.jj_change.is_empty() {
+                spans.push(Span::styled(
+                    format!(" · jj {}", commit.jj_change),
+                    Style::default().fg(Color::DarkGray),
+                ));
+            }
+            lines.push(Line::from(spans));
+        }
+        lines.push(Line::from(""));
+        lines.push(Line::from(Span::styled(
+            "o open gitui · O open jjui",
+            Style::default().fg(Color::DarkGray),
+        )));
+    }
     frame.render_widget(
-        Paragraph::new(Text::from(lines)).wrap(Wrap { trim: false }),
+        Paragraph::new(Text::from(lines))
+            .wrap(Wrap { trim: false })
+            .scroll((scroll, 0)),
         area,
     );
 }
 
-fn render_adr_detail(frame: &mut Frame<'_>, area: Rect, adr: &Adr) {
-    let lines = vec![
-        Line::from(Span::styled(
-            format!("{} {}", adr.id, adr.title),
-            Style::default().add_modifier(Modifier::BOLD),
-        )),
-        Line::from(format!("repo: {}", adr.repo)),
-        Line::from(format!("state: {}", adr.state)),
-        Line::from(format!("status: {}", adr.status)),
-        Line::from(format!("path: {}", adr.relative_path)),
-        Line::from(""),
-        Line::from(adr.summary.clone()),
-    ];
-    frame.render_widget(
-        Paragraph::new(Text::from(lines)).wrap(Wrap { trim: false }),
-        area,
-    );
+fn module_vcs_line(vcs: &VcsState) -> Line<'static> {
+    use std::fmt::Write as _;
+    let mut branch = vcs.branch.clone();
+    if vcs.ahead > 0 {
+        let _ = write!(branch, " ↑{}", vcs.ahead);
+    }
+    if vcs.behind > 0 {
+        let _ = write!(branch, " ↓{}", vcs.behind);
+    }
+    if vcs.jj_colocated {
+        branch.push_str(" · jj");
+    }
+    let (state_label, state_style) = match vcs.worktree {
+        WorktreeState::Clean => ("✓ clean", Style::default().fg(Color::Green)),
+        WorktreeState::Modified => ("⚠ uncommitted changes", Style::default().fg(Color::Yellow)),
+        WorktreeState::Untracked => ("● untracked", Style::default().fg(Color::Magenta)),
+    };
+    Line::from(vec![
+        Span::styled(branch, Style::default().fg(Color::Cyan)),
+        Span::raw(" · "),
+        Span::styled(state_label, state_style),
+    ])
 }
 
 fn render_file_body(frame: &mut Frame<'_>, area: Rect, content: &str, scroll: u16) {
@@ -2607,26 +2802,63 @@ fn preview_lines_for_width(artifact: &ArtifactView, width: u16) -> (Vec<Line<'st
     (lines, false)
 }
 
-fn diff_lines(artifact: &ArtifactView) -> Vec<Line<'static>> {
-    let mut lines = vec![
-        Line::from(Span::styled(
-            "Diff",
-            Style::default().add_modifier(Modifier::BOLD),
-        )),
-        Line::from("vs deployed and source-at-deploy are computed by the dashboard route today"),
-        Line::from(
-            "TUI keeps this tab lazy and off the scan path; target reads remain a follow-up seam",
-        ),
-        Line::from(""),
-    ];
-    lines.extend(
-        artifact
-            .raw_source
-            .lines()
-            .take(30)
-            .map(|line| Line::from(format!("  {line}"))),
-    );
+fn detail_cache_key(tab: DetailTab, path: &str) -> String {
+    format!("{tab:?}:{path}")
+}
+
+/// Uncommitted changes to the artifact's source file, colored like a pager.
+fn diff_lines(module: Option<&ModuleView>, artifact: &ArtifactView) -> Vec<Line<'static>> {
+    let header = Line::from(Span::styled(
+        "Diff · uncommitted source changes",
+        Style::default().add_modifier(Modifier::BOLD),
+    ));
+    let Some(repo) = module.and_then(|module| module.local_path.as_ref()) else {
+        return vec![header, Line::from("no local repo for this module")];
+    };
+    let path = if artifact.source_path.is_empty() {
+        artifact.relative_path.as_str()
+    } else {
+        artifact.source_path.as_str()
+    };
+    let output = std::process::Command::new("git")
+        .args(["diff", "HEAD", "--", path])
+        .current_dir(repo)
+        .output();
+    let Ok(output) = output else {
+        return vec![header, Line::from("git diff failed to run")];
+    };
+    let diff = String::from_utf8_lossy(&output.stdout);
+    if diff.trim().is_empty() {
+        return vec![
+            header,
+            Line::from(vec![
+                Span::styled("✓ ", Style::default().fg(Color::Green)),
+                Span::raw("source file matches HEAD — no uncommitted changes"),
+            ]),
+        ];
+    }
+    let mut lines = vec![header, Line::default()];
+    lines.extend(diff.lines().map(diff_line_colored));
     lines
+}
+
+fn diff_line_colored(line: &str) -> Line<'static> {
+    let style = if line.starts_with("+++") || line.starts_with("---") {
+        Style::default()
+            .fg(Color::DarkGray)
+            .add_modifier(Modifier::BOLD)
+    } else if line.starts_with('+') {
+        Style::default().fg(Color::Green)
+    } else if line.starts_with('-') {
+        Style::default().fg(Color::Red)
+    } else if line.starts_with("@@") {
+        Style::default().fg(Color::Cyan)
+    } else if line.starts_with("diff ") || line.starts_with("index ") {
+        Style::default().fg(Color::DarkGray)
+    } else {
+        Style::default()
+    };
+    Line::from(Span::styled(line.to_string(), style))
 }
 
 fn frontmatter_lines(artifact: &ArtifactView) -> Vec<Line<'static>> {

@@ -150,7 +150,7 @@ pub(super) fn read_artifact_content(provider_path: &Path, relative_key: &str) ->
     ArtifactContent { description, body }
 }
 
-pub(super) fn strip_frontmatter(content: &str) -> String {
+pub fn strip_frontmatter(content: &str) -> String {
     let Some(rest) = content.strip_prefix("---") else {
         return content.to_string();
     };

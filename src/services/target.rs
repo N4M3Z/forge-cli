@@ -106,6 +106,9 @@ pub(super) fn scan_target(
                 source_uri: source,
                 is_target: false,
                 artifacts: Vec::new(),
+                local_path: None,
+                vcs: None,
+                git_log: Vec::new(),
             });
 
             let provider_status = ProviderStatus {

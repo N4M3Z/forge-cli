@@ -6,7 +6,8 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use crate::view::{VcsState, WorktreeState};
+use super::history::{GIT_LOG_FORMAT, enrich_commits_with_entire, parse_git_log};
+use crate::view::{GitCommit, VcsState, WorktreeState};
 
 pub(super) struct RepoVcs {
     branch: String,
@@ -37,6 +38,25 @@ impl RepoVcs {
         VcsState {
             branch: self.branch.clone(),
             worktree,
+            ahead: self.ahead,
+            behind: self.behind,
+            jj_colocated: self.jj_colocated,
+        }
+    }
+
+    /// Repo-level state for the module row: modified when anything under the
+    /// module's prefix is dirty or untracked.
+    pub(super) fn module_state(&self) -> VcsState {
+        let touched = self.dirty.iter().chain(self.untracked.iter()).any(|path| {
+            self.prefix.as_os_str().is_empty() || Path::new(path).starts_with(&self.prefix)
+        });
+        VcsState {
+            branch: self.branch.clone(),
+            worktree: if touched {
+                WorktreeState::Modified
+            } else {
+                WorktreeState::Clean
+            },
             ahead: self.ahead,
             behind: self.behind,
             jj_colocated: self.jj_colocated,
@@ -126,6 +146,16 @@ fn branch_label(dir: &Path, jj_colocated: bool) -> String {
     git_stdout(dir, &["rev-parse", "--short", "HEAD"])
         .map(|out| format!("detached {}", out.trim()))
         .unwrap_or_default()
+}
+
+/// Most recent commits across the whole repo, for the repository detail view.
+pub(super) fn repo_log(repo: &Path) -> Vec<GitCommit> {
+    let Some(raw) = git_stdout(repo, &["log", "-n", "8", GIT_LOG_FORMAT]) else {
+        return Vec::new();
+    };
+    let mut commits = parse_git_log(&raw);
+    enrich_commits_with_entire(repo, &mut commits);
+    commits
 }
 
 fn git_stdout(dir: &Path, args: &[&str]) -> Option<String> {

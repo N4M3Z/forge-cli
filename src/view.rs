@@ -31,6 +31,8 @@ pub struct Adr {
     pub source: String,
     /// First prose paragraph (Context section when present), for the list preview.
     pub summary: String,
+    /// Absolute path of the ADR file on disk, for full-document rendering.
+    pub local_path: String,
 }
 
 /// One repo's ADRs in the list view: the repo label, its total, and the ADRs
@@ -206,6 +208,12 @@ pub struct ModuleView {
     /// the canon sources discovered through their deployed artifacts.
     pub is_target: bool,
     pub artifacts: Vec<ArtifactView>,
+    /// Local clone of the module's source repo, when one was discovered.
+    pub local_path: Option<std::path::PathBuf>,
+    /// Repo-level version-control state (branch, ahead/behind, dirty).
+    pub vcs: Option<VcsState>,
+    /// Most recent commits across the whole repo.
+    pub git_log: Vec<GitCommit>,
 }
 
 impl ModuleView {

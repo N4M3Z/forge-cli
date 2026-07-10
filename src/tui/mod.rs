@@ -162,6 +162,31 @@ fn event_loop(terminal: &mut TuiTerminal, app: &mut App) -> Result<(), Box<dyn s
                 _ => {}
             }
         }
+        if let Some((program, directory)) = app.take_external() {
+            run_external_tool(terminal, app, &program, &directory)?;
+        }
+    }
+    Ok(())
+}
+
+/// Suspends the TUI, runs an external terminal tool (gitui/jjui) in the given
+/// directory with the real terminal, and resumes when it exits.
+fn run_external_tool(
+    terminal: &mut TuiTerminal,
+    app: &mut App,
+    program: &str,
+    directory: &std::path::Path,
+) -> Result<(), Box<dyn std::error::Error>> {
+    restore_terminal(terminal);
+    let status = std::process::Command::new(program)
+        .current_dir(directory)
+        .status();
+    *terminal = setup_terminal()?;
+    terminal.clear()?;
+    match status {
+        Ok(status) if status.success() => {}
+        Ok(status) => app.set_toast(format!("{program} exited with {status}")),
+        Err(error) => app.set_toast(format!("could not launch {program}: {error}")),
     }
     Ok(())
 }

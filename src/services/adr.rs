@@ -65,6 +65,7 @@ pub(super) fn discover_adrs(
                 state,
                 source,
                 summary: adr_summary(&raw),
+                local_path: decisions.join(&name).to_string_lossy().into_owned(),
             });
         }
     }
