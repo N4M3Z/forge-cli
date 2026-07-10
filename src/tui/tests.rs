@@ -427,6 +427,20 @@ fn tuicr_digest_exports_line_comments() {
 }
 
 #[test]
+fn comment_prompt_opens_from_preview_tab() {
+    let mut app = fixture_app();
+    app.set_section_by_number(2);
+    app.drill_or_expand();
+    app.drill_or_expand();
+    assert_eq!(app.detail_tab(), DetailTab::Preview);
+
+    event::handle_key(&mut app, key(KeyCode::Char('m')));
+
+    assert!(app.is_comment_prompt_open());
+    assert_eq!(app.detail_tab(), DetailTab::Code);
+}
+
+#[test]
 fn tuicr_comment_kind_cycles_in_order() {
     assert_eq!(CommentKind::Issue.next(), CommentKind::Note);
     assert_eq!(CommentKind::Note.next(), CommentKind::Suggestion);

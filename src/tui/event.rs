@@ -3,6 +3,7 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use super::app::App;
 
 pub fn handle_key(app: &mut App, key: KeyEvent) {
+    app.clear_toast();
     if app.is_preview_open() {
         handle_preview_key(app, key);
         return;
