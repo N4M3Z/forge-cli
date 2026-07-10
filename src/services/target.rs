@@ -174,6 +174,7 @@ pub(super) fn build_deployed_artifact(
         kind: kind.to_string(),
         module: String::new(),
         relative_path: relative_key.to_string(),
+        source_path: source_path.unwrap_or_default().to_string(),
         description,
         content_preview,
         content_body,

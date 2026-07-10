@@ -224,6 +224,10 @@ pub struct ArtifactView {
     pub kind: String,
     pub module: String,
     pub relative_path: String,
+    /// Path of the source file relative to the module repo, when known. Falls
+    /// back to `relative_path` (the deploy key) for VCS matching — the two
+    /// diverge once modules live inside a monorepo.
+    pub source_path: String,
     pub description: String,
     pub content_preview: String,
     pub content_body: String,
