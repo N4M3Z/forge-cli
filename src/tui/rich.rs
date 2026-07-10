@@ -16,11 +16,36 @@ use syntect::{
     parsing::SyntaxSet,
 };
 
+/// Markdown preview: prose renders through glow, fenced code blocks through
+/// syntect. Glamour leaves fences without a language tag uncolored, so code
+/// gets the same highlighter as the Code tab instead.
 pub fn render_markdown_with_glow(body: &str, width: u16) -> Option<Vec<Line<'static>>> {
     if body.is_empty() || width == 0 {
         return None;
     }
 
+    let mut lines: Vec<Line<'static>> = Vec::new();
+    for segment in split_fences(body) {
+        match segment {
+            Segment::Prose(text) => {
+                if text.trim().is_empty() {
+                    continue;
+                }
+                lines.extend(glow_lines(&text, width)?);
+            }
+            Segment::Code { language, source } => {
+                if lines.last().is_some_and(|line| line.width() > 0) {
+                    lines.push(Line::default());
+                }
+                lines.extend(highlight_fence(&language, &source));
+                lines.push(Line::default());
+            }
+        }
+    }
+    Some(lines)
+}
+
+fn glow_lines(text: &str, width: u16) -> Option<Vec<Line<'static>>> {
     let style = glow_style_path()?;
     let mut child = Command::new("glow")
         .args(["-s", &style, "-w", &width.to_string()])
@@ -31,7 +56,7 @@ pub fn render_markdown_with_glow(body: &str, width: u16) -> Option<Vec<Line<'sta
         .ok()?;
 
     let mut stdin = child.stdin.take()?;
-    stdin.write_all(body.as_bytes()).ok()?;
+    stdin.write_all(text.as_bytes()).ok()?;
     drop(stdin);
 
     let output = child.wait_with_output().ok()?;
@@ -41,6 +66,87 @@ pub fn render_markdown_with_glow(body: &str, width: u16) -> Option<Vec<Line<'sta
 
     let text = output.stdout.into_text().ok()?;
     Some(text_to_static_lines(text))
+}
+
+enum Segment {
+    Prose(String),
+    Code { language: String, source: String },
+}
+
+/// Splits a markdown body at triple-backtick fences. The fence lines are
+/// dropped; the opening fence's info string becomes the code language.
+/// An unclosed fence keeps the rest of the body as code.
+fn split_fences(body: &str) -> Vec<Segment> {
+    let mut segments = Vec::new();
+    let mut current = String::new();
+    let mut fence_language: Option<String> = None;
+    for line in body.lines() {
+        let trimmed = line.trim_start();
+        if trimmed.starts_with("```") {
+            if let Some(language) = fence_language.take() {
+                segments.push(Segment::Code {
+                    language,
+                    source: std::mem::take(&mut current),
+                });
+            } else {
+                if !current.is_empty() {
+                    segments.push(Segment::Prose(std::mem::take(&mut current)));
+                }
+                fence_language = Some(trimmed.trim_start_matches('`').trim().to_string());
+            }
+            continue;
+        }
+        current.push_str(line);
+        current.push('\n');
+    }
+    if !current.is_empty() {
+        segments.push(match fence_language {
+            Some(language) => Segment::Code {
+                language,
+                source: current,
+            },
+            None => Segment::Prose(current),
+        });
+    }
+    segments
+}
+
+/// Highlights one fenced block with the Code tab's engine, indented by the
+/// two columns glamour uses for code-block margins.
+fn highlight_fence(language: &str, source: &str) -> Vec<Line<'static>> {
+    let (syntax_set, theme_set) = syntax_assets();
+    let syntax = syntax_set
+        .find_syntax_by_token(language)
+        .unwrap_or_else(|| syntax_set.find_syntax_plain_text());
+    let Some(theme) = theme_set
+        .themes
+        .get("base16-ocean.dark")
+        .or_else(|| theme_set.themes.values().next())
+    else {
+        return source
+            .lines()
+            .map(|line| Line::from(format!("  {line}")))
+            .collect();
+    };
+    let mut highlighter = HighlightLines::new(syntax, theme);
+    source
+        .lines()
+        .map(|line| {
+            let mut spans = vec![Span::raw("  ")];
+            match highlighter.highlight_line(line, syntax_set) {
+                Ok(ranges) => {
+                    spans.extend(
+                        ranges
+                            .into_iter()
+                            .filter(|(_, text)| !text.is_empty())
+                            .map(|(style, text)| Span::styled(text.to_string(), tui_style(style))),
+                    );
+                }
+                Err(_) => spans.push(Span::raw(line.to_string())),
+            }
+            Line::from(spans)
+        })
+        .collect()
 }
 
 /// Glamour's built-in styles indent the whole document by a margin, which
@@ -213,5 +319,40 @@ mod tests {
         let lines = render_markdown_with_glow("# Title\n\nbody", 40).expect("glow output");
         let text = lines.iter().map(line_text).collect::<Vec<_>>().join("\n");
         assert!(text.contains("Title"));
+    }
+
+    #[test]
+    fn split_fences_separates_code_from_prose() {
+        let segments = split_fences("intro\n\n```sh\necho hello\n```\n\noutro\n");
+        assert_eq!(segments.len(), 3);
+        let Segment::Code { language, source } = &segments[1] else {
+            panic!("second segment should be code");
+        };
+        assert_eq!(language, "sh");
+        assert_eq!(source, "echo hello\n");
+        let Segment::Prose(outro) = &segments[2] else {
+            panic!("third segment should be prose");
+        };
+        assert!(outro.contains("outro"));
+    }
+
+    #[test]
+    fn fenced_code_in_preview_gets_highlight_colors() {
+        if Command::new("glow").arg("--version").output().is_err() {
+            return;
+        }
+
+        let lines = render_markdown_with_glow("text\n\n```rust\nfn main() {}\n```\n", 60)
+            .expect("glow output");
+        let code_line = lines
+            .iter()
+            .find(|line| line_text(line).contains("fn main()"))
+            .expect("code line present");
+        assert!(
+            code_line
+                .spans
+                .iter()
+                .any(|span| span.style != Style::default())
+        );
     }
 }

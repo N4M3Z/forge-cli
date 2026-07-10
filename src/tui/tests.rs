@@ -15,10 +15,19 @@ use commands::{
 };
 
 use super::{
-    app::{App, CommentKind, DetailTab, KEYBINDINGS, Section},
+    app::{App, ColumnFocus, CommentKind, DetailTab, KEYBINDINGS, Section},
     components::palette::{Palette, PaletteCommand},
     event,
 };
+
+fn buffer_position(output: &str, needle: &str) -> (u16, u16) {
+    let byte_index = output.find(needle).expect("needle rendered");
+    let cell_index = output[..byte_index].chars().count();
+    (
+        u16::try_from(cell_index % 120).expect("x fits"),
+        u16::try_from(cell_index / 120).expect("y fits"),
+    )
+}
 
 fn fixture_view() -> DashboardView {
     let mut providers = std::collections::BTreeMap::new();
@@ -424,6 +433,49 @@ fn tuicr_digest_exports_line_comments() {
     let digest = app.tuicr_digest();
 
     assert!(digest.contains("**[ISSUE]** `skills/BuildSkill/SKILL.md:3`"));
+}
+
+#[test]
+fn mouse_click_selects_section_and_focuses() {
+    let mut app = fixture_app();
+    let output = rendered(&mut app);
+    let (x, y) = buffer_position(&output, "2 Skills");
+
+    app.mouse_click(x, y);
+
+    assert_eq!(app.section(), Section::Skills);
+    assert_eq!(app.focused_column(), ColumnFocus::Sections);
+}
+
+#[test]
+fn mouse_click_on_tab_switches_detail_tab() {
+    let mut app = fixture_app();
+    app.set_section_by_number(2);
+    app.drill_or_expand();
+    app.drill_or_expand();
+    let output = rendered(&mut app);
+    let (x, y) = buffer_position(&output, "3 Diff");
+
+    app.mouse_click(x, y);
+
+    assert_eq!(app.detail_tab(), DetailTab::Diff);
+    assert_eq!(app.focused_column(), ColumnFocus::Detail);
+}
+
+#[test]
+fn mouse_wheel_scrolls_detail_without_moving_selection() {
+    let mut app = fixture_app();
+    app.set_section_by_number(2);
+    app.drill_or_expand();
+    app.drill_or_expand();
+    let output = rendered(&mut app);
+    let (x, y) = buffer_position(&output, "1 Preview");
+    let selected_before = app.selected_row_for_test();
+
+    app.mouse_scroll(x, y + 2, true);
+
+    assert_eq!(app.selected_row_for_test(), selected_before);
+    assert_eq!(app.detail_scroll_for_test(), 3);
 }
 
 #[test]

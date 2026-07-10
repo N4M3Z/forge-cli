@@ -11,7 +11,9 @@ use std::{
 
 use crossterm::{
     cursor::{Hide, Show},
-    event as terminal_event, execute,
+    event as terminal_event,
+    event::{DisableMouseCapture, EnableMouseCapture},
+    execute,
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
 use ratatui::{Terminal, backend::CrosstermBackend, backend::TestBackend};
@@ -115,20 +117,30 @@ fn launch() -> Result<(), Box<dyn std::error::Error>> {
 fn setup_terminal() -> io::Result<TuiTerminal> {
     enable_raw_mode()?;
     let mut stdout = io::stdout();
-    execute!(stdout, EnterAlternateScreen, Hide)?;
+    execute!(stdout, EnterAlternateScreen, EnableMouseCapture, Hide)?;
     let backend = CrosstermBackend::new(stdout);
     Terminal::new(backend)
 }
 
 fn restore_terminal(terminal: &mut TuiTerminal) {
     let _ = disable_raw_mode();
-    let _ = execute!(terminal.backend_mut(), LeaveAlternateScreen, Show);
+    let _ = execute!(
+        terminal.backend_mut(),
+        DisableMouseCapture,
+        LeaveAlternateScreen,
+        Show
+    );
     let _ = terminal.show_cursor();
 }
 
 fn restore_terminal_without_backend() {
     let _ = disable_raw_mode();
-    let _ = execute!(io::stdout(), LeaveAlternateScreen, Show);
+    let _ = execute!(
+        io::stdout(),
+        DisableMouseCapture,
+        LeaveAlternateScreen,
+        Show
+    );
 }
 
 fn install_panic_hook() {
@@ -143,10 +155,12 @@ fn event_loop(terminal: &mut TuiTerminal, app: &mut App) -> Result<(), Box<dyn s
     while !app.should_quit() {
         app.poll_scan();
         terminal.draw(|frame| app.render(frame))?;
-        if terminal_event::poll(Duration::from_millis(200))?
-            && let terminal_event::Event::Key(key) = terminal_event::read()?
-        {
-            event::handle_key(app, key);
+        if terminal_event::poll(Duration::from_millis(200))? {
+            match terminal_event::read()? {
+                terminal_event::Event::Key(key) => event::handle_key(app, key),
+                terminal_event::Event::Mouse(mouse) => event::handle_mouse(app, mouse),
+                _ => {}
+            }
         }
     }
     Ok(())

@@ -1,6 +1,18 @@
-use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseEvent, MouseEventKind};
 
 use super::app::App;
+
+pub fn handle_mouse(app: &mut App, mouse: MouseEvent) {
+    match mouse.kind {
+        MouseEventKind::Down(crossterm::event::MouseButton::Left) => {
+            app.clear_toast();
+            app.mouse_click(mouse.column, mouse.row);
+        }
+        MouseEventKind::ScrollDown => app.mouse_scroll(mouse.column, mouse.row, true),
+        MouseEventKind::ScrollUp => app.mouse_scroll(mouse.column, mouse.row, false),
+        _ => {}
+    }
+}
 
 pub fn handle_key(app: &mut App, key: KeyEvent) {
     app.clear_toast();
