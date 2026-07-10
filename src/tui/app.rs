@@ -10,7 +10,7 @@ use std::{
 use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::{
     Frame,
-    layout::{Constraint, Direction, Layout, Rect},
+    layout::{Constraint, Direction, Layout, Position, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span, Text},
     widgets::{Block, Borders, Clear, List, ListItem, Paragraph, Wrap},
@@ -350,6 +350,16 @@ pub struct MillerColumnWidths {
     pub middle: u16,
 }
 
+/// Screen rectangles captured during render so mouse events can be
+/// hit-tested against what is actually on screen.
+#[derive(Debug, Clone, Copy, Default)]
+struct MouseRegions {
+    sections: Rect,
+    list: Rect,
+    detail: Rect,
+    tabs: Rect,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct PreviewCache {
     path: String,
@@ -442,6 +452,7 @@ pub struct App {
     preview: Option<ArtifactPreview>,
     help_state: HelpState,
     palette: Palette,
+    mouse_regions: MouseRegions,
 }
 
 impl App {
@@ -509,6 +520,7 @@ impl App {
             preview: None,
             help_state: HelpState::Closed,
             palette: Palette::new(),
+            mouse_regions: MouseRegions::default(),
         }
     }
 
@@ -614,6 +626,10 @@ impl App {
                 Constraint::Min(0),
             ])
             .split(layout[1]);
+        self.mouse_regions.sections = columns[0];
+        self.mouse_regions.list = columns[1];
+        self.mouse_regions.detail = columns[2];
+        self.mouse_regions.tabs = Rect::default();
         self.render_sections(frame, columns[0]);
         self.render_list(frame, columns[1]);
         self.render_detail(frame, columns[2]);
@@ -821,26 +837,68 @@ impl App {
             .direction(Direction::Vertical)
             .constraints([Constraint::Length(2), Constraint::Min(1)])
             .split(area);
+        self.mouse_regions.tabs = chunks[0];
         self.render_tabs(frame, chunks[0]);
         self.prepare_artifact_detail_cache(module_index, artifact_index, chunks[1].width);
+        let viewport = usize::from(chunks[1].height.max(1));
+        // Pre-wrapped tabs render only the visible window of their cached
+        // lines: cloning and laying out a whole file per frame makes large
+        // code views unusably slow.
+        let windowed = match self.detail_tab {
+            DetailTab::Code => true,
+            DetailTab::Preview => self.preview_cache.as_ref().is_some_and(|cache| cache.glow),
+            _ => false,
+        };
+        if windowed {
+            self.clamp_detail_scroll(viewport);
+        }
         let module = &self.view.modules[module_index];
         let artifact = &module.artifacts[artifact_index];
         let lines = match self.detail_tab {
+            DetailTab::Preview if windowed => self.preview_window(viewport),
             DetailTab::Preview => self.preview_cache_lines(),
-            DetailTab::Code => self.code_cache_lines(artifact),
+            DetailTab::Code => self.code_window(artifact, viewport),
             DetailTab::Diff => diff_lines(artifact),
             DetailTab::Provenance => self.provenance_lines(module, artifact),
             DetailTab::Frontmatter => frontmatter_lines(artifact),
             DetailTab::History => history_lines(artifact),
             DetailTab::Companions => companion_lines(artifact),
         };
-        let glow_wrapped = self.detail_tab == DetailTab::Preview
-            && self.preview_cache.as_ref().is_some_and(|cache| cache.glow);
-        let mut paragraph = Paragraph::new(Text::from(lines)).scroll((self.detail_scroll, 0));
-        if !glow_wrapped {
-            paragraph = paragraph.wrap(Wrap { trim: false });
+        let mut paragraph = Paragraph::new(Text::from(lines));
+        if !windowed {
+            paragraph = paragraph
+                .wrap(Wrap { trim: false })
+                .scroll((self.detail_scroll, 0));
         }
         frame.render_widget(paragraph, chunks[1]);
+    }
+
+    fn clamp_detail_scroll(&mut self, viewport: usize) {
+        let total = match self.detail_tab {
+            DetailTab::Code => self
+                .code_cache
+                .as_ref()
+                .map_or(0, |cache| cache.lines.len()),
+            _ => self
+                .preview_cache
+                .as_ref()
+                .map_or(0, |cache| cache.lines.len()),
+        };
+        let max_scroll = u16::try_from(total.saturating_sub(viewport)).unwrap_or(u16::MAX);
+        self.detail_scroll = self.detail_scroll.min(max_scroll);
+    }
+
+    fn preview_window(&self, viewport: usize) -> Vec<Line<'static>> {
+        let scroll = usize::from(self.detail_scroll);
+        self.preview_cache.as_ref().map_or_else(Vec::new, |cache| {
+            cache
+                .lines
+                .iter()
+                .skip(scroll)
+                .take(viewport)
+                .cloned()
+                .collect()
+        })
     }
 
     fn prepare_artifact_detail_cache(
@@ -902,16 +960,19 @@ impl App {
             .map_or_else(Vec::new, |cache| cache.lines.clone())
     }
 
-    fn code_cache_lines(&self, artifact: &ArtifactView) -> Vec<Line<'static>> {
+    fn code_window(&self, artifact: &ArtifactView, viewport: usize) -> Vec<Line<'static>> {
+        let scroll = usize::from(self.detail_scroll);
         let current_line = self.current_code_line(artifact);
         let path = &artifact.relative_path;
         self.code_cache.as_ref().map_or_else(Vec::new, |cache| {
             cache
                 .lines
                 .iter()
-                .cloned()
                 .enumerate()
-                .map(|(index, mut line)| {
+                .skip(scroll)
+                .take(viewport)
+                .map(|(index, cached_line)| {
+                    let mut line = cached_line.clone();
                     let line_number = index + 1;
                     let has_comment = self.comments.contains_key(&(path.clone(), line_number));
                     if let Some(marker) = line.spans.first_mut() {
@@ -1199,6 +1260,67 @@ impl App {
         self.focus_previous();
     }
 
+    /// Left click: focus the pane under the cursor; select the section, list
+    /// row, or detail tab it lands on. Clicks are discrete and idempotent, so
+    /// mapping them to selection is safe (unlike wheel events).
+    pub fn mouse_click(&mut self, x: u16, y: u16) {
+        if self.preview.is_some()
+            || self.help_state == HelpState::Open
+            || self.palette.is_open()
+            || self.comment_prompt.is_some()
+        {
+            return;
+        }
+        let position = Position { x, y };
+        let regions = self.mouse_regions;
+        if regions.tabs.contains(position) {
+            self.focused = ColumnFocus::Detail;
+            if let Some(tab) = tab_at_column(x.saturating_sub(regions.tabs.x)) {
+                self.set_detail_tab(tab);
+            }
+        } else if regions.sections.contains(position) {
+            self.focused = ColumnFocus::Sections;
+            let row = usize::from(y.saturating_sub(regions.sections.y.saturating_add(1)));
+            if y > regions.sections.y && row < Section::ALL.len() {
+                self.set_section(Section::ALL[row]);
+            }
+        } else if regions.list.contains(position) {
+            self.focused = ColumnFocus::List;
+            let row = usize::from(y.saturating_sub(regions.list.y.saturating_add(1)));
+            self.ensure_rows();
+            let rows = self.cached_rows();
+            if y > regions.list.y && rows.get(row).is_some_and(ListRow::is_selectable) {
+                self.list_selected[self.section as usize] = row;
+            }
+        } else if regions.detail.contains(position) {
+            self.focused = ColumnFocus::Detail;
+        }
+    }
+
+    /// Mouse wheel scrolls the viewport under the cursor and never moves the
+    /// selection: passive trackpad gestures must not drag application state.
+    pub fn mouse_scroll(&mut self, x: u16, y: u16, down: bool) {
+        const WHEEL_STEP: u16 = 3;
+        if self.preview.is_some() {
+            if down {
+                self.preview_scroll_down(WHEEL_STEP);
+            } else {
+                self.preview_scroll_up(WHEEL_STEP);
+            }
+            return;
+        }
+        if self.help_state == HelpState::Open {
+            return;
+        }
+        if self.mouse_regions.detail.contains(Position { x, y }) {
+            self.detail_scroll = if down {
+                self.detail_scroll.saturating_add(WHEEL_STEP)
+            } else {
+                self.detail_scroll.saturating_sub(WHEEL_STEP)
+            };
+        }
+    }
+
     pub fn focused_key(&mut self, key: KeyEvent) {
         match self.focused {
             ColumnFocus::Sections => self.section_key(key),
@@ -1236,6 +1358,24 @@ impl App {
     #[must_use]
     pub fn detail_tab(&self) -> DetailTab {
         self.detail_tab
+    }
+
+    #[cfg(test)]
+    #[must_use]
+    pub fn focused_column(&self) -> ColumnFocus {
+        self.focused
+    }
+
+    #[cfg(test)]
+    #[must_use]
+    pub fn detail_scroll_for_test(&self) -> u16 {
+        self.detail_scroll
+    }
+
+    #[cfg(test)]
+    #[must_use]
+    pub fn selected_row_for_test(&self) -> usize {
+        self.list_selected[self.section as usize]
     }
 
     #[cfg(test)]
@@ -2289,6 +2429,23 @@ fn status_style(status: &str) -> Style {
 
 fn value_or_any(value: &str) -> &str {
     if value.is_empty() { "any" } else { value }
+}
+
+/// Maps a column inside the tab bar to its tab, mirroring the span layout in
+/// `render_tabs`: one leading space, then `"{number} {label}"` per tab.
+fn tab_at_column(column: u16) -> Option<DetailTab> {
+    let mut cursor = 0u16;
+    for (index, tab) in DetailTab::ALL.iter().enumerate() {
+        let label = format!("{} {}", index + 1, tab.label());
+        let width = u16::try_from(label.chars().count()).unwrap_or(u16::MAX);
+        let start = cursor.saturating_add(1);
+        let end = start.saturating_add(width);
+        if column >= start && column < end {
+            return Some(*tab);
+        }
+        cursor = end;
+    }
+    None
 }
 
 fn hint_row(focused: ColumnFocus) -> String {
