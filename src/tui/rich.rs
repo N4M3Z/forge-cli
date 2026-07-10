@@ -24,14 +24,28 @@ pub fn render_markdown_with_glow(body: &str, width: u16) -> Option<Vec<Line<'sta
         return None;
     }
 
+    let segments = split_fences(body);
+    // Reference-link definitions may live in a different segment than their
+    // uses; hand every prose segment the full definition list so links keep
+    // resolving. Glamour consumes definitions without rendering them.
+    let definitions = if segments.len() > 1 {
+        reference_definitions(body)
+    } else {
+        String::new()
+    };
     let mut lines: Vec<Line<'static>> = Vec::new();
-    for segment in split_fences(body) {
+    for segment in segments {
         match segment {
             Segment::Prose(text) => {
                 if text.trim().is_empty() {
                     continue;
                 }
-                lines.extend(glow_lines(&text, width)?);
+                let input = if definitions.is_empty() {
+                    text
+                } else {
+                    format!("{text}\n{definitions}")
+                };
+                lines.extend(glow_lines(&input, width)?);
             }
             Segment::Code { language, source } => {
                 if lines.last().is_some_and(|line| line.width() > 0) {
@@ -71,6 +85,17 @@ fn glow_lines(text: &str, width: u16) -> Option<Vec<Line<'static>>> {
 enum Segment {
     Prose(String),
     Code { language: String, source: String },
+}
+
+/// Collects `[label]: target` reference-link definition lines from the body.
+fn reference_definitions(body: &str) -> String {
+    body.lines()
+        .filter(|line| {
+            let trimmed = line.trim_start();
+            trimmed.starts_with('[') && trimmed.contains("]:")
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 /// Splits a markdown body at triple-backtick fences. The fence lines are
@@ -319,6 +344,19 @@ mod tests {
         let lines = render_markdown_with_glow("# Title\n\nbody", 40).expect("glow output");
         let text = lines.iter().map(line_text).collect::<Vec<_>>().join("\n");
         assert!(text.contains("Title"));
+    }
+
+    #[test]
+    fn reference_links_resolve_across_fence_segments() {
+        if Command::new("glow").arg("--version").output().is_err() {
+            return;
+        }
+
+        let body = "See [the docs][D].\n\n```sh\necho hi\n```\n\n[D]: https://example.com\n";
+        let lines = render_markdown_with_glow(body, 60).expect("glow output");
+        let text = lines.iter().map(line_text).collect::<Vec<_>>().join("\n");
+        assert!(text.contains("https://example.com"));
+        assert!(!text.contains("[D]"));
     }
 
     #[test]
