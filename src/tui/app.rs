@@ -558,6 +558,7 @@ impl App {
                 self.toast = Some("scan complete".to_string());
                 self.invalidate_rows();
                 self.invalidate_detail_caches();
+                self.refresh_open_preview();
                 self.clamp_list_selection();
             }
             Ok(Err(error)) => {
@@ -1016,6 +1017,13 @@ impl App {
             .as_ref()
             .is_none_or(|cache| cache.key != key || cache.width != cache_width);
         if needs_build {
+            // Preview and Diff spawn subprocesses (glow, git). While keys are
+            // still queued — the user is holding j/k — keep the previous frame
+            // and rebuild once input drains, so browsing never stutters.
+            let expensive = matches!(self.detail_tab, DetailTab::Preview | DetailTab::Diff);
+            if expensive && self.preview_cache.is_some() && input_pending() {
+                return;
+            }
             let (lines, windowed) = {
                 let module = &self.view.modules[module_index];
                 let artifact = &module.artifacts[artifact_index];
@@ -1793,6 +1801,34 @@ impl App {
     fn invalidate_detail_caches(&mut self) {
         self.preview_cache = None;
         self.code_cache = None;
+    }
+
+    /// After a rescan the zoom overlay's cloned artifact is stale: rebind it
+    /// to the fresh view, or close it when the artifact no longer exists.
+    fn refresh_open_preview(&mut self) {
+        let Some(open) = self.preview.as_ref().map(|preview| {
+            let artifact = preview.artifact();
+            (
+                artifact.module.clone(),
+                artifact.kind.clone(),
+                artifact.name.clone(),
+            )
+        }) else {
+            return;
+        };
+        let fresh = self
+            .view
+            .modules
+            .iter()
+            .find(|module| module.name == open.0)
+            .and_then(|module| {
+                module
+                    .artifacts
+                    .iter()
+                    .find(|artifact| artifact.kind == open.1 && artifact.name == open.2)
+            })
+            .cloned();
+        self.preview = fresh.map(|artifact| ArtifactPreview::from_artifact(&artifact));
     }
 
     fn cached_rows(&self) -> &[ListRow] {
@@ -2810,6 +2846,12 @@ fn detail_cache_key(tab: DetailTab, module: &str, path: &str) -> String {
     format!("{tab:?}:{module}:{path}")
 }
 
+/// Whether unprocessed terminal input is queued. Errors (no terminal, as in
+/// tests and snapshot mode) count as no pending input.
+fn input_pending() -> bool {
+    crossterm::event::poll(std::time::Duration::ZERO).unwrap_or(false)
+}
+
 /// Uncommitted changes to the artifact's source file, colored like a pager.
 fn diff_lines(module: Option<&ModuleView>, artifact: &ArtifactView) -> Vec<Line<'static>> {
     let header = Line::from(Span::styled(
@@ -2819,6 +2861,19 @@ fn diff_lines(module: Option<&ModuleView>, artifact: &ArtifactView) -> Vec<Line<
     let Some(repo) = module.and_then(|module| module.local_path.as_ref()) else {
         return vec![header, Line::from("no local repo for this module")];
     };
+    if artifact
+        .vcs
+        .as_ref()
+        .is_some_and(|vcs| vcs.worktree == WorktreeState::Untracked)
+    {
+        return vec![
+            header,
+            Line::from(vec![
+                Span::styled("● ", Style::default().fg(Color::Magenta)),
+                Span::raw("untracked file — the whole file is new"),
+            ]),
+        ];
+    }
     let path = if artifact.source_path.is_empty() {
         artifact.relative_path.as_str()
     } else {
@@ -2831,6 +2886,13 @@ fn diff_lines(module: Option<&ModuleView>, artifact: &ArtifactView) -> Vec<Line<
     let Ok(output) = output else {
         return vec![header, Line::from("git diff failed to run")];
     };
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return vec![
+            header,
+            Line::from(format!("git diff failed: {}", stderr.trim())),
+        ];
+    }
     let diff = String::from_utf8_lossy(&output.stdout);
     if diff.trim().is_empty() {
         return vec![
