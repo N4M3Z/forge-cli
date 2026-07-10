@@ -69,6 +69,8 @@ pub fn handle_key(app: &mut App, key: KeyEvent) {
         KeyCode::Char('p') => app.set_detail_tab(super::app::DetailTab::Preview),
         KeyCode::Char('c') => app.set_detail_tab(super::app::DetailTab::Code),
         KeyCode::Char('d') => app.set_detail_tab(super::app::DetailTab::Diff),
+        KeyCode::Char('o') => app.open_repo_tool(false),
+        KeyCode::Char('O') => app.open_repo_tool(true),
         _ => app.focused_key(key),
     }
 }
@@ -82,6 +84,13 @@ fn handle_preview_key(app: &mut App, key: KeyEvent) {
         KeyCode::PageUp | KeyCode::Char('b') => app.preview_scroll_up(10),
         KeyCode::Home | KeyCode::Char('g') => app.preview_scroll_to_top(),
         KeyCode::End | KeyCode::Char('G') => app.preview_scroll_to_bottom(),
+        KeyCode::Char(digit @ '1'..='7') => {
+            let index = usize::from(digit as u8 - b'1');
+            app.set_detail_tab(super::app::DetailTab::ALL[index]);
+        }
+        KeyCode::Char('p') => app.set_detail_tab(super::app::DetailTab::Preview),
+        KeyCode::Char('c') => app.set_detail_tab(super::app::DetailTab::Code),
+        KeyCode::Char('d') => app.set_detail_tab(super::app::DetailTab::Diff),
         _ => {}
     }
 }

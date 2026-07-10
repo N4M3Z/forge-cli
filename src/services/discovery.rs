@@ -136,6 +136,9 @@ pub(super) fn scan_source_module(root: &Path) -> Option<ModuleView> {
         source_uri,
         is_target: true,
         artifacts,
+        local_path: None,
+        vcs: None,
+        git_log: Vec::new(),
     })
 }
 

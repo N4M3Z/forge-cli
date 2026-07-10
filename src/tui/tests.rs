@@ -72,6 +72,9 @@ fn fixture_view() -> DashboardView {
                 source_uri: "https://github.com/N4M3Z/forge-core".to_string(),
                 is_target: false,
                 artifacts: vec![artifact],
+                local_path: None,
+                vcs: None,
+                git_log: Vec::new(),
             },
             ModuleView {
                 name: "project-target".to_string(),
@@ -80,6 +83,9 @@ fn fixture_view() -> DashboardView {
                 source_uri: "https://github.com/N4M3Z/project-target".to_string(),
                 is_target: true,
                 artifacts: Vec::new(),
+                local_path: None,
+                vcs: None,
+                git_log: Vec::new(),
             },
         ],
         summary: StatusSummary {
@@ -114,6 +120,7 @@ fn fixture_view() -> DashboardView {
             state: "authored".to_string(),
             source: String::new(),
             summary: "Context summary".to_string(),
+            local_path: String::new(),
         }],
     }
 }

@@ -23,6 +23,7 @@ pub use history::{
     extract_frontmatter_field, git_log_for_artifact, read_source_adoption, read_source_sidecar,
     source_at_deploy,
 };
+pub use source::strip_frontmatter;
 
 use crate::error::{Error, ErrorKind};
 use crate::provider::ContentKind;
@@ -98,6 +99,9 @@ pub fn build_view(
             source_uri: String::new(),
             is_target: false,
             artifacts: Vec::new(),
+            local_path: None,
+            vcs: None,
+            git_log: Vec::new(),
         });
     }
 
@@ -111,6 +115,9 @@ pub fn build_view(
         module.artifacts.sort_by(|a, b| a.name.cmp(&b.name));
         let repo = local_repos.get(module.source_uri.trim_end_matches(".git"));
         let repo_vcs = repo.and_then(|repo| vcs::repo_vcs(repo));
+        module.local_path = repo.cloned();
+        module.vcs = repo_vcs.as_ref().map(vcs::RepoVcs::module_state);
+        module.git_log = repo.map(|repo| vcs::repo_log(repo)).unwrap_or_default();
         let tint = module_index % 8;
         for artifact in &mut module.artifacts {
             artifact.module.clone_from(&module.name);
