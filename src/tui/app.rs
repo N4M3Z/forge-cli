@@ -85,7 +85,7 @@ pub const KEYBINDINGS: &[(&str, &[(&str, &str)])] = &[
             ("d", "diff tab"),
             ("c", "code tab"),
             ("p", "preview tab"),
-            ("m", "comment current code line"),
+            ("m", "comment line (from any detail tab)"),
             ("Y", "copy tuicr comments"),
         ],
     ),
@@ -659,7 +659,7 @@ impl App {
         } else if let Some(toast) = &self.toast {
             format!(" {toast}")
         } else {
-            hint_row()
+            hint_row(self.focused)
         };
         frame.render_widget(
             Paragraph::new(text).style(Style::default().fg(Color::DarkGray)),
@@ -1213,6 +1213,12 @@ impl App {
         }
     }
 
+    /// Toasts show until the next keypress, then yield the footer back to the
+    /// hint row.
+    pub fn clear_toast(&mut self) {
+        self.toast = None;
+    }
+
     pub fn set_section_by_shortcut(&mut self, character: char) -> bool {
         let Some(section) = Section::from_shortcut(character) else {
             return false;
@@ -1467,7 +1473,10 @@ impl App {
             KeyCode::Char('6') => self.set_detail_tab(DetailTab::History),
             KeyCode::Char('7') => self.set_detail_tab(DetailTab::Companions),
             KeyCode::Tab => self.next_detail_tab(),
-            KeyCode::Char('m') if self.detail_tab == DetailTab::Code => {
+            KeyCode::Char('m') => {
+                if self.detail_tab != DetailTab::Code {
+                    self.set_detail_tab(DetailTab::Code);
+                }
                 self.open_comment_prompt();
             }
             _ => {}
@@ -2282,7 +2291,18 @@ fn value_or_any(value: &str) -> &str {
     if value.is_empty() { "any" } else { value }
 }
 
-fn hint_row() -> String {
+fn hint_row(focused: ColumnFocus) -> String {
+    if focused == ColumnFocus::Detail {
+        return [
+            "1-7 tabs",
+            "j/k scroll",
+            "m comment line",
+            "Y copy review",
+            "h back",
+            "? help",
+        ]
+        .join("  ·  ");
+    }
     KEYBINDINGS
         .iter()
         .flat_map(|(_, bindings)| bindings.iter())
