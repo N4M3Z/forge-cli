@@ -98,35 +98,49 @@ fn reference_definitions(body: &str) -> String {
         .join("\n")
 }
 
-/// Splits a markdown body at triple-backtick fences. The fence lines are
-/// dropped; the opening fence's info string becomes the code language.
-/// An unclosed fence keeps the rest of the body as code.
+/// Splits a markdown body at backtick fences. The fence lines are dropped;
+/// the opening fence's info string becomes the code language. Per `CommonMark`,
+/// a line indented four or more columns is a literal, never a fence; a block
+/// closes only on a fence at least as long as the one that opened it, so a
+/// four-backtick block can contain triple-backtick examples. An unclosed
+/// fence keeps the rest of the body as `code`.
 fn split_fences(body: &str) -> Vec<Segment> {
     let mut segments = Vec::new();
     let mut current = String::new();
-    let mut fence_language: Option<String> = None;
+    let mut open_fence: Option<(String, usize)> = None;
     for line in body.lines() {
         let trimmed = line.trim_start();
-        if trimmed.starts_with("```") {
-            if let Some(language) = fence_language.take() {
+        let indent = line.chars().count() - trimmed.chars().count();
+        let backticks = trimmed
+            .chars()
+            .take_while(|&character| character == '`')
+            .count();
+        let is_fence_line = backticks >= 3 && indent < 4;
+        match (&open_fence, is_fence_line) {
+            (Some((_, opened_with)), true)
+                if backticks >= *opened_with && trimmed[backticks..].trim().is_empty() =>
+            {
+                let (language, _) = open_fence.take().expect("fence is open");
                 segments.push(Segment::Code {
                     language,
                     source: std::mem::take(&mut current),
                 });
-            } else {
+            }
+            (None, true) => {
                 if !current.is_empty() {
                     segments.push(Segment::Prose(std::mem::take(&mut current)));
                 }
-                fence_language = Some(trimmed.trim_start_matches('`').trim().to_string());
+                open_fence = Some((trimmed[backticks..].trim().to_string(), backticks));
             }
-            continue;
+            _ => {
+                current.push_str(line);
+                current.push('\n');
+            }
         }
-        current.push_str(line);
-        current.push('\n');
     }
     if !current.is_empty() {
-        segments.push(match fence_language {
-            Some(language) => Segment::Code {
+        segments.push(match open_fence {
+            Some((language, _)) => Segment::Code {
                 language,
                 source: current,
             },
@@ -372,6 +386,28 @@ mod tests {
             panic!("third segment should be prose");
         };
         assert!(outro.contains("outro"));
+    }
+
+    #[test]
+    fn split_fences_ignores_indented_literal_fence() {
+        let segments = split_fences("prose\n\n    ```not-a-fence\n\nmore prose\n");
+        assert_eq!(segments.len(), 1);
+        let Segment::Prose(text) = &segments[0] else {
+            panic!("all prose");
+        };
+        assert!(text.contains("```not-a-fence"));
+    }
+
+    #[test]
+    fn split_fences_keeps_triple_backticks_inside_longer_fence() {
+        let segments = split_fences("````markdown\n```sh\necho hi\n```\n````\n");
+        assert_eq!(segments.len(), 1);
+        let Segment::Code { language, source } = &segments[0] else {
+            panic!("one code segment");
+        };
+        assert_eq!(language, "markdown");
+        assert!(source.contains("```sh"));
+        assert!(source.contains("echo hi"));
     }
 
     #[test]

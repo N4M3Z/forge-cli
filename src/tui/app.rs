@@ -865,27 +865,40 @@ impl App {
             DetailTab::Companions => companion_lines(artifact),
         };
         let mut paragraph = Paragraph::new(Text::from(lines));
-        if !windowed {
-            paragraph = paragraph
-                .wrap(Wrap { trim: false })
-                .scroll((self.detail_scroll, 0));
+        match (windowed, self.detail_tab) {
+            // The code window is pre-sliced; wrapping the visible slice keeps
+            // long lines readable without paying whole-file layout costs.
+            (true, DetailTab::Code) => paragraph = paragraph.wrap(Wrap { trim: false }),
+            // Glow output is pre-wrapped at pane width; re-wrapping breaks
+            // tables.
+            (true, _) => {}
+            (false, _) => {
+                paragraph = paragraph
+                    .wrap(Wrap { trim: false })
+                    .scroll((self.detail_scroll, 0));
+            }
         }
         frame.render_widget(paragraph, chunks[1]);
     }
 
     fn clamp_detail_scroll(&mut self, viewport: usize) {
-        let total = match self.detail_tab {
+        // The Code tab's cursor is the top visible line, so every line must be
+        // able to reach the top — clamp to the last line, not the last page.
+        let max_scroll = match self.detail_tab {
             DetailTab::Code => self
                 .code_cache
                 .as_ref()
-                .map_or(0, |cache| cache.lines.len()),
+                .map_or(0, |cache| cache.lines.len())
+                .saturating_sub(1),
             _ => self
                 .preview_cache
                 .as_ref()
-                .map_or(0, |cache| cache.lines.len()),
+                .map_or(0, |cache| cache.lines.len())
+                .saturating_sub(viewport),
         };
-        let max_scroll = u16::try_from(total.saturating_sub(viewport)).unwrap_or(u16::MAX);
-        self.detail_scroll = self.detail_scroll.min(max_scroll);
+        self.detail_scroll = self
+            .detail_scroll
+            .min(u16::try_from(max_scroll).unwrap_or(u16::MAX));
     }
 
     fn preview_window(&self, viewport: usize) -> Vec<Line<'static>> {
@@ -1275,22 +1288,26 @@ impl App {
         let regions = self.mouse_regions;
         if regions.tabs.contains(position) {
             self.focused = ColumnFocus::Detail;
-            if let Some(tab) = tab_at_column(x.saturating_sub(regions.tabs.x)) {
+            if y == regions.tabs.y
+                && let Some(tab) = tab_at_column(x.saturating_sub(regions.tabs.x))
+            {
                 self.set_detail_tab(tab);
             }
         } else if regions.sections.contains(position) {
             self.focused = ColumnFocus::Sections;
-            let row = usize::from(y.saturating_sub(regions.sections.y.saturating_add(1)));
-            if y > regions.sections.y && row < Section::ALL.len() {
+            if let Some(row) = bordered_row_at(regions.sections, x, y)
+                && row < Section::ALL.len()
+            {
                 self.set_section(Section::ALL[row]);
             }
         } else if regions.list.contains(position) {
             self.focused = ColumnFocus::List;
-            let row = usize::from(y.saturating_sub(regions.list.y.saturating_add(1)));
-            self.ensure_rows();
-            let rows = self.cached_rows();
-            if y > regions.list.y && rows.get(row).is_some_and(ListRow::is_selectable) {
-                self.list_selected[self.section as usize] = row;
+            if let Some(row) = bordered_row_at(regions.list, x, y) {
+                self.ensure_rows();
+                let rows = self.cached_rows();
+                if rows.get(row).is_some_and(ListRow::is_selectable) {
+                    self.list_selected[self.section as usize] = row;
+                }
             }
         } else if regions.detail.contains(position) {
             self.focused = ColumnFocus::Detail;
@@ -2429,6 +2446,14 @@ fn status_style(status: &str) -> Style {
 
 fn value_or_any(value: &str) -> &str {
     if value.is_empty() { "any" } else { value }
+}
+
+/// Row index inside a bordered block for a click at (x, y), `None` when the
+/// click lands on the border itself — borders focus a pane but never select.
+fn bordered_row_at(region: Rect, x: u16, y: u16) -> Option<usize> {
+    let inside_x = x > region.x && x.saturating_add(1) < region.x.saturating_add(region.width);
+    let inside_y = y > region.y && y.saturating_add(1) < region.y.saturating_add(region.height);
+    (inside_x && inside_y).then(|| usize::from(y - region.y - 1))
 }
 
 /// Maps a column inside the tab bar to its tab, mirroring the span layout in
