@@ -989,15 +989,16 @@ impl App {
     ) {
         let cache_width = width.max(1);
         if self.detail_tab == DetailTab::Code {
-            let artifact = &self.view.modules[module_index].artifacts[artifact_index];
-            let path = artifact.relative_path.clone();
+            let module = &self.view.modules[module_index];
+            let artifact = &module.artifacts[artifact_index];
+            let key = format!("{}:{}", module.name, artifact.relative_path);
             let needs_build = self
                 .code_cache
                 .as_ref()
-                .is_none_or(|cache| cache.path != path);
+                .is_none_or(|cache| cache.path != key);
             if needs_build {
-                let lines = rich::highlight_code(&path, &artifact.raw_source);
-                self.code_cache = Some(CodeCache { path, lines });
+                let lines = rich::highlight_code(&artifact.relative_path, &artifact.raw_source);
+                self.code_cache = Some(CodeCache { path: key, lines });
                 #[cfg(test)]
                 {
                     self.code_cache_build_count += 1;
@@ -1006,8 +1007,9 @@ impl App {
             return;
         }
         let key = {
-            let artifact = &self.view.modules[module_index].artifacts[artifact_index];
-            detail_cache_key(self.detail_tab, &artifact.relative_path)
+            let module = &self.view.modules[module_index];
+            let artifact = &module.artifacts[artifact_index];
+            detail_cache_key(self.detail_tab, &module.name, &artifact.relative_path)
         };
         let needs_build = self
             .preview_cache
@@ -2802,8 +2804,10 @@ fn preview_lines_for_width(artifact: &ArtifactView, width: u16) -> (Vec<Line<'st
     (lines, false)
 }
 
-fn detail_cache_key(tab: DetailTab, path: &str) -> String {
-    format!("{tab:?}:{path}")
+/// The module name disambiguates artifacts that share a relative path across
+/// modules (every module has a `skills/...` tree).
+fn detail_cache_key(tab: DetailTab, module: &str, path: &str) -> String {
+    format!("{tab:?}:{module}:{path}")
 }
 
 /// Uncommitted changes to the artifact's source file, colored like a pager.
