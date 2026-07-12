@@ -2082,7 +2082,7 @@ impl App {
             }
             ListTarget::Companion { parent, name, .. } => Some((
                 format!("companion {parent}/{name}"),
-                Some(format!("skills/{parent}/{name}.")),
+                Some(format!("skills/{parent}/{name}")),
             )),
             ListTarget::Module(name) => Some((format!("module {name}"), None)),
             ListTarget::Adr { repo, .. } => Some((format!("module {repo}"), None)),
@@ -2098,6 +2098,7 @@ impl App {
             return;
         };
         let Some((scope_label, only)) = self.selected_deploy_scope() else {
+            self.toast = Some("deploy: nothing deployable selected".to_string());
             return;
         };
         let scope_label = if only.is_some() {
@@ -2212,12 +2213,18 @@ impl App {
                     self.toast = Some(format!("not a directory: {raw}"));
                     return;
                 }
-                let _ = watchlist::add_path(&path.display().to_string(), true);
-                picker
-                    .options
-                    .push((format!("added: {}", path.display()), path));
-                picker.selected = picker.options.len() - 1;
-                self.toast = Some("target added — Enter deploys to it".to_string());
+                match watchlist::add_path_silent(&path.display().to_string()) {
+                    Ok(_) => {
+                        picker
+                            .options
+                            .push((format!("added: {}", path.display()), path));
+                        picker.selected = picker.options.len() - 1;
+                        self.toast = Some("target added — Enter deploys to it".to_string());
+                    }
+                    Err(error) => {
+                        self.toast = Some(format!("could not save target: {error}"));
+                    }
+                }
             }
             _ => {}
         }
@@ -2232,7 +2239,9 @@ impl App {
             return;
         };
         let mut options: Vec<(String, String)> = Vec::new();
-        if let Ok(custom) = std::env::var("FORGE_TUI_LAUNCH") {
+        if let Ok(custom) = std::env::var("FORGE_TUI_LAUNCH")
+            && !custom.trim().is_empty()
+        {
             options.push((format!("custom: {custom}"), custom));
         }
         for harness in ["claude", "codex", "gemini", "opencode"] {
@@ -2251,6 +2260,17 @@ impl App {
         self.launch_picker.is_some()
     }
 
+    /// Whether a modal owns input: mouse events must not reach the panes
+    /// underneath (the fullscreen zoom keeps its wheel scrolling).
+    #[must_use]
+    pub fn modal_blocks_mouse(&self) -> bool {
+        self.is_help_open()
+            || self.is_palette_open()
+            || self.is_comment_prompt_open()
+            || self.deploy_picker.is_some()
+            || self.launch_picker.is_some()
+    }
+
     pub fn launch_picker_key(&mut self, key: KeyEvent) {
         let Some(picker) = self.launch_picker.as_mut() else {
             return;
@@ -2265,13 +2285,19 @@ impl App {
             }
             KeyCode::Enter => {
                 let picker = self.launch_picker.take().expect("picker is open");
-                let Some((label, program)) = picker.options.get(picker.selected) else {
+                let Some((label, command)) = picker.options.get(picker.selected) else {
+                    return;
+                };
+                // A custom command may carry arguments; std Command does not
+                // shell-split, so split on whitespace here.
+                let mut words = command.split_whitespace().map(str::to_string);
+                let Some(program) = words.next() else {
                     return;
                 };
                 self.toast = Some(format!("launching {label} in {}", picker.module_name));
                 self.pending_external = Some(ExternalCommand {
-                    program: program.clone(),
-                    args: Vec::new(),
+                    program,
+                    args: words.collect(),
                     directory: picker.directory.clone(),
                 });
             }
@@ -3657,9 +3683,13 @@ fn render_choice_popup(
         .border_style(Style::default().fg(Color::Cyan));
     let inner = block.inner(popup);
     frame.render_widget(block, popup);
+    let viewport = usize::from(inner.height.max(1)).saturating_sub(usize::from(input.is_some()));
+    let offset = (selected + 1).saturating_sub(viewport);
     let mut items: Vec<ListItem<'_>> = labels
         .iter()
         .enumerate()
+        .skip(offset)
+        .take(viewport)
         .map(|(index, label)| {
             let style = if index == selected && input.is_none() {
                 selected_style(true)
@@ -3868,14 +3898,19 @@ fn artifact_only_prefix(kind: &str, relative_path: &str) -> String {
         let segments: Vec<&str> = relative_path.split('/').take(2).collect();
         return format!("{}/", segments.join("/"));
     }
-    let stem = relative_path
+    relative_path
         .rsplit_once('.')
-        .map_or(relative_path, |(stem, _)| stem);
-    format!("{stem}.")
+        .map_or(relative_path, |(stem, _)| stem)
+        .to_string()
 }
 
 /// Expands a leading `~` to the home directory.
 fn expand_home(raw: &str) -> PathBuf {
+    if raw == "~"
+        && let Some(home) = dirs::home_dir()
+    {
+        return home;
+    }
     if let Some(rest) = raw.strip_prefix("~/")
         && let Some(home) = dirs::home_dir()
     {
