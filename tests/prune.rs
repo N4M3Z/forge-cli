@@ -237,8 +237,7 @@ fn run_two_pass_prune_for_provider(provider: &str) {
     assert_eq!(
         trash_entries.len(),
         1,
-        "{provider}: exactly one timestamped trash entry expected, found {:?}",
-        trash_entries
+        "{provider}: exactly one timestamped trash entry expected, found {trash_entries:?}"
     );
     let trash_dir = &trash_entries[0];
     assert!(
