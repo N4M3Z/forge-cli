@@ -23,7 +23,8 @@ pub use history::{
     extract_frontmatter_field, git_log_for_artifact, read_source_adoption, read_source_sidecar,
     source_at_deploy,
 };
-pub use source::strip_frontmatter;
+pub use source::{parse_frontmatter, strip_frontmatter};
+pub use target::git_log_in_repo;
 
 use crate::error::{Error, ErrorKind};
 use crate::provider::ContentKind;

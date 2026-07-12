@@ -22,8 +22,8 @@ use commands::{
         files::{self, FileSections},
     },
     view::{
-        Adr, ArtifactView, DashboardView, ModuleView, ProvenanceArtifact, StatusSummary, VcsState,
-        WorktreeState,
+        Adr, ArtifactView, Companion, DashboardView, ModuleView, ProvenanceArtifact, StatusSummary,
+        VcsState, WorktreeState,
     },
 };
 
@@ -294,6 +294,12 @@ enum ListTarget {
     Overview,
     /// The Overview Nested/Matrix mode row: activating it toggles the mode.
     OverviewMode,
+    /// A skill companion file, shown as a child row under its parent skill.
+    Companion {
+        module: String,
+        parent: String,
+        name: String,
+    },
     Artifact {
         module: String,
         kind: String,
@@ -494,6 +500,9 @@ pub struct App {
     list_last_selected: usize,
     /// Second-press confirmation state for quitting with unsaved comments.
     quit_armed: bool,
+    /// Synthesized artifact for the selected ADR or companion, keyed by a
+    /// stable identity so tab switches do not re-read files or re-run git.
+    synthesized: Option<(String, ArtifactView)>,
     /// Whether keystrokes in the Search section edit the query (explicit
     /// input mode) or navigate the result list.
     search_typing: bool,
@@ -569,6 +578,7 @@ impl App {
             list_offset: 0,
             list_last_selected: 0,
             quit_armed: false,
+            synthesized: None,
             search_typing: false,
         }
     }
@@ -736,8 +746,13 @@ impl App {
             "ready"
         };
         let summary = &self.view.summary;
+        let comments = if self.comments.is_empty() {
+            String::new()
+        } else {
+            format!(" | ✎ {} comments (Y copies)", self.comments.len())
+        };
         let text = format!(
-            " forge tui | {scan} | ok {} stale {} modified {} new {} | {} modules",
+            " forge tui | {scan} | ok {} stale {} modified {} new {} | {} modules{comments}",
             summary.unchanged,
             summary.stale,
             summary.modified,
@@ -892,10 +907,21 @@ impl App {
             }
             Some(ListTarget::Adr { repo, id }) => {
                 if let Some(adr) = self.find_adr(&repo, &id).cloned() {
-                    self.render_adr_rich(frame, inner, &adr);
+                    let identity = format!("adr:{}", adr.local_path);
+                    let module_name = adr.repo.clone();
+                    self.render_synthesized_detail(frame, inner, &identity, &module_name, |app| {
+                        app.build_adr_artifact_view(&adr)
+                    });
                 } else {
                     frame.render_widget(Paragraph::new("ADR not found"), inner);
                 }
+            }
+            Some(ListTarget::Companion {
+                module,
+                parent,
+                name,
+            }) => {
+                self.render_companion_detail(frame, inner, &module, &parent, &name);
             }
             Some(ListTarget::Module(name)) => {
                 if let Some(module) = self.view.modules.iter().find(|module| module.name == name) {
@@ -1003,9 +1029,25 @@ impl App {
 
     /// Full ADR document rendered through the markdown pipeline, replacing the
     /// one-paragraph summary that used to cut the body off.
-    fn render_adr_rich(&mut self, frame: &mut Frame<'_>, area: Rect, adr: &Adr) {
-        let cache_width = area.width.max(1);
-        let key = format!("adr:{}", adr.local_path);
+    /// Renders a synthesized artifact (ADR, companion) through the same
+    /// tabbed detail pipeline as scanned artifacts: one artifact view
+    /// everywhere.
+    fn render_synthesized_detail(
+        &mut self,
+        frame: &mut Frame<'_>,
+        area: Rect,
+        identity: &str,
+        module_name: &str,
+        build: impl FnOnce(&Self) -> ArtifactView,
+    ) {
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Length(2), Constraint::Min(1)])
+            .split(area);
+        self.mouse_regions.tabs = chunks[0];
+        self.render_tabs(frame, chunks[0]);
+        let cache_width = chunks[1].width.max(1);
+        let key = detail_cache_key(self.detail_tab, module_name, identity);
         let needs_build = self
             .preview_cache
             .as_ref()
@@ -1014,7 +1056,7 @@ impl App {
             if self.preview_cache.is_some() && input_pending() {
                 frame.render_widget(
                     Paragraph::new("rendering…").style(Style::default().fg(Color::DarkGray)),
-                    area,
+                    chunks[1],
                 );
                 return;
             }
@@ -1025,35 +1067,132 @@ impl App {
             {
                 self.detail_scroll = 0;
             }
-            let raw = std::fs::read_to_string(&adr.local_path)
-                .unwrap_or_else(|error| format!("could not read {}: {error}", adr.local_path));
-            let body = commands::services::strip_frontmatter(&raw);
-            let mut lines = vec![
-                Line::from(Span::styled(
-                    format!("{} {}", adr.id, adr.title),
-                    Style::default().add_modifier(Modifier::BOLD),
-                )),
-                Line::from(format!(
-                    "{} · {} · {} · {}",
-                    adr.repo, adr.state, adr.status, adr.relative_path
-                )),
-                Line::from(""),
-            ];
-            let rendered = rich::render_markdown_with_glow(&body, cache_width);
-            let windowed = rendered.is_some();
-            match rendered {
-                Some(rendered) => lines.extend(rendered),
-                None => lines.extend(body.lines().map(|line| Line::from(line.to_string()))),
+            if self
+                .synthesized
+                .as_ref()
+                .is_none_or(|(cached, _)| cached != identity)
+            {
+                let artifact = build(self);
+                self.synthesized = Some((identity.to_string(), artifact));
             }
+            let (lines, windowed) = {
+                let (_, artifact) = self.synthesized.as_ref().expect("synthesized just set");
+                let module = self
+                    .view
+                    .modules
+                    .iter()
+                    .find(|module| module.name == module_name);
+                self.build_detail_lines(module, artifact, self.detail_tab, cache_width)
+            };
+            let hunks = hunk_offsets(&lines);
             self.preview_cache = Some(DetailCache {
                 key,
                 width: cache_width,
                 lines,
                 windowed,
-                hunks: Vec::new(),
+                hunks,
             });
         }
-        self.render_cached_detail(frame, area);
+        self.render_cached_detail(frame, chunks[1]);
+    }
+
+    fn render_companion_detail(
+        &mut self,
+        frame: &mut Frame<'_>,
+        area: Rect,
+        module: &str,
+        parent: &str,
+        name: &str,
+    ) {
+        let found = self
+            .view
+            .modules
+            .iter()
+            .find(|candidate| candidate.name == module)
+            .and_then(|candidate| {
+                candidate
+                    .artifacts
+                    .iter()
+                    .find(|artifact| artifact.name == parent)
+            })
+            .and_then(|artifact| {
+                artifact
+                    .companions
+                    .iter()
+                    .find(|companion| companion.name == name)
+            })
+            .cloned();
+        if let Some(companion) = found {
+            let identity = format!("companion:{module}:{parent}:{name}");
+            self.render_synthesized_detail(frame, area, &identity, module, |app| {
+                app.build_companion_artifact_view(module, parent, &companion)
+            });
+        } else {
+            frame.render_widget(Paragraph::new("companion not found"), area);
+        }
+    }
+
+    /// One artifact view for an ADR: full raw source, stripped body,
+    /// frontmatter, per-file git history, and the module's VCS state.
+    fn build_adr_artifact_view(&self, adr: &Adr) -> ArtifactView {
+        let raw = std::fs::read_to_string(&adr.local_path)
+            .unwrap_or_else(|error| format!("could not read {}: {error}", adr.local_path));
+        let body = services::strip_frontmatter(&raw);
+        let module = self
+            .view
+            .modules
+            .iter()
+            .find(|module| module.name == adr.repo);
+        let git_log = module
+            .and_then(|module| module.local_path.as_ref())
+            .map(|repo| services::git_log_in_repo(repo, &adr.relative_path))
+            .unwrap_or_default();
+        ArtifactView {
+            name: format!("{} {}", adr.id, adr.title),
+            kind: "adr".to_string(),
+            module: adr.repo.clone(),
+            relative_path: adr.relative_path.clone(),
+            source_path: adr.relative_path.clone(),
+            description: format!("{} · {}", adr.state, adr.status),
+            metadata: services::parse_frontmatter(&raw),
+            content_body: body,
+            raw_source: raw,
+            git_log,
+            vcs: module.and_then(|module| module.vcs.clone()),
+            ..ArtifactView::default()
+        }
+    }
+
+    /// One artifact view for a skill companion file.
+    fn build_companion_artifact_view(
+        &self,
+        module_name: &str,
+        parent: &str,
+        companion: &Companion,
+    ) -> ArtifactView {
+        let module = self
+            .view
+            .modules
+            .iter()
+            .find(|module| module.name == module_name);
+        let git_log = module
+            .and_then(|module| module.local_path.as_ref())
+            .map(|repo| services::git_log_in_repo(repo, &companion.relative_path))
+            .unwrap_or_default();
+        ArtifactView {
+            name: format!("{parent}/{}", companion.name),
+            kind: "companion".to_string(),
+            module: module_name.to_string(),
+            relative_path: companion.relative_path.clone(),
+            source_path: companion.relative_path.clone(),
+            description: companion.description.clone(),
+            metadata: services::parse_frontmatter(&companion.raw_source),
+            content_body: companion.content_body.clone(),
+            raw_source: companion.raw_source.clone(),
+            git_log,
+            vcs: module.and_then(|module| module.vcs.clone()),
+            ..ArtifactView::default()
+        }
     }
 
     /// Draws the current detail cache: windowed when the lines are already
@@ -1693,8 +1832,11 @@ impl App {
         let name = match self.selected_target() {
             Some(ListTarget::Module(name)) => name,
             Some(
-                ListTarget::Artifact { module, .. } | ListTarget::ProvenanceArtifact { module, .. },
+                ListTarget::Artifact { module, .. }
+                | ListTarget::ProvenanceArtifact { module, .. }
+                | ListTarget::Companion { module, .. },
             ) => module,
+            Some(ListTarget::Adr { repo, .. }) => repo,
             _ => {
                 self.toast = Some(format!("{program}: select a repository or artifact first"));
                 return;
@@ -1980,6 +2122,11 @@ impl App {
             KeyCode::Char('m') if self.section == Section::Overview => {
                 self.toggle_overview_mode();
             }
+            KeyCode::Char('m') if self.selected_artifact().is_some() => {
+                self.focused = ColumnFocus::Detail;
+                self.set_detail_tab(DetailTab::Code);
+                self.open_comment_prompt();
+            }
             _ => {}
         }
     }
@@ -2155,6 +2302,18 @@ impl App {
             rows.push(ListRow::header(kind));
             for (artifact, module) in artifacts {
                 rows.push(artifact_row(artifact, module));
+                for companion in &artifact.companions {
+                    rows.push(ListRow::item(
+                        format!("  ↳ {}", companion.name),
+                        format!("companion of {}", artifact.name),
+                        ListTarget::Companion {
+                            module: module.to_string(),
+                            parent: artifact.name.clone(),
+                            name: companion.name.clone(),
+                        },
+                        "ok",
+                    ));
+                }
             }
         }
         rows
@@ -2536,26 +2695,42 @@ impl App {
     }
 
     fn provenance_lines(&self, module: &ModuleView, artifact: &ArtifactView) -> Vec<Line<'static>> {
+        fn field(key: &str, value: String) -> Line<'static> {
+            Line::from(vec![
+                Span::styled(format!("{key:<14}"), Style::default().fg(Color::Magenta)),
+                Span::raw(value),
+            ])
+        }
+        fn field_if(key: &str, value: &str) -> Option<Line<'static>> {
+            (!value.trim().is_empty()).then(|| field(key, value.to_string()))
+        }
+        let short = |sha: &str| sha.chars().take(12).collect::<String>();
+
         let mut lines = vec![
             Line::from(Span::styled(
-                "Provenance chain",
+                "Provenance",
                 Style::default().add_modifier(Modifier::BOLD),
             )),
-            Line::from(format!(
-                "status: {} · {}",
-                artifact.overall_status(),
-                artifact.staleness_label()
-            )),
+            field(
+                "status",
+                format!(
+                    "{} · {}",
+                    artifact.overall_status(),
+                    artifact.staleness_label()
+                ),
+            ),
         ];
         if let Some(adoption) = &artifact.adoption {
-            lines.push(Line::from(format!(
-                "Upstream: {} @ {}",
-                adoption.source_label, adoption.source_sha
-            )));
-            lines.push(Line::from(format!(
-                "adopt/copy: {} · by {}",
-                adoption.kind, adoption.author
-            )));
+            lines.push(field(
+                "upstream",
+                format!(
+                    "{} @ {}",
+                    adoption.source_label,
+                    short(&adoption.source_sha)
+                ),
+            ));
+            lines.push(field("adopted", adoption.kind.clone()));
+            lines.extend(field_if("author", &adoption.author));
             if !adoption.dependencies.is_empty() {
                 let deps = builders::resolve_dep_links(&self.view, artifact.adoption.as_ref())
                     .iter()
@@ -2563,51 +2738,29 @@ impl App {
                         if dep.module.is_empty() {
                             dep.name.clone()
                         } else {
-                            format!("{} -> {}", dep.name, dep.module)
+                            format!("{} ({})", dep.name, dep.module)
                         }
                     })
                     .collect::<Vec<_>>()
                     .join(", ");
-                lines.push(Line::from(format!("dependencies: {deps}")));
+                lines.push(field("depends on", deps));
             }
             if !adoption.transforms.is_empty() {
-                lines.push(Line::from(format!(
-                    "transforms: {}",
-                    adoption.transforms.join(", ")
-                )));
+                lines.push(field("transforms", adoption.transforms.join(", ")));
             }
-            lines.push(Line::from(format!("license: {}", adoption.license)));
-            lines.push(Line::from(format!("adopted by: {}", adoption.adopted_by)));
+            lines.extend(field_if("license", &adoption.license));
+            lines.extend(field_if("adopted by", &adoption.adopted_by));
         } else {
-            lines.push(Line::from("Upstream: authored source"));
+            lines.push(field("upstream", "authored here".to_string()));
         }
-        lines.push(Line::from(format!("source module: {}", module.name)));
-        lines.push(Line::from(
-            "assemble: current binary metadata available in dashboard",
-        ));
+        lines.push(field("source", module.name.clone()));
+
         let entries = self.provenance_entries(module, artifact);
         let groups = builders::group_deployments(&entries);
-        if groups.is_empty() {
-            lines.push(Line::from("deploy groups: none"));
-        } else {
-            lines.push(Line::from("deploy groups"));
-            for group in groups {
-                lines.push(Line::from(format!(
-                    "  {} {}/{} verified",
-                    group.target, group.verified, group.total
-                )));
-                for harness in group.harnesses {
-                    lines.push(Line::from(format!(
-                        "    {} {} {}",
-                        harness.harness,
-                        if harness.verified { "OK" } else { "DRIFT" },
-                        harness.deployed_path
-                    )));
-                }
-            }
-        }
+        lines.push(Line::default());
+        lines.extend(deployment_lines(&groups));
         if !artifact.sidecar_warning.is_empty() {
-            lines.push(Line::from(format!("sidecar: {}", artifact.sidecar_warning)));
+            lines.push(field("sidecar", artifact.sidecar_warning.clone()));
         }
         lines.extend(sidecar_yaml_lines(module, artifact));
         lines
@@ -3106,6 +3259,11 @@ fn preview_lines_for_width(artifact: &ArtifactView, width: u16) -> (Vec<Line<'st
     if !artifact.description.is_empty() {
         lines.extend(wrap_plain(&artifact.description, width as usize));
     }
+    // A rule separates the file's properties from its content.
+    lines.push(Line::from(Span::styled(
+        "─".repeat(usize::from(width)),
+        Style::default().fg(Color::DarkGray),
+    )));
     lines.push(Line::from(""));
     let body = if artifact.content_body.is_empty() {
         artifact.content_preview.as_str()
@@ -3211,6 +3369,62 @@ fn diff_lines(
             )));
         }
         lines.push(diff_line_colored(raw));
+    }
+    lines
+}
+
+/// The Deployments block of the provenance view: per-target verification
+/// badges with per-harness rows.
+fn deployment_lines(groups: &[commands::view::DeployGroup]) -> Vec<Line<'static>> {
+    let mut lines = vec![Line::from(Span::styled(
+        "Deployments",
+        Style::default().add_modifier(Modifier::BOLD),
+    ))];
+    if groups.is_empty() {
+        lines.push(Line::from(Span::styled(
+            "not deployed anywhere",
+            Style::default().fg(Color::DarkGray),
+        )));
+    }
+    for group in groups {
+        let all_verified = group.verified == group.total;
+        lines.push(Line::from(vec![
+            Span::styled(
+                if all_verified { "✓ " } else { "✗ " },
+                Style::default().fg(if all_verified {
+                    Color::Green
+                } else {
+                    Color::Red
+                }),
+            ),
+            Span::styled(
+                group.target.clone(),
+                Style::default().add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(
+                format!("  {}/{} verified", group.verified, group.total),
+                Style::default().fg(Color::DarkGray),
+            ),
+        ]));
+        for harness in &group.harnesses {
+            let (badge, style) = if harness.verified {
+                ("✓", Style::default().fg(Color::Green))
+            } else {
+                ("✗ DRIFT", Style::default().fg(Color::Red))
+            };
+            lines.push(Line::from(vec![
+                Span::raw("    "),
+                Span::styled(
+                    format!("{:<12}", harness.harness),
+                    Style::default().fg(Color::Cyan),
+                ),
+                Span::styled(format!("{badge:<8}"), style),
+                Span::styled(
+                    harness.deployed_path.clone(),
+                    Style::default().fg(Color::DarkGray),
+                ),
+            ]));
+        }
     }
     lines
 }
