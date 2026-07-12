@@ -2,6 +2,7 @@ pub mod app;
 pub mod components;
 pub mod event;
 mod rich;
+mod word_wrap;
 
 use std::{
     io::{self, Stdout},

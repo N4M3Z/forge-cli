@@ -44,6 +44,13 @@ pub fn handle_key(app: &mut App, key: KeyEvent) {
         app.search_input_key(key);
         return;
     }
+    // Digits switch sections from any focus; letter shortcuts (t/h/c/m)
+    // stay scoped to the Sections column where they are advertised.
+    if let KeyCode::Char(character @ '0'..='9') = key.code
+        && app.set_section_by_shortcut(character)
+    {
+        return;
+    }
     if app.has_section_digit_shortcuts()
         && let KeyCode::Char(character) = key.code
         && app.set_section_by_shortcut(character)
@@ -74,6 +81,10 @@ pub fn handle_key(app: &mut App, key: KeyEvent) {
         KeyCode::Char('p') => app.set_detail_tab(super::app::DetailTab::Preview),
         KeyCode::Char('c') => app.set_detail_tab(super::app::DetailTab::Code),
         KeyCode::Char('d') => app.set_detail_tab(super::app::DetailTab::Diff),
+        KeyCode::Char('v') => app.set_detail_tab(super::app::DetailTab::Provenance),
+        KeyCode::Char('f') => app.set_detail_tab(super::app::DetailTab::Frontmatter),
+        KeyCode::Char('i') => app.set_detail_tab(super::app::DetailTab::History),
+        KeyCode::Char('n') => app.set_detail_tab(super::app::DetailTab::Companions),
         KeyCode::Char('o') => app.open_repo_tool(false),
         KeyCode::Char('O') => app.open_repo_tool(true),
         _ => app.focused_key(key),
@@ -89,13 +100,17 @@ fn handle_preview_key(app: &mut App, key: KeyEvent) {
         KeyCode::PageUp | KeyCode::Char('b') => app.preview_scroll_up(10),
         KeyCode::Home | KeyCode::Char('g') => app.preview_scroll_to_top(),
         KeyCode::End | KeyCode::Char('G') => app.preview_scroll_to_bottom(),
-        KeyCode::Char(digit @ '1'..='7') => {
-            let index = usize::from(digit as u8 - b'1');
-            app.set_detail_tab(super::app::DetailTab::ALL[index]);
+        KeyCode::Char(digit @ '0'..='9') => {
+            app.close_preview();
+            app.set_section_by_shortcut(digit);
         }
         KeyCode::Char('p') => app.set_detail_tab(super::app::DetailTab::Preview),
         KeyCode::Char('c') => app.set_detail_tab(super::app::DetailTab::Code),
         KeyCode::Char('d') => app.set_detail_tab(super::app::DetailTab::Diff),
+        KeyCode::Char('v') => app.set_detail_tab(super::app::DetailTab::Provenance),
+        KeyCode::Char('f') => app.set_detail_tab(super::app::DetailTab::Frontmatter),
+        KeyCode::Char('i') => app.set_detail_tab(super::app::DetailTab::History),
+        KeyCode::Char('n') => app.set_detail_tab(super::app::DetailTab::Companions),
         _ => {}
     }
 }
