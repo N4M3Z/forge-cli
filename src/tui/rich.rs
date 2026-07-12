@@ -69,11 +69,16 @@ fn glow_lines(text: &str, width: u16) -> Option<Vec<Line<'static>>> {
         .spawn()
         .ok()?;
 
+    // Feed stdin from a separate thread: writing a body larger than the OS
+    // pipe buffer while glow's stdout pipe fills would deadlock both sides.
     let mut stdin = child.stdin.take()?;
-    stdin.write_all(text.as_bytes()).ok()?;
-    drop(stdin);
-
-    let output = child.wait_with_output().ok()?;
+    let body = text.as_bytes().to_vec();
+    let writer = std::thread::spawn(move || {
+        let _ = stdin.write_all(&body);
+    });
+    let output = child.wait_with_output().ok();
+    let _ = writer.join();
+    let output = output?;
     if !output.status.success() {
         return None;
     }
@@ -195,9 +200,12 @@ fn glow_style_path() -> Option<String> {
     static STYLE_PATH: OnceLock<Option<String>> = OnceLock::new();
     STYLE_PATH
         .get_or_init(|| {
-            let path = std::env::temp_dir().join("forge-glow-style.json");
-            let staging = std::env::temp_dir()
-                .join(format!("forge-glow-style-{}.json.tmp", std::process::id()));
+            let user = std::env::var("USER").unwrap_or_else(|_| "shared".to_string());
+            let path = std::env::temp_dir().join(format!("forge-glow-style-{user}.json"));
+            let staging = std::env::temp_dir().join(format!(
+                "forge-glow-style-{user}-{}.json.tmp",
+                std::process::id()
+            ));
             // Write-then-rename keeps concurrent forge processes from ever
             // observing a truncated style file.
             std::fs::write(&staging, include_str!("glow_style.json")).ok()?;

@@ -416,6 +416,7 @@ struct LineComment {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct CommentPrompt {
+    module: String,
     path: String,
     line_number: usize,
     kind: CommentKind,
@@ -439,7 +440,7 @@ pub struct App {
     row_build_count: usize,
     preview_cache: Option<DetailCache>,
     code_cache: Option<CodeCache>,
-    comments: BTreeMap<(String, usize), LineComment>,
+    comments: BTreeMap<(String, String, usize), LineComment>,
     comment_prompt: Option<CommentPrompt>,
     #[cfg(test)]
     preview_cache_build_count: usize,
@@ -460,6 +461,10 @@ pub struct App {
     /// External TUI (gitui/jjui) queued to run in a repo; the event loop
     /// suspends the terminal, runs it, and resumes.
     pending_external: Option<(String, PathBuf)>,
+    /// First visible row of the list column (viewport scroll offset).
+    list_offset: usize,
+    /// Selection seen at the last render, to detect selection movement.
+    list_last_selected: usize,
 }
 
 impl App {
@@ -529,10 +534,16 @@ impl App {
             palette: Palette::new(),
             mouse_regions: MouseRegions::default(),
             pending_external: None,
+            list_offset: 0,
+            list_last_selected: 0,
         }
     }
 
     pub fn refresh(&mut self) {
+        if self.scan_state == ScanState::Loading {
+            self.toast = Some("scan already running".to_string());
+            return;
+        }
         self.start_scan();
     }
 
@@ -556,9 +567,11 @@ impl App {
                 self.scan_state = ScanState::Idle;
                 self.scan_receiver = None;
                 self.toast = Some("scan complete".to_string());
+                let previous_target = self.selected_target();
                 self.invalidate_rows();
                 self.invalidate_detail_caches();
                 self.refresh_open_preview();
+                self.restore_selection(previous_target);
                 self.clamp_list_selection();
             }
             Ok(Err(error)) => {
@@ -743,26 +756,44 @@ impl App {
         frame.render_widget(List::new(items), inner);
     }
 
-    fn render_list(&self, frame: &mut Frame<'_>, area: Rect) {
+    fn render_list(&mut self, frame: &mut Frame<'_>, area: Rect) {
         let title = format!(" {} ", self.section.label());
         let block = column_block(&title, self.focused == ColumnFocus::List);
         let inner = block.inner(area);
         frame.render_widget(block, area);
 
-        let rows = self.cached_rows();
-        if self.scan_state == ScanState::Loading && rows.is_empty() {
+        if self.scan_state == ScanState::Loading && self.cached_rows.is_empty() {
             frame.render_widget(
                 Paragraph::new("Scanning modules...").style(Style::default().fg(Color::Gray)),
                 inner,
             );
             return;
         }
-        let selected = self.selected_list_index(rows);
+        let viewport = usize::from(inner.height.max(1));
+        let selected = self.selected_list_index(&self.cached_rows);
+        // The viewport follows selection changes (keyboard/click), while wheel
+        // scrolling moves the offset alone — passive gestures never drag the
+        // selection, and moving the selection always brings it back on screen.
+        if selected != self.list_last_selected {
+            if selected < self.list_offset {
+                self.list_offset = selected;
+            } else if selected + 1 > self.list_offset + viewport {
+                self.list_offset = selected + 1 - viewport;
+            }
+            self.list_last_selected = selected;
+        }
+        self.list_offset = self
+            .list_offset
+            .min(self.cached_rows.len().saturating_sub(viewport));
+        let offset = self.list_offset;
+        let rows = &self.cached_rows;
         let items: Vec<ListItem<'_>> = if rows.is_empty() {
             vec![ListItem::new("no rows")]
         } else {
             rows.iter()
                 .enumerate()
+                .skip(offset)
+                .take(viewport)
                 .map(|(index, row)| {
                     if row.header {
                         return ListItem::new(Line::from(Span::styled(
@@ -897,7 +928,26 @@ impl App {
                 chunks[1],
             );
         } else {
-            self.render_cached_detail(frame, chunks[1]);
+            let expected_key = {
+                let module = &self.view.modules[module_index];
+                let artifact = &module.artifacts[artifact_index];
+                detail_cache_key(self.detail_tab, &module.name, &artifact.relative_path)
+            };
+            // A deferred rebuild (input still queued) leaves the previous
+            // artifact's lines in the cache; render a placeholder rather than
+            // content that belongs to another selection.
+            if self
+                .preview_cache
+                .as_ref()
+                .is_some_and(|cache| cache.key != expected_key)
+            {
+                frame.render_widget(
+                    Paragraph::new("rendering…").style(Style::default().fg(Color::DarkGray)),
+                    chunks[1],
+                );
+            } else {
+                self.render_cached_detail(frame, chunks[1]);
+            }
         }
     }
 
@@ -1080,6 +1130,7 @@ impl App {
     fn code_window(&self, artifact: &ArtifactView, viewport: usize) -> Vec<Line<'static>> {
         let scroll = usize::from(self.detail_scroll);
         let current_line = self.current_code_line(artifact);
+        let module = &artifact.module;
         let path = &artifact.relative_path;
         self.code_cache.as_ref().map_or_else(Vec::new, |cache| {
             cache
@@ -1091,7 +1142,9 @@ impl App {
                 .map(|(index, cached_line)| {
                     let mut line = cached_line.clone();
                     let line_number = index + 1;
-                    let has_comment = self.comments.contains_key(&(path.clone(), line_number));
+                    let has_comment =
+                        self.comments
+                            .contains_key(&(module.clone(), path.clone(), line_number));
                     if let Some(marker) = line.spans.first_mut() {
                         *marker = Span::styled(
                             if has_comment { "◆ " } else { "  " },
@@ -1406,7 +1459,8 @@ impl App {
             }
         } else if regions.list.contains(position) {
             self.focused = ColumnFocus::List;
-            if let Some(row) = bordered_row_at(regions.list, x, y) {
+            if let Some(visual_row) = bordered_row_at(regions.list, x, y) {
+                let row = visual_row.saturating_add(self.list_offset);
                 self.ensure_rows();
                 let rows = self.cached_rows();
                 if rows.get(row).is_some_and(ListRow::is_selectable) {
@@ -1433,11 +1487,19 @@ impl App {
         if self.help_state == HelpState::Open {
             return;
         }
-        if self.mouse_regions.detail.contains(Position { x, y }) {
+        let position = Position { x, y };
+        if self.mouse_regions.detail.contains(position) {
             self.detail_scroll = if down {
                 self.detail_scroll.saturating_add(WHEEL_STEP)
             } else {
                 self.detail_scroll.saturating_sub(WHEEL_STEP)
+            };
+        } else if self.mouse_regions.list.contains(position) {
+            // Viewport only; the render pass clamps to the row count.
+            self.list_offset = if down {
+                self.list_offset.saturating_add(usize::from(WHEEL_STEP))
+            } else {
+                self.list_offset.saturating_sub(usize::from(WHEEL_STEP))
             };
         }
     }
@@ -1470,9 +1532,15 @@ impl App {
     /// suspends the TUI, runs the tool in the repo, and resumes on exit.
     pub fn open_repo_tool(&mut self, jj: bool) {
         let program = if jj { "jjui" } else { "gitui" };
-        let Some(ListTarget::Module(name)) = self.selected_target() else {
-            self.toast = Some(format!("{program}: select a repository first (section 5)"));
-            return;
+        let name = match self.selected_target() {
+            Some(ListTarget::Module(name)) => name,
+            Some(
+                ListTarget::Artifact { module, .. } | ListTarget::ProvenanceArtifact { module, .. },
+            ) => module,
+            _ => {
+                self.toast = Some(format!("{program}: select a repository or artifact first"));
+                return;
+            }
         };
         let Some(module) = self.view.modules.iter().find(|module| module.name == name) else {
             return;
@@ -1601,8 +1669,15 @@ impl App {
 
     pub fn copy_selected(&mut self) {
         self.ensure_rows();
-        if let Some(artifact) = self.selected_artifact() {
-            self.toast = Some(format!("copied source path: {}", artifact.relative_path));
+        if let Some(path) = self
+            .selected_artifact()
+            .map(|artifact| artifact.relative_path.clone())
+        {
+            self.toast = Some(if copy_to_pbcopy(&path) {
+                format!("copied source path: {path}")
+            } else {
+                "pbcopy unavailable".to_string()
+            });
         }
     }
 
@@ -1628,13 +1703,14 @@ impl App {
     #[cfg(test)]
     pub fn add_comment_for_test(
         &mut self,
+        module: impl Into<String>,
         path: impl Into<String>,
         line_number: usize,
         kind: CommentKind,
         text: impl Into<String>,
     ) {
         self.comments.insert(
-            (path.into(), line_number),
+            (module.into(), path.into(), line_number),
             LineComment {
                 kind,
                 text: text.into(),
@@ -1650,13 +1726,14 @@ impl App {
             String::new(),
         ];
         lines.extend(self.comments.iter().enumerate().map(
-            |(index, ((path, line_number), comment))| {
+            |(index, ((module, path, line_number), comment))| {
                 format!(
-                    "{}. **[{}]** `{}:{}` - {}",
+                    "{}. **[{}]** `{}:{}` ({}) - {}",
                     index + 1,
                     comment.kind.label(),
                     path,
                     line_number,
+                    module,
                     comment.text
                 )
             },
@@ -1668,15 +1745,17 @@ impl App {
         let Some(artifact) = self.selected_artifact() else {
             return;
         };
+        let module = artifact.module.clone();
         let path = artifact.relative_path.clone();
         let line_number = self.current_code_line(artifact);
         let (kind, text) = self
             .comments
-            .get(&(path.clone(), line_number))
+            .get(&(module.clone(), path.clone(), line_number))
             .map_or((CommentKind::Issue, String::new()), |comment| {
                 (comment.kind, comment.text.clone())
             });
         self.comment_prompt = Some(CommentPrompt {
+            module,
             path,
             line_number,
             kind,
@@ -1690,12 +1769,13 @@ impl App {
         };
         let text = prompt.text.trim().to_string();
         if text.is_empty() {
-            self.comments.remove(&(prompt.path, prompt.line_number));
+            self.comments
+                .remove(&(prompt.module, prompt.path, prompt.line_number));
             self.toast = Some("comment cleared".to_string());
             return;
         }
         self.comments.insert(
-            (prompt.path, prompt.line_number),
+            (prompt.module, prompt.path, prompt.line_number),
             LineComment {
                 kind: prompt.kind,
                 text,
@@ -1778,6 +1858,7 @@ impl App {
     fn set_section(&mut self, section: Section) {
         self.section = section;
         self.detail_scroll = 0;
+        self.list_offset = 0;
         self.invalidate_rows();
         self.clamp_list_selection();
     }
@@ -1806,12 +1887,15 @@ impl App {
     /// After a rescan the zoom overlay's cloned artifact is stale: rebind it
     /// to the fresh view, or close it when the artifact no longer exists.
     fn refresh_open_preview(&mut self) {
-        let Some(open) = self.preview.as_ref().map(|preview| {
+        let Some((open, scroll)) = self.preview.as_ref().map(|preview| {
             let artifact = preview.artifact();
             (
-                artifact.module.clone(),
-                artifact.kind.clone(),
-                artifact.name.clone(),
+                (
+                    artifact.module.clone(),
+                    artifact.kind.clone(),
+                    artifact.name.clone(),
+                ),
+                preview.scroll(),
             )
         }) else {
             return;
@@ -1828,7 +1912,11 @@ impl App {
                     .find(|artifact| artifact.kind == open.1 && artifact.name == open.2)
             })
             .cloned();
-        self.preview = fresh.map(|artifact| ArtifactPreview::from_artifact(&artifact));
+        self.preview = fresh.map(|artifact| {
+            let mut preview = ArtifactPreview::from_artifact(&artifact);
+            preview.scroll_down(scroll);
+            preview
+        });
     }
 
     fn cached_rows(&self) -> &[ListRow] {
@@ -2101,6 +2189,19 @@ impl App {
         rows.iter()
             .position(ListRow::is_selectable)
             .unwrap_or_default()
+    }
+
+    /// Re-selects the row carrying the same target after the rows were
+    /// rebuilt, so a background rescan does not silently move the selection
+    /// to whatever row now occupies the old index.
+    fn restore_selection(&mut self, target: Option<ListTarget>) {
+        let Some(target) = target else {
+            return;
+        };
+        self.ensure_rows();
+        if let Some(index) = self.cached_rows.iter().position(|row| row.target == target) {
+            self.list_selected[self.section as usize] = index;
+        }
     }
 
     fn clamp_list_selection(&mut self) {
