@@ -171,8 +171,8 @@ fn event_loop(terminal: &mut TuiTerminal, app: &mut App) -> Result<(), Box<dyn s
                 _ => {}
             }
         }
-        if let Some((program, directory)) = app.take_external() {
-            run_external_tool(terminal, app, &program, &directory)?;
+        if let Some(command) = app.take_external() {
+            run_external_tool(terminal, app, &command)?;
         }
     }
     Ok(())
@@ -183,12 +183,13 @@ fn event_loop(terminal: &mut TuiTerminal, app: &mut App) -> Result<(), Box<dyn s
 fn run_external_tool(
     terminal: &mut TuiTerminal,
     app: &mut App,
-    program: &str,
-    directory: &std::path::Path,
+    command: &app::ExternalCommand,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    let program = &command.program;
     restore_terminal(terminal);
     let status = std::process::Command::new(program)
-        .current_dir(directory)
+        .args(&command.args)
+        .current_dir(&command.directory)
         .status();
     *terminal = setup_terminal()?;
     terminal.clear()?;
