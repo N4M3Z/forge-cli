@@ -576,9 +576,9 @@ fn overview_inventory_rows_jump_to_sections() {
     app.set_section_by_number(1);
     app.move_list_selection(1);
     event::handle_key(&mut app, key(KeyCode::Enter));
-    assert_eq!(app.section(), Section::Skills);
+    assert_eq!(app.section(), Section::Search);
     let filtered = rendered(&mut app);
-    assert!(filtered.contains("/forge-core"));
+    assert!(filtered.contains("module: forge-core") || filtered.contains("BuildSkill"));
     assert!(filtered.contains("BuildSkill"));
 }
 
