@@ -21,6 +21,7 @@ use crate::cli::config;
 /// Modified  → skip (unless --force)
 /// ```
 #[allow(clippy::fn_params_excessive_bools, clippy::too_many_lines)]
+#[allow(clippy::too_many_arguments)]
 pub fn execute(
     path: &str,
     target: Option<&str>,
@@ -29,7 +30,11 @@ pub fn execute(
     prune: bool,
     _interactive: bool,
     dry_run: bool,
+    only: Option<&str>,
 ) -> Result<ActionResult, Error> {
+    // A scoped deploy leaves everything else at the target alone: pruning
+    // against a filtered key set would quarantine the rest of the module.
+    let prune = prune && only.is_none();
     let module_root = Path::new(path);
     require_module_root(module_root)?;
     let mut result = ActionResult::new();
@@ -103,6 +108,7 @@ pub fn execute(
                 &mut result,
                 provider_name,
                 force,
+                only,
             )?;
         }
 
@@ -145,6 +151,7 @@ fn deploy_provider_kind_files(
     result: &mut ActionResult,
     provider_name: &str,
     force: bool,
+    only: Option<&str>,
 ) -> Result<(), Error> {
     let files = collect_files_recursive(kind_dir)?;
 
@@ -159,6 +166,9 @@ fn deploy_provider_kind_files(
             .to_string_lossy()
             .to_string();
         let manifest_key = format!("{kind}/{relative}");
+        if only.is_some_and(|prefix| !manifest_key.starts_with(prefix)) {
+            continue;
+        }
         deployed_keys.insert(manifest_key.clone());
         let target_path = target_base.join(kind.as_str()).join(&relative);
 

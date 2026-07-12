@@ -39,6 +39,10 @@ pub fn handle_key(app: &mut App, key: KeyEvent) {
         app.deploy_picker_key(key);
         return;
     }
+    if app.is_launch_picker_open() {
+        app.launch_picker_key(key);
+        return;
+    }
     if app.is_search_input_active()
         && matches!(
             key.code,
