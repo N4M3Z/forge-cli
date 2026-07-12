@@ -117,9 +117,17 @@ fn launch() -> Result<(), Box<dyn std::error::Error>> {
 fn setup_terminal() -> io::Result<TuiTerminal> {
     enable_raw_mode()?;
     let mut stdout = io::stdout();
-    execute!(stdout, EnterAlternateScreen, EnableMouseCapture, Hide)?;
-    let backend = CrosstermBackend::new(stdout);
-    Terminal::new(backend)
+    if let Err(error) = execute!(stdout, EnterAlternateScreen, EnableMouseCapture, Hide) {
+        let _ = disable_raw_mode();
+        return Err(error);
+    }
+    match Terminal::new(CrosstermBackend::new(stdout)) {
+        Ok(terminal) => Ok(terminal),
+        Err(error) => {
+            restore_terminal_without_backend();
+            Err(error)
+        }
+    }
 }
 
 fn restore_terminal(terminal: &mut TuiTerminal) {
@@ -183,6 +191,9 @@ fn run_external_tool(
         .status();
     *terminal = setup_terminal()?;
     terminal.clear()?;
+    // The tool may have committed, amended, or touched files: rescan so VCS
+    // state, diffs, and history reflect what it left behind.
+    app.refresh();
     match status {
         Ok(status) if status.success() => {}
         Ok(status) => app.set_toast(format!("{program} exited with {status}")),

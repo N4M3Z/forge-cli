@@ -111,26 +111,35 @@ pub fn build_view(
     }
 
     let provider_names: Vec<String> = providers.iter().map(|(name, _)| name.clone()).collect();
+    // Several modules can share one repo; scan each repo's VCS state once.
+    let mut repo_state: BTreeMap<PathBuf, (Option<vcs::RepoVcs>, Vec<crate::view::GitCommit>)> =
+        BTreeMap::new();
     for (module_index, module) in modules.iter_mut().enumerate() {
         module.artifacts.sort_by(|a, b| a.name.cmp(&b.name));
         let repo = local_repos.get(module.source_uri.trim_end_matches(".git"));
-        let repo_vcs = repo.and_then(|repo| vcs::repo_vcs(repo));
+        if let Some(repo) = repo
+            && !repo_state.contains_key(repo.as_path())
+        {
+            repo_state.insert(repo.clone(), (vcs::repo_vcs(repo), vcs::repo_log(repo)));
+        }
+        let cached = repo.and_then(|repo| repo_state.get(repo.as_path()));
+        let repo_vcs = cached.and_then(|(state, _)| state.as_ref());
         module.local_path = repo.cloned();
-        module.vcs = repo_vcs.as_ref().map(vcs::RepoVcs::module_state);
-        module.git_log = repo.map(|repo| vcs::repo_log(repo)).unwrap_or_default();
+        module.vcs = repo_vcs.map(vcs::RepoVcs::module_state);
+        module.git_log = cached.map(|(_, log)| log.clone()).unwrap_or_default();
         let tint = module_index % 8;
         for artifact in &mut module.artifacts {
             artifact.module.clone_from(&module.name);
             artifact.module_tint = tint;
             let vcs_path = if artifact.source_path.is_empty() {
-                &artifact.relative_path
+                artifact.relative_path.clone()
             } else {
-                &artifact.source_path
+                artifact.source_path.clone()
             };
-            artifact.vcs = repo_vcs.as_ref().map(|state| state.state_for(vcs_path));
+            artifact.vcs = repo_vcs.map(|state| state.state_for(&vcs_path));
             let (broken, age) = artifact_staleness(
                 repo,
-                &artifact.relative_path,
+                &vcs_path,
                 &artifact.raw_source,
                 artifact.latest_commit_date(),
             );

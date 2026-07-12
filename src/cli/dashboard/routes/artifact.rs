@@ -656,6 +656,8 @@ mod tests {
             module_tint: 0,
             companions: Vec::new(),
             variants: Vec::new(),
+            source_path: String::new(),
+            vcs: None,
         }
     }
 
@@ -667,6 +669,9 @@ mod tests {
             source_uri: format!("https://example.com/{name}"),
             is_target: false,
             artifacts,
+            local_path: None,
+            vcs: None,
+            git_log: Vec::new(),
         }
     }
 

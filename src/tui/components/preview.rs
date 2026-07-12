@@ -10,6 +10,20 @@ use commands::view::ArtifactView;
 
 use super::super::app::DetailTab;
 
+/// Display rows the lines occupy when word-wrapped to `width`. Counts each
+/// line as at least one row plus one per full width beyond it; wide glyphs
+/// count as one column, close enough to keep the last line reachable.
+fn wrapped_rows(lines: &[Line<'_>], width: u16) -> usize {
+    if width == 0 {
+        return lines.len();
+    }
+    let width = usize::from(width);
+    lines
+        .iter()
+        .map(|line| line.width().max(1).div_ceil(width))
+        .sum()
+}
+
 /// Rendered lines for one (tab, width) combination, rebuilt only when either
 /// changes so scrolling a large file stays cheap.
 #[derive(Debug, Clone)]
@@ -43,6 +57,11 @@ impl ArtifactPreview {
     #[must_use]
     pub fn artifact(&self) -> &ArtifactView {
         &self.artifact
+    }
+
+    #[must_use]
+    pub fn scroll(&self) -> u16 {
+        self.scroll
     }
 
     #[must_use]
@@ -110,7 +129,13 @@ impl ArtifactPreview {
             frame.render_widget(Paragraph::new("building preview...").block(block), area);
             return;
         };
-        let total = pane.lines.len();
+        // Wrapped content occupies more display rows than logical lines;
+        // clamp against the wrapped estimate or the tail becomes unreachable.
+        let total = if pane.windowed {
+            pane.lines.len()
+        } else {
+            wrapped_rows(&pane.lines, inner.width)
+        };
         let max_scroll = u16::try_from(total.saturating_sub(viewport)).unwrap_or(u16::MAX);
         if self.scroll > max_scroll {
             self.scroll = max_scroll;

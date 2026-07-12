@@ -431,6 +431,7 @@ fn rich_detail_caches_are_reused_between_frames() {
 fn tuicr_digest_exports_line_comments() {
     let mut app = fixture_app();
     app.add_comment_for_test(
+        "forge-core",
         "skills/BuildSkill/SKILL.md",
         3,
         CommentKind::Issue,
