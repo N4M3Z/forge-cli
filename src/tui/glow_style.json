@@ -7,7 +7,9 @@
   },
   "block_quote": {
     "indent": 1,
-    "indent_token": "\u2502 "
+    "indent_token": "\u2503 ",
+    "color": "109",
+    "italic": true
   },
   "paragraph": {},
   "list": {
@@ -26,19 +28,28 @@
     "bold": true
   },
   "h2": {
-    "prefix": "## "
+    "prefix": "",
+    "color": "45",
+    "bold": true,
+    "underline": true
   },
   "h3": {
-    "prefix": "### "
+    "prefix": "",
+    "color": "74",
+    "bold": true
   },
   "h4": {
-    "prefix": "#### "
+    "prefix": "",
+    "color": "30",
+    "bold": true
   },
   "h5": {
-    "prefix": "##### "
+    "prefix": "",
+    "color": "66",
+    "bold": true
   },
   "h6": {
-    "prefix": "###### ",
+    "prefix": "",
     "color": "35",
     "bold": false
   },
@@ -47,31 +58,35 @@
     "crossed_out": true
   },
   "emph": {
-    "italic": true
+    "italic": true,
+    "color": "252"
   },
   "strong": {
-    "bold": true
+    "bold": true,
+    "color": "229"
   },
   "hr": {
     "color": "240",
-    "format": "\n--------\n"
+    "format": "\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n"
   },
   "item": {
-    "block_prefix": "\u2022 "
+    "block_prefix": "\u2022 ",
+    "color": "252"
   },
   "enumeration": {
-    "block_prefix": ". "
+    "block_prefix": ". ",
+    "color": "252"
   },
   "task": {
     "ticked": "[\u2713] ",
     "unticked": "[ ] "
   },
   "link": {
-    "color": "30",
+    "color": "32",
     "underline": true
   },
   "link_text": {
-    "color": "35",
+    "color": "45",
     "bold": true
   },
   "image": {
@@ -180,7 +195,9 @@
       }
     }
   },
-  "table": {},
+  "table": {
+    "color": "252"
+  },
   "definition_list": {},
   "definition_term": {},
   "definition_description": {

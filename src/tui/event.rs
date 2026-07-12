@@ -44,9 +44,11 @@ pub fn handle_key(app: &mut App, key: KeyEvent) {
         app.search_input_key(key);
         return;
     }
-    // Digits switch sections from any focus; letter shortcuts (t/h/c/m)
+    // Digits switch sections while browsing; with the detail pane focused
+    // they address its numbered tabs instead. Letter shortcuts (t/h/c/m)
     // stay scoped to the Sections column where they are advertised.
-    if let KeyCode::Char(character @ '0'..='9') = key.code
+    if !app.detail_digits_active()
+        && let KeyCode::Char(character @ '0'..='9') = key.code
         && app.set_section_by_shortcut(character)
     {
         return;
@@ -100,9 +102,9 @@ fn handle_preview_key(app: &mut App, key: KeyEvent) {
         KeyCode::PageUp | KeyCode::Char('b') => app.preview_scroll_up(10),
         KeyCode::Home | KeyCode::Char('g') => app.preview_scroll_to_top(),
         KeyCode::End | KeyCode::Char('G') => app.preview_scroll_to_bottom(),
-        KeyCode::Char(digit @ '0'..='9') => {
-            app.close_preview();
-            app.set_section_by_shortcut(digit);
+        KeyCode::Char(digit @ '1'..='7') => {
+            let index = usize::from(digit as u8 - b'1');
+            app.set_detail_tab(super::app::DetailTab::ALL[index]);
         }
         KeyCode::Char('p') => app.set_detail_tab(super::app::DetailTab::Preview),
         KeyCode::Char('c') => app.set_detail_tab(super::app::DetailTab::Code),
