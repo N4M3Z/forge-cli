@@ -392,12 +392,26 @@ pub struct ExternalCommand {
     pub directory: PathBuf,
 }
 
-/// Modal target picker for deploying a module.
+/// Modal target picker for deploying a module or a single artifact.
 #[derive(Debug, Clone)]
 struct DeployPicker {
-    module_name: String,
+    /// What deploys: `module forge-core` or `skill HomebrewToolkit`.
+    scope_label: String,
     source: PathBuf,
+    /// `--only` prefix when deploying a single artifact.
+    only: Option<String>,
     options: Vec<(String, PathBuf)>,
+    selected: usize,
+    /// Path being typed when the "add target" row is active.
+    input: Option<String>,
+}
+
+/// Modal harness picker for launching a session in a repo.
+#[derive(Debug, Clone)]
+struct LaunchPicker {
+    module_name: String,
+    directory: PathBuf,
+    options: Vec<(String, String)>,
     selected: usize,
 }
 
@@ -517,6 +531,8 @@ pub struct App {
     pending_external: Option<ExternalCommand>,
     /// Target picker for deploying a module: options and selection.
     deploy_picker: Option<DeployPicker>,
+    /// Harness picker for launching a session in a repo.
+    launch_picker: Option<LaunchPicker>,
     /// First visible row of the list column (viewport scroll offset).
     list_offset: usize,
     /// Selection seen at the last render, to detect selection movement.
@@ -604,6 +620,7 @@ impl App {
             mouse_regions: MouseRegions::default(),
             pending_external: None,
             deploy_picker: None,
+            launch_picker: None,
             list_offset: 0,
             list_last_selected: 0,
             quit_armed: false,
@@ -767,6 +784,9 @@ impl App {
 
         if let Some(picker) = &self.deploy_picker {
             render_deploy_picker(frame, frame.area(), picker);
+        }
+        if let Some(picker) = &self.launch_picker {
+            render_launch_picker(frame, frame.area(), picker);
         }
         if self.help_state == HelpState::Open {
             render_help(frame, frame.area());
@@ -2047,11 +2067,43 @@ impl App {
         Some((name, path))
     }
 
-    /// Opens the deploy target picker for the selected artifact's module.
+    /// Scope of the current selection for deploy: single artifact when one
+    /// is selected (with its `--only` prefix), whole module otherwise.
+    fn selected_deploy_scope(&self) -> Option<(String, Option<String>)> {
+        match self.selected_target()? {
+            ListTarget::Artifact { kind, name, .. }
+            | ListTarget::ProvenanceArtifact { kind, name, .. } => {
+                let artifact = self.selected_artifact()?;
+                let prefix = artifact_only_prefix(&kind, &artifact.relative_path);
+                Some((
+                    format!("{} {name}", kind.trim_end_matches('s')),
+                    Some(prefix),
+                ))
+            }
+            ListTarget::Companion { parent, name, .. } => Some((
+                format!("companion {parent}/{name}"),
+                Some(format!("skills/{parent}/{name}.")),
+            )),
+            ListTarget::Module(name) => Some((format!("module {name}"), None)),
+            ListTarget::Adr { repo, .. } => Some((format!("module {repo}"), None)),
+            _ => None,
+        }
+    }
+
+    /// Opens the deploy target picker for the current selection: the single
+    /// artifact when one is selected, its whole module otherwise.
     pub fn open_deploy_picker(&mut self) {
         let Some((module_name, source)) = self.selected_module_repo() else {
             self.toast = Some("deploy: select an artifact or repository first".to_string());
             return;
+        };
+        let Some((scope_label, only)) = self.selected_deploy_scope() else {
+            return;
+        };
+        let scope_label = if only.is_some() {
+            scope_label
+        } else {
+            format!("module {module_name}")
         };
         let mut options: Vec<(String, PathBuf)> = Vec::new();
         if let Some(home) = dirs::home_dir() {
@@ -2065,10 +2117,12 @@ impl App {
             options.push((format!("watched: {}", location.display()), location.clone()));
         }
         self.deploy_picker = Some(DeployPicker {
-            module_name,
+            scope_label,
             source,
+            only,
             options,
             selected: 0,
+            input: None,
         });
     }
 
@@ -2077,19 +2131,29 @@ impl App {
         self.deploy_picker.is_some()
     }
 
-    /// One keypress inside the deploy picker: j/k select, Enter deploys the
-    /// module to the chosen target additively (install --no-prune), Esc closes.
+    /// One keypress inside the deploy picker: j/k select, Enter deploys to
+    /// the chosen target additively (install --no-prune, scoped by --only
+    /// when a single artifact is selected), the last row adds a new target
+    /// path, Esc closes.
     pub fn deploy_picker_key(&mut self, key: KeyEvent) {
         let Some(picker) = self.deploy_picker.as_mut() else {
             return;
         };
+        if picker.input.is_some() {
+            self.deploy_input_key(key);
+            return;
+        }
+        let add_row = picker.options.len();
         match key.code {
             KeyCode::Esc | KeyCode::Char('q') => self.deploy_picker = None,
             KeyCode::Down | KeyCode::Char('j') => {
-                picker.selected = (picker.selected + 1).min(picker.options.len().saturating_sub(1));
+                picker.selected = (picker.selected + 1).min(add_row);
             }
             KeyCode::Up | KeyCode::Char('k') => {
                 picker.selected = picker.selected.saturating_sub(1);
+            }
+            KeyCode::Enter if picker.selected == add_row => {
+                picker.input = Some("~/".to_string());
             }
             KeyCode::Enter => {
                 let picker = self.deploy_picker.take().expect("picker is open");
@@ -2098,39 +2162,121 @@ impl App {
                 };
                 let program = std::env::current_exe()
                     .map_or_else(|_| "forge".to_string(), |exe| exe.display().to_string());
+                let mut args = vec![
+                    "install".to_string(),
+                    "--source".to_string(),
+                    picker.source.display().to_string(),
+                    "--target".to_string(),
+                    target.display().to_string(),
+                    "--no-prune".to_string(),
+                ];
+                if let Some(prefix) = &picker.only {
+                    args.push("--only".to_string());
+                    args.push(prefix.clone());
+                }
                 self.pending_external = Some(ExternalCommand {
                     program,
-                    args: vec![
-                        "install".to_string(),
-                        "--source".to_string(),
-                        picker.source.display().to_string(),
-                        "--target".to_string(),
-                        target.display().to_string(),
-                        "--no-prune".to_string(),
-                    ],
+                    args,
                     directory: picker.source.clone(),
                 });
-                self.toast = Some(format!("deploying {} …", picker.module_name));
+                self.toast = Some(format!("deploying {} …", picker.scope_label));
             }
             _ => {}
         }
     }
 
-    /// Suspends into a harness session in the selected module's repo. Uses
-    /// `FORGE_TUI_LAUNCH` when set, `forge launch` once this binary grows it,
-    /// otherwise the claude CLI.
+    /// Path entry for a new deploy target: typed, validated as an existing
+    /// directory, persisted to the watchlist, and selected.
+    fn deploy_input_key(&mut self, key: KeyEvent) {
+        let Some(picker) = self.deploy_picker.as_mut() else {
+            return;
+        };
+        let Some(input) = picker.input.as_mut() else {
+            return;
+        };
+        match key.code {
+            KeyCode::Esc => picker.input = None,
+            KeyCode::Backspace => {
+                input.pop();
+            }
+            KeyCode::Char(character) => input.push(character),
+            KeyCode::Enter => {
+                let raw = input.trim().to_string();
+                picker.input = None;
+                let expanded = expand_home(&raw);
+                let Ok(path) = std::fs::canonicalize(&expanded) else {
+                    self.toast = Some(format!("not a directory: {raw}"));
+                    return;
+                };
+                if !path.is_dir() {
+                    self.toast = Some(format!("not a directory: {raw}"));
+                    return;
+                }
+                let _ = watchlist::add_path(&path.display().to_string(), true);
+                picker
+                    .options
+                    .push((format!("added: {}", path.display()), path));
+                picker.selected = picker.options.len() - 1;
+                self.toast = Some("target added — Enter deploys to it".to_string());
+            }
+            _ => {}
+        }
+    }
+
+    /// Opens the harness picker for launching a session in the selected
+    /// module's repo: `FORGE_TUI_LAUNCH` first when set, then the harness
+    /// CLIs, then `forge launch` once this binary carries it.
     pub fn launch_harness(&mut self) {
         let Some((module_name, path)) = self.selected_module_repo() else {
             self.toast = Some("launch: select an artifact or repository first".to_string());
             return;
         };
-        let program = std::env::var("FORGE_TUI_LAUNCH").unwrap_or_else(|_| "claude".to_string());
-        self.toast = Some(format!("launching {program} in {module_name}"));
-        self.pending_external = Some(ExternalCommand {
-            program,
-            args: Vec::new(),
+        let mut options: Vec<(String, String)> = Vec::new();
+        if let Ok(custom) = std::env::var("FORGE_TUI_LAUNCH") {
+            options.push((format!("custom: {custom}"), custom));
+        }
+        for harness in ["claude", "codex", "gemini", "opencode"] {
+            options.push((harness.to_string(), harness.to_string()));
+        }
+        self.launch_picker = Some(LaunchPicker {
+            module_name,
             directory: path,
+            options,
+            selected: 0,
         });
+    }
+
+    #[must_use]
+    pub fn is_launch_picker_open(&self) -> bool {
+        self.launch_picker.is_some()
+    }
+
+    pub fn launch_picker_key(&mut self, key: KeyEvent) {
+        let Some(picker) = self.launch_picker.as_mut() else {
+            return;
+        };
+        match key.code {
+            KeyCode::Esc | KeyCode::Char('q') => self.launch_picker = None,
+            KeyCode::Down | KeyCode::Char('j') => {
+                picker.selected = (picker.selected + 1).min(picker.options.len().saturating_sub(1));
+            }
+            KeyCode::Up | KeyCode::Char('k') => {
+                picker.selected = picker.selected.saturating_sub(1);
+            }
+            KeyCode::Enter => {
+                let picker = self.launch_picker.take().expect("picker is open");
+                let Some((label, program)) = picker.options.get(picker.selected) else {
+                    return;
+                };
+                self.toast = Some(format!("launching {label} in {}", picker.module_name));
+                self.pending_external = Some(ExternalCommand {
+                    program: program.clone(),
+                    args: Vec::new(),
+                    directory: picker.directory.clone(),
+                });
+            }
+            _ => {}
+        }
     }
 
     /// Digits address detail tabs while the detail pane has focus; sections
@@ -3480,11 +3626,19 @@ fn tab_at_column(column: u16) -> Option<DetailTab> {
     None
 }
 
-/// Centered modal listing deploy targets for a module.
-fn render_deploy_picker(frame: &mut Frame<'_>, area: Rect, picker: &DeployPicker) {
-    let height = u16::try_from(picker.options.len())
+/// Centered modal listing options, used by the deploy and launch pickers.
+fn render_choice_popup(
+    frame: &mut Frame<'_>,
+    area: Rect,
+    title: &str,
+    footer: &str,
+    labels: &[String],
+    selected: usize,
+    input: Option<&str>,
+) {
+    let height = u16::try_from(labels.len())
         .unwrap_or(u16::MAX)
-        .saturating_add(4);
+        .saturating_add(if input.is_some() { 5 } else { 4 });
     let width = area.width.saturating_mul(2) / 3;
     let popup = Rect {
         x: area.width.saturating_sub(width) / 2,
@@ -3494,21 +3648,20 @@ fn render_deploy_picker(frame: &mut Frame<'_>, area: Rect, picker: &DeployPicker
     };
     frame.render_widget(Clear, popup);
     let block = Block::default()
-        .title(format!(" Deploy {} to… ", picker.module_name))
+        .title(title.to_string())
         .title_bottom(Line::from(Span::styled(
-            " j/k select · Enter deploy (additive) · Esc cancel ",
+            footer.to_string(),
             Style::default().fg(Color::DarkGray),
         )))
         .borders(Borders::ALL)
         .border_style(Style::default().fg(Color::Cyan));
     let inner = block.inner(popup);
     frame.render_widget(block, popup);
-    let items: Vec<ListItem<'_>> = picker
-        .options
+    let mut items: Vec<ListItem<'_>> = labels
         .iter()
         .enumerate()
-        .map(|(index, (label, _))| {
-            let style = if index == picker.selected {
+        .map(|(index, label)| {
+            let style = if index == selected && input.is_none() {
                 selected_style(true)
             } else {
                 Style::default()
@@ -3516,7 +3669,49 @@ fn render_deploy_picker(frame: &mut Frame<'_>, area: Rect, picker: &DeployPicker
             ListItem::new(Line::from(Span::styled(label.clone(), style)))
         })
         .collect();
+    if let Some(path) = input {
+        items.push(ListItem::new(Line::from(vec![
+            Span::styled("path: ", Style::default().fg(Color::Magenta)),
+            Span::raw(path.to_string()),
+            Span::styled("▌", Style::default().fg(Color::Cyan)),
+        ])));
+    }
     frame.render_widget(List::new(items), inner);
+}
+
+fn render_deploy_picker(frame: &mut Frame<'_>, area: Rect, picker: &DeployPicker) {
+    let mut labels: Vec<String> = picker
+        .options
+        .iter()
+        .map(|(label, _)| label.clone())
+        .collect();
+    labels.push("＋ add target path…".to_string());
+    render_choice_popup(
+        frame,
+        area,
+        &format!(" Deploy {} → ", picker.scope_label),
+        " j/k select · Enter deploy (additive) · Esc cancel ",
+        &labels,
+        picker.selected,
+        picker.input.as_deref(),
+    );
+}
+
+fn render_launch_picker(frame: &mut Frame<'_>, area: Rect, picker: &LaunchPicker) {
+    let labels: Vec<String> = picker
+        .options
+        .iter()
+        .map(|(label, _)| label.clone())
+        .collect();
+    render_choice_popup(
+        frame,
+        area,
+        &format!(" Launch in {} → ", picker.module_name),
+        " j/k select · Enter launch · Esc cancel ",
+        &labels,
+        picker.selected,
+        None,
+    );
 }
 
 fn hint_row(focused: ColumnFocus) -> String {
@@ -3663,6 +3858,30 @@ fn preview_lines_for_width(artifact: &ArtifactView, width: u16) -> (Vec<Line<'st
     }
     lines.extend(body.lines().map(|line| Line::from(line.to_string())));
     (lines, false)
+}
+
+/// `--only` prefix for one artifact: skills scope to their directory (so
+/// companions travel with the skill), file kinds scope to their stem across
+/// per-provider extensions.
+fn artifact_only_prefix(kind: &str, relative_path: &str) -> String {
+    if kind == "skills" {
+        let segments: Vec<&str> = relative_path.split('/').take(2).collect();
+        return format!("{}/", segments.join("/"));
+    }
+    let stem = relative_path
+        .rsplit_once('.')
+        .map_or(relative_path, |(stem, _)| stem);
+    format!("{stem}.")
+}
+
+/// Expands a leading `~` to the home directory.
+fn expand_home(raw: &str) -> PathBuf {
+    if let Some(rest) = raw.strip_prefix("~/")
+        && let Some(home) = dirs::home_dir()
+    {
+        return home.join(rest);
+    }
+    PathBuf::from(raw)
 }
 
 /// The module name disambiguates artifacts that share a relative path across

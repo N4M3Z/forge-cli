@@ -131,6 +131,11 @@ enum Command {
         #[arg(long)]
         allow_stale: bool,
 
+        /// Deploy only files under this module-relative prefix
+        /// (e.g. `skills/Name/` or `agents/Name.`). Implies --no-prune.
+        #[arg(long, value_name = "PREFIX")]
+        only: Option<String>,
+
         /// Override each provider's default model when selecting
         /// `provider/<model>/` qualifier variants (exact model ID from
         /// config/models.yaml; ignored for providers that lack it).
@@ -185,6 +190,11 @@ enum Command {
         /// Show what would be pruned without moving files.
         #[arg(long)]
         dry_run: bool,
+
+        /// Deploy only files under this module-relative prefix
+        /// (e.g. `skills/Name/` or `agents/Name.`). Implies --no-prune.
+        #[arg(long, value_name = "PREFIX")]
+        only: Option<String>,
     },
 
     /// Copy source files directly to a target directory (no assembly, no transforms)
@@ -422,6 +432,7 @@ pub fn run() -> i32 {
             no_prune,
             dry_run,
             allow_stale,
+            only,
             model,
         } => (
             install::execute(
@@ -432,6 +443,7 @@ pub fn run() -> i32 {
                 !no_prune,
                 interactive,
                 dry_run,
+                only.as_deref(),
                 model.as_deref(),
                 allow_stale,
             ),
@@ -449,6 +461,7 @@ pub fn run() -> i32 {
             interactive,
             no_prune,
             dry_run,
+            only,
         } => (
             deploy::execute(
                 &source,
@@ -458,6 +471,7 @@ pub fn run() -> i32 {
                 !no_prune,
                 interactive,
                 dry_run,
+                only.as_deref(),
             ),
             "deployed",
         ),
@@ -494,7 +508,16 @@ pub fn run() -> i32 {
             ));
         }
         Command::Clean { source, target } => (
-            deploy::execute(&source, target.as_deref(), &[], false, true, false, false),
+            deploy::execute(
+                &source,
+                target.as_deref(),
+                &[],
+                false,
+                true,
+                false,
+                false,
+                None,
+            ),
             "cleaned",
         ),
         Command::Config => return exit_code(ontology::show(args.json)),

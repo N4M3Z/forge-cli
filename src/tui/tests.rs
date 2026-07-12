@@ -511,6 +511,8 @@ fn deploy_picker_queues_additive_install_for_selected_module() {
     assert!(command.args.contains(&"install".to_string()));
     assert!(command.args.contains(&"--no-prune".to_string()));
     assert!(command.args.contains(&"/tmp/forge-core".to_string()));
+    assert!(command.args.contains(&"--only".to_string()));
+    assert!(command.args.contains(&"skills/BuildSkill/".to_string()));
 }
 
 #[test]
@@ -521,6 +523,8 @@ fn launch_queues_harness_in_module_repo() {
     app.set_module_local_path_for_test("forge-core", PathBuf::from("/tmp/forge-core"));
 
     event::handle_key(&mut app, key(KeyCode::Char('L')));
+    assert!(app.is_launch_picker_open());
+    event::handle_key(&mut app, key(KeyCode::Enter));
 
     let command = app.take_external().expect("launch queued");
     assert_eq!(command.directory, PathBuf::from("/tmp/forge-core"));

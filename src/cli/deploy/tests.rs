@@ -201,3 +201,38 @@ fn prune_empty_parents_never_removes_stop() {
     assert!(!nested.exists());
     assert!(stop.exists(), "stop directory must never be removed");
 }
+
+#[test]
+fn deploy_provider_files_only_prefix_filters_deployment() {
+    let temp_directory = TempDir::new().unwrap();
+    let build_dir = temp_directory.path().join("build/claude");
+    std::fs::create_dir_all(build_dir.join("skills/Alpha")).unwrap();
+    std::fs::create_dir_all(build_dir.join("skills/Beta")).unwrap();
+    std::fs::write(build_dir.join("skills/Alpha/SKILL.md"), "alpha body").unwrap();
+    std::fs::write(build_dir.join("skills/Beta/SKILL.md"), "beta body").unwrap();
+    let target = temp_directory.path().join("target");
+
+    let mut manifest_entries = HashMap::new();
+    let mut deployed_keys = HashSet::new();
+    let mut result = ActionResult::new();
+    deploy_provider_files(
+        &build_dir,
+        &target,
+        &mut manifest_entries,
+        &mut deployed_keys,
+        &mut result,
+        "claude",
+        false,
+        Some("skills/Alpha/"),
+    )
+    .unwrap();
+
+    assert!(target.join("skills/Alpha/SKILL.md").is_file());
+    assert!(!target.join("skills/Beta/SKILL.md").exists());
+    assert!(deployed_keys.contains("skills/Alpha/SKILL.md"));
+    assert!(!deployed_keys.contains("skills/Beta/SKILL.md"));
+    assert_eq!(
+        std::fs::read_to_string(target.join("skills/Alpha/SKILL.md")).unwrap(),
+        "alpha body"
+    );
+}
