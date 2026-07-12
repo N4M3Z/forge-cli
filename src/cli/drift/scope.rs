@@ -135,7 +135,10 @@ fn compare_provider(
     // are no longer built — stale deployments that should be pruned.
     for target_root in provider_config.target_roots() {
         let deployed_base = target_base.join(target_root);
-        for (key, entry) in load_deployed_manifest(&deployed_base) {
+        for (key, entry) in load_deployed_manifest(&deployed_base).unwrap_or_else(|error| {
+            eprintln!("warning: {error}; treating manifest as empty for drift");
+            std::collections::HashMap::new()
+        }) {
             if !is_content_key(&key) {
                 continue;
             }

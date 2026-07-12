@@ -3,6 +3,9 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseEvent, MouseEventKi
 use super::app::App;
 
 pub fn handle_mouse(app: &mut App, mouse: MouseEvent) {
+    if app.modal_blocks_mouse() {
+        return;
+    }
     match mouse.kind {
         MouseEventKind::Down(crossterm::event::MouseButton::Left) => {
             app.clear_toast();
