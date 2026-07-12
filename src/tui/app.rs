@@ -37,7 +37,7 @@ use super::rich;
 use super::word_wrap::expand_gutter_wrapped;
 
 const SECTION_COUNT: usize = 13;
-const DETAIL_TAB_COUNT: usize = 7;
+const DETAIL_TAB_COUNT: usize = 6;
 const LEFT_MIN_WIDTH: u16 = 14;
 const LEFT_MAX_WIDTH: u16 = 20;
 const MIDDLE_MIN_WIDTH: u16 = 24;
@@ -64,19 +64,12 @@ pub const KEYBINDINGS: &[(&str, &[(&str, &str)])] = &[
     (
         "Sections",
         &[
-            ("1", "overview"),
-            ("2", "skills"),
-            ("3", "agents"),
-            ("4", "rules"),
-            ("5", "repositories"),
-            ("6", "ADRs"),
-            ("7", "provenance"),
-            ("8", "variants"),
-            ("9", "search"),
+            ("j/k", "move between sections"),
             ("t", "settings"),
             ("h", "hooks"),
             ("c", "config"),
             ("m", "schemas"),
+            ("/", "search"),
         ],
     ),
     (
@@ -181,36 +174,19 @@ impl Section {
     }
 
     /// The key that reaches this section from the Sections column, shown as
-    /// the row prefix so every advertised shortcut actually works.
+    /// the row prefix; sections without one show a plain label.
     fn shortcut_label(self) -> &'static str {
         match self {
-            Self::Overview => "1",
-            Self::Skills => "2",
-            Self::Agents => "3",
-            Self::Rules => "4",
-            Self::Repositories => "5",
-            Self::Adrs => "6",
-            Self::Provenance => "7",
-            Self::Variants => "8",
-            Self::Search => "9",
             Self::Settings => "t",
             Self::Hooks => "h",
             Self::Config => "c",
             Self::Schemas => "m",
+            _ => " ",
         }
     }
 
     fn from_shortcut(character: char) -> Option<Self> {
         match character {
-            '1' => Some(Self::Overview),
-            '2' => Some(Self::Skills),
-            '3' => Some(Self::Agents),
-            '4' => Some(Self::Rules),
-            '5' => Some(Self::Repositories),
-            '6' => Some(Self::Adrs),
-            '7' => Some(Self::Provenance),
-            '8' => Some(Self::Variants),
-            '9' => Some(Self::Search),
             't' | 'T' => Some(Self::Settings),
             'h' | 'H' => Some(Self::Hooks),
             'c' | 'C' => Some(Self::Config),
@@ -228,7 +204,6 @@ pub enum DetailTab {
     Provenance = 3,
     Frontmatter = 4,
     History = 5,
-    Companions = 6,
 }
 
 impl DetailTab {
@@ -239,7 +214,6 @@ impl DetailTab {
         Self::Provenance,
         Self::Frontmatter,
         Self::History,
-        Self::Companions,
     ];
 
     pub(super) fn label(self) -> &'static str {
@@ -250,7 +224,6 @@ impl DetailTab {
             Self::Provenance => "Provenance",
             Self::Frontmatter => "Frontmatter",
             Self::History => "History",
-            Self::Companions => "Companions",
         }
     }
 
@@ -423,6 +396,8 @@ struct MouseRegions {
     list: Rect,
     detail: Rect,
     tabs: Rect,
+    /// The detail body below any tab bar, for row-accurate link clicks.
+    detail_body: Rect,
 }
 
 /// Rendered lines for the current detail view, rebuilt only when the target,
@@ -440,6 +415,8 @@ struct DetailCache {
     hunks: Vec<usize>,
     /// Per-row source line (new file) in the Diff tab, for per-line comments.
     line_map: Vec<Option<usize>>,
+    /// Per-row browser link (commit URLs) — clicking the row opens it.
+    links: Vec<Option<String>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -777,6 +754,7 @@ impl App {
         self.mouse_regions.list = columns[1];
         self.mouse_regions.detail = columns[2];
         self.mouse_regions.tabs = Rect::default();
+        self.mouse_regions.detail_body = Rect::default();
         self.render_sections(frame, columns[0]);
         self.render_list(frame, columns[1]);
         self.render_detail(frame, columns[2]);
@@ -1048,6 +1026,7 @@ impl App {
             .constraints([Constraint::Length(2), Constraint::Min(1)])
             .split(area);
         self.mouse_regions.tabs = chunks[0];
+        self.mouse_regions.detail_body = chunks[1];
         self.render_tabs(frame, chunks[0]);
         self.prepare_artifact_detail_cache(module_index, artifact_index, chunks[1].width);
         if self.detail_tab == DetailTab::Code {
@@ -1108,6 +1087,7 @@ impl App {
             frame.render_widget(Paragraph::new("repository not found"), area);
             return;
         };
+        self.mouse_regions.detail_body = area;
         let cache_width = area.width.max(1);
         let key = format!("Module:{name}");
         let needs_build = self
@@ -1131,6 +1111,7 @@ impl App {
             }
             let module = &self.view.modules[module_index];
             let mut lines = module_header_lines(module);
+            lines.extend(jj_log_lines(module));
             if let Some(readme) = module
                 .local_path
                 .as_ref()
@@ -1146,6 +1127,7 @@ impl App {
                 }
             }
             let lines = expand_gutter_wrapped(lines, 2, usize::from(cache_width));
+            let row_links = commit_links(&lines, &module.source_uri);
             self.preview_cache = Some(DetailCache {
                 key,
                 width: cache_width,
@@ -1153,6 +1135,7 @@ impl App {
                 windowed: true,
                 hunks: Vec::new(),
                 line_map: Vec::new(),
+                links: row_links,
             });
         }
         self.render_cached_detail(frame, area);
@@ -1174,6 +1157,7 @@ impl App {
             .constraints([Constraint::Length(2), Constraint::Min(1)])
             .split(area);
         self.mouse_regions.tabs = chunks[0];
+        self.mouse_regions.detail_body = chunks[1];
         self.render_tabs(frame, chunks[0]);
         let cache_width = chunks[1].width.max(1);
         let key = detail_cache_key(self.detail_tab, module_name, identity);
@@ -1219,6 +1203,18 @@ impl App {
             } else {
                 Vec::new()
             };
+            let row_links = if self.detail_tab == DetailTab::History {
+                let web = self
+                    .view
+                    .modules
+                    .iter()
+                    .find(|module| module.name == module_name)
+                    .map(|module| module.source_uri.clone())
+                    .unwrap_or_default();
+                commit_links(&lines, &web)
+            } else {
+                Vec::new()
+            };
             self.preview_cache = Some(DetailCache {
                 key,
                 width: cache_width,
@@ -1226,6 +1222,7 @@ impl App {
                 windowed,
                 hunks,
                 line_map,
+                links: row_links,
             });
         }
         self.render_cached_detail(frame, chunks[1]);
@@ -1451,6 +1448,12 @@ impl App {
             } else {
                 Vec::new()
             };
+            let row_links = if self.detail_tab == DetailTab::History {
+                let web = self.view.modules[module_index].source_uri.clone();
+                commit_links(&lines, &web)
+            } else {
+                Vec::new()
+            };
             self.detail_cursor = self.detail_cursor.min(lines.len().saturating_sub(1));
             self.preview_cache = Some(DetailCache {
                 key,
@@ -1459,6 +1462,7 @@ impl App {
                 windowed,
                 hunks,
                 line_map,
+                links: row_links,
             });
             #[cfg(test)]
             {
@@ -1504,10 +1508,6 @@ impl App {
             DetailTab::Frontmatter => (frontmatter_lines(artifact, width), true),
             DetailTab::History => (
                 expand_gutter_wrapped(history_lines(artifact), 2, usize::from(width)),
-                true,
-            ),
-            DetailTab::Companions => (
-                expand_gutter_wrapped(companion_lines(artifact), 2, usize::from(width)),
                 true,
             ),
         }
@@ -1954,6 +1954,21 @@ impl App {
             }
         } else if regions.detail.contains(position) {
             self.focused = ColumnFocus::Detail;
+            if regions.detail_body.contains(position) {
+                let row = usize::from(y.saturating_sub(regions.detail_body.y))
+                    .saturating_add(usize::from(self.detail_scroll));
+                let link = self
+                    .preview_cache
+                    .as_ref()
+                    .and_then(|cache| cache.links.get(row).cloned().flatten());
+                if let Some(url) = link {
+                    self.toast = Some(if open_in_browser(&url) {
+                        format!("opened {url}")
+                    } else {
+                        format!("could not open {url}")
+                    });
+                }
+            }
         }
     }
 
@@ -2305,13 +2320,6 @@ impl App {
         }
     }
 
-    /// Digits address detail tabs while the detail pane has focus; sections
-    /// otherwise.
-    #[must_use]
-    pub fn detail_digits_active(&self) -> bool {
-        self.focused == ColumnFocus::Detail
-    }
-
     pub fn set_section_by_shortcut(&mut self, character: char) -> bool {
         let Some(section) = Section::from_shortcut(character) else {
             return false;
@@ -2633,7 +2641,7 @@ impl App {
             KeyCode::Char('u') if key.modifiers.contains(KeyModifiers::CONTROL) => {
                 self.detail_step(-half);
             }
-            KeyCode::Char(digit @ '1'..='7') => {
+            KeyCode::Char(digit @ '1'..='6') => {
                 let index = usize::from(digit as u8 - b'1');
                 self.set_detail_tab(DetailTab::ALL[index]);
             }
@@ -2654,7 +2662,6 @@ impl App {
             KeyCode::Char('v') => self.set_detail_tab(DetailTab::Provenance),
             KeyCode::Char('f') => self.set_detail_tab(DetailTab::Frontmatter),
             KeyCode::Char('i') => self.set_detail_tab(DetailTab::History),
-            KeyCode::Char('n') => self.set_detail_tab(DetailTab::Companions),
             KeyCode::Tab => self.next_detail_tab(),
             KeyCode::Char('m') => {
                 if !matches!(self.detail_tab, DetailTab::Code | DetailTab::Diff) {
@@ -3348,7 +3355,7 @@ fn module_header_lines(module: &ModuleView) -> Vec<Line<'static>> {
     if !module.git_log.is_empty() {
         lines.push(Line::from(""));
         lines.push(Line::from(Span::styled(
-            "Recent commits",
+            "Recent commits (git)",
             Style::default().add_modifier(Modifier::BOLD),
         )));
         for commit in &module.git_log {
@@ -3747,7 +3754,7 @@ fn render_launch_picker(frame: &mut Frame<'_>, area: Rect, picker: &LaunchPicker
 fn hint_row(focused: ColumnFocus) -> String {
     if focused == ColumnFocus::Detail {
         return [
-            "1-7/Tab tabs",
+            "1-6/Tab tabs",
             "j/k move",
             "m comment",
             "[ ] hunks",
@@ -4112,6 +4119,94 @@ fn parse_gutter_new_line(gutter: &str) -> Option<usize> {
     columns[5..9].iter().collect::<String>().trim().parse().ok()
 }
 
+/// Browser links per rendered row: a row containing a commit sha links to
+/// the repo's commit page. Wrap continuations inherit no link. Only https
+/// sources are linkable.
+fn commit_links(lines: &[Line<'_>], source_uri: &str) -> Vec<Option<String>> {
+    let web = source_uri.trim_end_matches(".git");
+    if !web.starts_with("https://") {
+        return vec![None; lines.len()];
+    }
+    lines
+        .iter()
+        .map(|line| {
+            let text: String = line
+                .spans
+                .iter()
+                .map(|span| span.content.as_ref())
+                .collect();
+            find_commit_sha(&text).map(|sha| format!("{web}/commit/{sha}"))
+        })
+        .collect()
+}
+
+/// First token that looks like a git sha: 7-40 hex chars including a digit.
+fn find_commit_sha(text: &str) -> Option<&str> {
+    text.split(|character: char| !character.is_ascii_hexdigit())
+        .find(|token| {
+            (7..=40).contains(&token.len())
+                && token.chars().any(|character| character.is_ascii_digit())
+        })
+}
+
+/// Recent jj changes for the repository detail, beside the git log.
+fn jj_log_lines(module: &ModuleView) -> Vec<Line<'static>> {
+    let Some(repo) = module.local_path.as_ref() else {
+        return Vec::new();
+    };
+    if !repo.join(".jj").is_dir() {
+        return Vec::new();
+    }
+    let output = std::process::Command::new("jj")
+        .args([
+            "--ignore-working-copy",
+            "log",
+            "-n",
+            "8",
+            "--no-graph",
+            "-T",
+            "change_id.short(8) ++ \" \" ++ if(local_bookmarks, local_bookmarks.join(\",\") ++ \" \", \"\") ++ description.first_line() ++ \"\\n\"",
+        ])
+        .current_dir(repo)
+        .output();
+    let Ok(output) = output else {
+        return Vec::new();
+    };
+    if !output.status.success() {
+        return Vec::new();
+    }
+    let mut lines = vec![
+        Line::from(""),
+        Line::from(Span::styled(
+            "Recent changes (jj)",
+            Style::default().add_modifier(Modifier::BOLD),
+        )),
+    ];
+    for row in String::from_utf8_lossy(&output.stdout).lines() {
+        let (change, rest) = row.split_at(row.len().min(8));
+        lines.push(Line::from(vec![
+            Span::styled(change.to_string(), Style::default().fg(Color::Magenta)),
+            Span::raw(rest.to_string()),
+        ]));
+    }
+    lines
+}
+
+/// Opens a URL with the platform opener, detached from the TUI.
+fn open_in_browser(url: &str) -> bool {
+    let opener = if cfg!(target_os = "macos") {
+        "open"
+    } else {
+        "xdg-open"
+    };
+    std::process::Command::new(opener)
+        .arg(url)
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .is_ok()
+}
+
 /// The Deployments block of the provenance view: per-target verification
 /// badges with per-harness rows.
 fn deployment_lines(groups: &[commands::view::DeployGroup]) -> Vec<Line<'static>> {
@@ -4249,33 +4344,6 @@ fn history_lines(artifact: &ArtifactView) -> Vec<Line<'static>> {
     }
     lines
 }
-
-fn companion_lines(artifact: &ArtifactView) -> Vec<Line<'static>> {
-    if artifact.companions.is_empty() {
-        return vec![Line::from("no companions")];
-    }
-    let mut lines = Vec::new();
-    for companion in &artifact.companions {
-        lines.push(Line::from(Span::styled(
-            companion.name.clone(),
-            Style::default().add_modifier(Modifier::BOLD),
-        )));
-        lines.push(Line::from(format!("path: {}", companion.relative_path)));
-        if !companion.description.is_empty() {
-            lines.push(Line::from(companion.description.clone()));
-        }
-        lines.push(Line::from(""));
-        lines.extend(
-            companion
-                .content_body
-                .lines()
-                .map(|line| Line::from(line.to_string())),
-        );
-        lines.push(Line::from(""));
-    }
-    lines
-}
-
 fn copy_to_pbcopy(text: &str) -> bool {
     let Ok(mut child) = Command::new("pbcopy")
         .stdin(Stdio::piped())

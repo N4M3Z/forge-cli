@@ -100,7 +100,6 @@ fn detail_tab_from_name(name: &str) -> Option<DetailTab> {
         "provenance" => Some(DetailTab::Provenance),
         "frontmatter" => Some(DetailTab::Frontmatter),
         "history" => Some(DetailTab::History),
-        "companions" => Some(DetailTab::Companions),
         _ => None,
     }
 }
