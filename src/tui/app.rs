@@ -65,11 +65,9 @@ pub const KEYBINDINGS: &[(&str, &[(&str, &str)])] = &[
         "Sections",
         &[
             ("j/k", "move between sections"),
-            ("t", "settings"),
-            ("h", "hooks"),
-            ("c", "config"),
-            ("m", "schemas"),
-            ("/", "search"),
+            ("o s a r", "overview, skills, agents, rules"),
+            ("R d p v", "repositories, ADRs, provenance, variants"),
+            ("f t h c m", "search, settings, hooks, config, schemas"),
         ],
     ),
     (
@@ -177,16 +175,33 @@ impl Section {
     /// the row prefix; sections without one show a plain label.
     fn shortcut_label(self) -> &'static str {
         match self {
+            Self::Overview => "o",
+            Self::Skills => "s",
+            Self::Agents => "a",
+            Self::Rules => "r",
+            Self::Repositories => "R",
+            Self::Adrs => "d",
+            Self::Provenance => "p",
+            Self::Variants => "v",
+            Self::Search => "f",
             Self::Settings => "t",
             Self::Hooks => "h",
             Self::Config => "c",
             Self::Schemas => "m",
-            _ => " ",
         }
     }
 
     fn from_shortcut(character: char) -> Option<Self> {
         match character {
+            'o' => Some(Self::Overview),
+            's' => Some(Self::Skills),
+            'a' => Some(Self::Agents),
+            'r' => Some(Self::Rules),
+            'R' => Some(Self::Repositories),
+            'd' => Some(Self::Adrs),
+            'p' => Some(Self::Provenance),
+            'v' => Some(Self::Variants),
+            'f' => Some(Self::Search),
             't' | 'T' => Some(Self::Settings),
             'h' | 'H' => Some(Self::Hooks),
             'c' | 'C' => Some(Self::Config),
@@ -269,6 +284,16 @@ enum ListTarget {
     Overview,
     /// The Overview Nested/Matrix mode row: activating it toggles the mode.
     OverviewMode,
+    /// A status count on the Overview: jumps to Search filtered to it.
+    StatusJump(String),
+    /// A kind group on the Overview: jumps to that kind's section.
+    KindJump(String),
+    /// A module under a kind on the Overview: jumps to the kind's section
+    /// with the in-panel filter set to the module.
+    ModuleJump {
+        kind: String,
+        module: String,
+    },
     /// A skill companion file, shown as a child row under its parent skill.
     Companion {
         module: String,
@@ -468,6 +493,7 @@ struct CommentPrompt {
     text: String,
 }
 
+#[allow(clippy::struct_excessive_bools)]
 pub struct App {
     root: PathBuf,
     providers: Vec<(String, String)>,
@@ -527,6 +553,12 @@ pub struct App {
     /// Whether keystrokes in the Search section edit the query (explicit
     /// input mode) or navigate the result list.
     search_typing: bool,
+    /// In-panel filter narrowing the focused list; empty when off.
+    list_filter: String,
+    /// Whether keystrokes edit the in-panel filter.
+    list_filter_typing: bool,
+    /// Show only rows whose status needs attention (modified/stale/new).
+    problems_only: bool,
 }
 
 impl App {
@@ -601,6 +633,9 @@ impl App {
             list_offset: 0,
             list_last_selected: 0,
             quit_armed: false,
+            list_filter: String::new(),
+            list_filter_typing: false,
+            problems_only: false,
             detail_cursor: 0,
             detail_viewport: 1,
             synthesized: None,
@@ -847,7 +882,31 @@ impl App {
     }
 
     fn render_list(&mut self, frame: &mut Frame<'_>, area: Rect) {
-        let title = format!(" {} ", self.section.label());
+        let mode = if self.list_filter_typing {
+            format!(" · /{}▌", self.list_filter)
+        } else if !self.list_filter.is_empty() {
+            format!(" · /{}", self.list_filter)
+        } else if self.problems_only {
+            " · [!]".to_string()
+        } else {
+            let selectable = self
+                .cached_rows
+                .iter()
+                .filter(|row| row.is_selectable())
+                .count();
+            if selectable == 0 {
+                String::new()
+            } else {
+                let position = self
+                    .cached_rows
+                    .iter()
+                    .take(self.selected_list_index(&self.cached_rows) + 1)
+                    .filter(|row| row.is_selectable())
+                    .count();
+                format!(" · {position}/{selectable}")
+            }
+        };
+        let title = format!(" {}{mode} ", self.section.label());
         let block = column_block(&title, self.focused == ColumnFocus::List);
         let inner = block.inner(area);
         frame.render_widget(block, area);
@@ -903,13 +962,26 @@ impl App {
                         Span::raw(" "),
                         Span::styled(row.label.clone(), base),
                     ];
-                    // Detail text only on the selected row: unselected rows
-                    // stay calm and nothing truncates while browsing.
-                    if index == selected && !row.detail.is_empty() {
-                        spans.push(Span::styled(
-                            format!("  {}", row.detail),
-                            base.fg(Color::DarkGray),
-                        ));
+                    // The detail (owning module, qualifier) is a dim
+                    // right-aligned column on every row; when tight it
+                    // truncates from the left, never the label.
+                    if !row.detail.is_empty() {
+                        let used = 2 + row.label.chars().count();
+                        let room = usize::from(inner.width).saturating_sub(used);
+                        if room >= 4 {
+                            let detail_width = row.detail.chars().count();
+                            let (text, shown_width) = if detail_width < room {
+                                (row.detail.clone(), detail_width)
+                            } else {
+                                let take = room.saturating_sub(2);
+                                let tail: String =
+                                    row.detail.chars().skip(detail_width - take).collect();
+                                (format!("…{tail}"), take + 1)
+                            };
+                            let pad = room.saturating_sub(shown_width);
+                            spans.push(Span::raw(" ".repeat(pad)));
+                            spans.push(Span::styled(text, base.fg(Color::DarkGray)));
+                        }
                     }
                     ListItem::new(Line::from(spans))
                 })
@@ -1643,7 +1715,7 @@ impl App {
             Line::from(format!("qualifier: {qualifier}")),
             Line::from(""),
         ];
-        if let Some((_, artifact)) = self.find_artifact(module, kind, name)
+        if let Some((module_view, artifact)) = self.find_artifact(module, kind, name)
             && let Some(variant) = artifact
                 .variants
                 .iter()
@@ -1652,9 +1724,19 @@ impl App {
             lines.push(Line::from(format!("merge mode: {}", variant.mode)));
             lines.push(Line::from(format!("path: {}", variant.relative_path)));
             lines.push(Line::from(""));
-            lines.push(Line::from(
-                "effective merge preview is deferred to the dashboard route",
-            ));
+            match module_view
+                .local_path
+                .as_ref()
+                .map(|repo| std::fs::read_to_string(repo.join(&variant.relative_path)))
+            {
+                Some(Ok(body)) => {
+                    lines.extend(rich::highlight_code(&variant.relative_path, &body));
+                }
+                Some(Err(error)) => {
+                    lines.push(Line::from(format!("could not read variant: {error}")));
+                }
+                None => lines.push(Line::from("no local repo — variant body unavailable")),
+            }
         }
         frame.render_widget(
             Paragraph::new(Text::from(lines)).wrap(Wrap { trim: false }),
@@ -1882,9 +1964,33 @@ impl App {
         match self.focused {
             ColumnFocus::Sections => self.focused = ColumnFocus::List,
             ColumnFocus::List => {
-                if let Some(ListTarget::OverviewMode) = self.selected_target() {
-                    self.toggle_overview_mode();
-                    return;
+                match self.selected_target() {
+                    Some(ListTarget::OverviewMode) => {
+                        self.toggle_overview_mode();
+                        return;
+                    }
+                    Some(ListTarget::StatusJump(status)) => {
+                        self.search = builders::SearchFilters::empty();
+                        self.search.status = status;
+                        self.set_section(Section::Search);
+                        return;
+                    }
+                    Some(ListTarget::KindJump(kind)) => {
+                        if let Some(section) = Section::from_name(&kind) {
+                            self.set_section(section);
+                        }
+                        return;
+                    }
+                    Some(ListTarget::ModuleJump { kind, module }) => {
+                        if let Some(section) = Section::from_name(&kind) {
+                            self.set_section(section);
+                            self.list_filter = module;
+                            self.invalidate_rows();
+                            self.clamp_list_selection();
+                        }
+                        return;
+                    }
+                    _ => {}
                 }
                 if let Some(ListTarget::ProvenanceArtifact { .. }) = self.selected_target() {
                     self.detail_tab = DetailTab::Provenance;
@@ -2682,13 +2788,28 @@ impl App {
         self.section = section;
         self.detail_scroll = 0;
         self.list_offset = 0;
+        self.list_filter.clear();
+        self.list_filter_typing = false;
+        self.problems_only = false;
         self.invalidate_rows();
         self.clamp_list_selection();
     }
 
     fn ensure_rows(&mut self) {
         if self.rows_dirty {
-            self.cached_rows = self.build_list_rows();
+            let mut rows = self.build_list_rows();
+            if !self.list_filter.is_empty() {
+                let needle = self.list_filter.to_lowercase();
+                rows.retain(|row| {
+                    row.header
+                        || row.label.to_lowercase().contains(&needle)
+                        || row.detail.to_lowercase().contains(&needle)
+                });
+            }
+            if self.problems_only {
+                rows.retain(|row| row.header || matches!(row.status, "modified" | "stale" | "new"));
+            }
+            self.cached_rows = rows;
             self.column_widths = column_widths_for_rows(&self.cached_rows);
             self.rows_dirty = false;
             #[cfg(test)]
@@ -2696,6 +2817,54 @@ impl App {
                 self.row_build_count += 1;
             }
         }
+    }
+
+    /// One keypress editing the in-panel filter: Enter keeps it, Esc clears.
+    pub fn list_filter_key(&mut self, key: KeyEvent) {
+        match key.code {
+            KeyCode::Enter => self.list_filter_typing = false,
+            KeyCode::Esc => {
+                self.list_filter_typing = false;
+                self.list_filter.clear();
+                self.invalidate_rows();
+                self.clamp_list_selection();
+            }
+            KeyCode::Backspace => {
+                self.list_filter.pop();
+                self.list_selected[self.section as usize] = 0;
+                self.invalidate_rows();
+            }
+            KeyCode::Char(character) => {
+                self.list_filter.push(character);
+                self.list_selected[self.section as usize] = 0;
+                self.invalidate_rows();
+            }
+            _ => {}
+        }
+    }
+
+    #[must_use]
+    pub fn is_list_filter_typing(&self) -> bool {
+        self.list_filter_typing
+    }
+
+    /// Opens the in-panel filter on the focused list. In the Search section
+    /// `/` edits the global query instead — that list IS the query results.
+    pub fn begin_list_filter(&mut self) {
+        if self.section == Section::Search {
+            self.begin_search_input();
+            return;
+        }
+        self.focused = ColumnFocus::List;
+        self.list_filter_typing = true;
+    }
+
+    /// Toggles the problems-only view of the focused list.
+    pub fn toggle_problems_only(&mut self) {
+        self.problems_only = !self.problems_only;
+        self.list_selected[self.section as usize] = 0;
+        self.invalidate_rows();
+        self.clamp_list_selection();
     }
 
     fn invalidate_rows(&mut self) {
@@ -2784,7 +2953,8 @@ impl App {
     }
 
     fn overview_rows(&self) -> Vec<ListRow> {
-        vec![
+        let summary = &self.view.summary;
+        let mut rows = vec![
             ListRow::item("Summary", "status counts", ListTarget::Overview, "ok"),
             ListRow::item(
                 if self.overview_mode == OverviewMode::Matrix {
@@ -2796,7 +2966,43 @@ impl App {
                 ListTarget::OverviewMode,
                 "ok",
             ),
-        ]
+        ];
+        rows.push(ListRow::header("Needs attention"));
+        for (status, count) in [
+            ("modified", summary.modified),
+            ("stale", summary.stale),
+            ("new", summary.new),
+        ] {
+            if count > 0 {
+                rows.push(ListRow::item(
+                    format!("{status} {count}"),
+                    "Enter opens filtered",
+                    ListTarget::StatusJump(status.to_string()),
+                    status,
+                ));
+            }
+        }
+        rows.push(ListRow::header("Inventory"));
+        for group in builders::build_nested(&self.view, "kind") {
+            rows.push(ListRow::item(
+                format!("{} ({})", group.label, group.count),
+                String::new(),
+                ListTarget::KindJump(group.kind.clone()),
+                "ok",
+            ));
+            for subgroup in group.subgroups {
+                rows.push(ListRow::item(
+                    format!("  {} ({})", subgroup.label, subgroup.count),
+                    String::new(),
+                    ListTarget::ModuleJump {
+                        kind: group.kind.clone(),
+                        module: subgroup.label.clone(),
+                    },
+                    "ok",
+                ));
+            }
+        }
+        rows
     }
 
     fn artifact_rows(&self, kind_filter: Option<&str>) -> Vec<ListRow> {
@@ -2914,7 +3120,7 @@ impl App {
                 let qualifier = coverage.cols[index].qualifier.clone();
                 rows.push(ListRow::item(
                     row.name.clone(),
-                    format!("{} · {} · {}", row.kind, qualifier, cell.mode),
+                    format!("{qualifier} · {}", cell.mode),
                     ListTarget::Variant {
                         module: row.module.clone(),
                         kind: row.kind.clone(),
@@ -3333,13 +3539,17 @@ fn module_header_lines(module: &ModuleView) -> Vec<Line<'static>> {
             module.name.clone(),
             Style::default().add_modifier(Modifier::BOLD),
         )),
-        Line::from(format!("version: {}", module.version)),
-        Line::from(format!("source: {}", module.source_uri)),
         Line::from(format!(
             "role: {}",
             if module.is_target { "target" } else { "source" }
         )),
     ];
+    if !module.version.is_empty() {
+        lines.insert(1, Line::from(format!("version: {}", module.version)));
+    }
+    if !module.source_uri.is_empty() {
+        lines.insert(1, Line::from(format!("source: {}", module.source_uri)));
+    }
     if let Some(local_path) = &module.local_path {
         lines.push(Line::from(format!("local: {}", local_path.display())));
     }
@@ -3763,13 +3973,19 @@ fn hint_row(focused: ColumnFocus) -> String {
         ]
         .join("  ·  ");
     }
-    KEYBINDINGS
-        .iter()
-        .flat_map(|(_, bindings)| bindings.iter())
-        .take(8)
-        .map(|(key, description)| format!("{key} {description}"))
-        .collect::<Vec<_>>()
-        .join("  ·  ")
+    match focused {
+        ColumnFocus::Sections => "j/k sections  ·  l list  ·  1-6 tabs  ·  ? help".to_string(),
+        _ => [
+            "j/k move",
+            "/ filter",
+            "! problems",
+            "Enter open",
+            "D deploy",
+            "L launch",
+            "? help",
+        ]
+        .join("  ·  "),
+    }
 }
 
 /// Greedy word-wrap for plain header text, needed because the preview
@@ -4216,7 +4432,7 @@ fn deployment_lines(groups: &[commands::view::DeployGroup]) -> Vec<Line<'static>
     ))];
     if groups.is_empty() {
         lines.push(Line::from(Span::styled(
-            "not deployed anywhere",
+            "not deployed anywhere — D deploys it to a target",
             Style::default().fg(Color::DarkGray),
         )));
     }
@@ -4316,7 +4532,13 @@ fn frontmatter_lines(artifact: &ArtifactView, width: u16) -> Vec<Line<'static>> 
 
 fn history_lines(artifact: &ArtifactView) -> Vec<Line<'static>> {
     if artifact.git_log.is_empty() {
-        return vec![Line::from("no git history")];
+        return vec![
+            Line::from("no git history for this file"),
+            Line::from(Span::styled(
+                "o opens gitui on the repository",
+                Style::default().fg(Color::DarkGray),
+            )),
+        ];
     }
     let mut lines = Vec::new();
     for commit in &artifact.git_log {

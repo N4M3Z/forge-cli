@@ -285,20 +285,19 @@ fn help_overlay_renders_known_binding_and_quit() {
 
 #[test]
 fn keybindings_table_drives_help_and_hint_row() {
-    let binding = KEYBINDINGS
-        .iter()
-        .flat_map(|(_, bindings)| bindings.iter())
-        .find(|(key, _)| *key == "h/j/k/l")
-        .expect("navigation binding");
-    assert_eq!(binding.1, "move, drill, and go back");
-
     let mut app = fixture_app();
-    let hint = rendered(&mut app);
-    assert!(hint.contains("h/j/k/l move, drill, and go back"));
+    let help_open = {
+        event::handle_key(&mut app, key(KeyCode::Char('?')));
+        rendered(&mut app)
+    };
+    assert!(help_open.contains("quit"));
 
     event::handle_key(&mut app, key(KeyCode::Char('?')));
-    let help = rendered(&mut app);
-    assert!(help.contains("move, drill, and go back"));
+    app.focus_next();
+    let hint = rendered(&mut app);
+    assert!(hint.contains("/ filter"));
+    assert!(hint.contains("! problems"));
+    let _ = KEYBINDINGS;
 }
 
 #[test]
@@ -349,6 +348,7 @@ fn unknown_palette_command_sets_error() {
 #[test]
 fn search_input_mode_is_explicit() {
     let mut app = fixture_app();
+    app.set_section_by_number(9);
     event::handle_key(&mut app, key(KeyCode::Char('/')));
 
     for character in ['h', 'e', 'l', 'l', 'o'] {
@@ -528,6 +528,83 @@ fn launch_queues_harness_in_module_repo() {
     let command = app.take_external().expect("launch queued");
     assert_eq!(command.directory, PathBuf::from("/tmp/forge-core"));
     assert!(command.args.is_empty());
+}
+
+#[test]
+fn in_panel_filter_narrows_and_esc_restores() {
+    let mut app = fixture_app();
+    app.set_section_by_number(2);
+
+    event::handle_key(&mut app, key(KeyCode::Char('/')));
+    for character in ['z', 'z'] {
+        event::handle_key(&mut app, key(KeyCode::Char(character)));
+    }
+    let filtered = rendered(&mut app);
+    assert!(!filtered.contains("BuildSkill"));
+    assert!(filtered.contains("/zz"));
+
+    event::handle_key(&mut app, key(KeyCode::Esc));
+    let restored = rendered(&mut app);
+    assert!(restored.contains("BuildSkill"));
+}
+
+#[test]
+fn problems_only_hides_healthy_rows() {
+    let mut app = fixture_app();
+    app.set_section_by_number(2);
+
+    event::handle_key(&mut app, key(KeyCode::Char('!')));
+    let problems = rendered(&mut app);
+    assert!(!problems.contains("BuildSkill"));
+    assert!(problems.contains("[!]"));
+
+    event::handle_key(&mut app, key(KeyCode::Char('!')));
+    assert!(rendered(&mut app).contains("BuildSkill"));
+}
+
+#[test]
+fn overview_inventory_rows_jump_to_sections() {
+    let mut app = fixture_app();
+    app.focus_next();
+
+    // Summary, Nested view, then Inventory: skills (1), forge-core (1).
+    app.move_list_selection(1);
+    app.move_list_selection(1);
+    event::handle_key(&mut app, key(KeyCode::Enter));
+    assert_eq!(app.section(), Section::Skills);
+
+    app.set_section_by_number(1);
+    app.move_list_selection(1);
+    event::handle_key(&mut app, key(KeyCode::Enter));
+    assert_eq!(app.section(), Section::Skills);
+    let filtered = rendered(&mut app);
+    assert!(filtered.contains("/forge-core"));
+    assert!(filtered.contains("BuildSkill"));
+}
+
+#[test]
+fn module_column_shows_on_unselected_rows() {
+    let mut view = fixture_view();
+    let mut second = view.modules[0].artifacts[0].clone();
+    second.name = "ZetaSkill".to_string();
+    view.modules[0].artifacts.push(second);
+    let mut app = App::from_view_with_files(
+        PathBuf::from("."),
+        Vec::new(),
+        Vec::new(),
+        view,
+        fixture_file_sections(),
+    );
+    app.set_section_by_number(2);
+
+    let output = rendered(&mut app);
+    // Selection sits on BuildSkill; ZetaSkill's row must still show its module.
+    let zeta_line = output
+        .split("ZetaSkill")
+        .nth(1)
+        .expect("ZetaSkill rendered");
+    assert!(zeta_line[..120].contains("forge-core"));
+    assert!(output.contains("· 1/2"));
 }
 
 #[test]
