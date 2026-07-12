@@ -15,6 +15,7 @@ use ratatui::{
     text::{Line, Span, Text},
     widgets::{Block, Borders, Clear, List, ListItem, Paragraph, Wrap},
 };
+use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use commands::{
     services::{
@@ -73,12 +74,13 @@ pub const KEYBINDINGS: &[(&str, &[(&str, &str)])] = &[
     (
         "Actions",
         &[
-            ("/", "search"),
+            ("/", "filter the focused list (Search: edit query)"),
             (":", "palette"),
             ("r", "refresh"),
             ("y", "copy install snippet or path"),
             ("Tab", "next detail tab"),
-            ("p c d v f i n", "detail tabs"),
+            ("p c d v f i", "detail tabs (outside Sections focus)"),
+            ("!", "toggle problems-only"),
             ("m", "comment line (from any detail tab)"),
             ("Y", "copy tuicr comments"),
             ("o/O", "open gitui / jjui on repository"),
@@ -966,17 +968,14 @@ impl App {
                     // right-aligned column on every row; when tight it
                     // truncates from the left, never the label.
                     if !row.detail.is_empty() {
-                        let used = 2 + row.label.chars().count();
+                        let used = 2 + UnicodeWidthStr::width(row.label.as_str());
                         let room = usize::from(inner.width).saturating_sub(used);
                         if room >= 4 {
-                            let detail_width = row.detail.chars().count();
+                            let detail_width = UnicodeWidthStr::width(row.detail.as_str());
                             let (text, shown_width) = if detail_width < room {
                                 (row.detail.clone(), detail_width)
                             } else {
-                                let take = room.saturating_sub(2);
-                                let tail: String =
-                                    row.detail.chars().skip(detail_width - take).collect();
-                                (format!("…{tail}"), take + 1)
+                                truncate_left_to_width(&row.detail, room.saturating_sub(2))
                             };
                             let pad = room.saturating_sub(shown_width);
                             spans.push(Span::raw(" ".repeat(pad)));
@@ -1982,12 +1981,10 @@ impl App {
                         return;
                     }
                     Some(ListTarget::ModuleJump { kind, module }) => {
-                        if let Some(section) = Section::from_name(&kind) {
-                            self.set_section(section);
-                            self.list_filter = module;
-                            self.invalidate_rows();
-                            self.clamp_list_selection();
-                        }
+                        self.search = builders::SearchFilters::empty();
+                        self.search.kind = kind;
+                        self.search.module = module;
+                        self.set_section(Section::Search);
                         return;
                     }
                     _ => {}
@@ -2832,11 +2829,13 @@ impl App {
             KeyCode::Backspace => {
                 self.list_filter.pop();
                 self.list_selected[self.section as usize] = 0;
+                self.list_offset = 0;
                 self.invalidate_rows();
             }
             KeyCode::Char(character) => {
                 self.list_filter.push(character);
                 self.list_selected[self.section as usize] = 0;
+                self.list_offset = 0;
                 self.invalidate_rows();
             }
             _ => {}
@@ -2863,6 +2862,7 @@ impl App {
     pub fn toggle_problems_only(&mut self) {
         self.problems_only = !self.problems_only;
         self.list_selected[self.section as usize] = 0;
+        self.list_offset = 0;
         self.invalidate_rows();
         self.clamp_list_selection();
     }
@@ -3986,6 +3986,24 @@ fn hint_row(focused: ColumnFocus) -> String {
         ]
         .join("  ·  "),
     }
+}
+
+/// Keeps the rightmost display columns of `text`, prefixed with an ellipsis.
+/// Returns the string and its display width (ellipsis included).
+fn truncate_left_to_width(text: &str, take: usize) -> (String, usize) {
+    let mut width = 0usize;
+    let mut kept = Vec::new();
+    for character in text.chars().rev() {
+        let character_width = UnicodeWidthChar::width(character).unwrap_or(0);
+        if width + character_width > take {
+            break;
+        }
+        width += character_width;
+        kept.push(character);
+    }
+    kept.reverse();
+    let tail: String = kept.into_iter().collect();
+    (format!("…{tail}"), width + 1)
 }
 
 /// Greedy word-wrap for plain header text, needed because the preview
