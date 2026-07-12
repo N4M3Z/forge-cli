@@ -363,15 +363,16 @@ fn search_input_mode_is_explicit() {
 }
 
 #[test]
-fn detail_digit_shortcut_selects_tab_without_changing_section() {
+fn digit_switches_section_from_any_focus_and_letter_switches_tab() {
     let mut app = fixture_app();
     app.focus_next();
     app.focus_next();
 
     event::handle_key(&mut app, key(KeyCode::Char('2')));
+    assert_eq!(app.section(), Section::Skills);
 
+    event::handle_key(&mut app, key(KeyCode::Char('c')));
     assert_eq!(app.detail_tab(), DetailTab::Code);
-    assert_eq!(app.section(), Section::Overview);
 }
 
 #[test]
@@ -464,7 +465,7 @@ fn mouse_click_on_tab_switches_detail_tab() {
     app.drill_or_expand();
     app.drill_or_expand();
     let output = rendered(&mut app);
-    let (x, y) = buffer_position(&output, "3 Diff");
+    let (x, y) = buffer_position(&output, "Diff");
 
     app.mouse_click(x, y);
 
@@ -479,7 +480,7 @@ fn mouse_wheel_scrolls_detail_without_moving_selection() {
     app.drill_or_expand();
     app.drill_or_expand();
     let output = rendered(&mut app);
-    let (x, y) = buffer_position(&output, "1 Preview");
+    let (x, y) = buffer_position(&output, "Preview ");
     let selected_before = app.selected_row_for_test();
 
     app.mouse_scroll(x, y + 2, true);

@@ -34,6 +34,7 @@ use super::components::{
     preview::{ArtifactPreview, wrapped_rows},
 };
 use super::rich;
+use super::word_wrap::expand_gutter_wrapped;
 
 const SECTION_COUNT: usize = 13;
 const DETAIL_TAB_COUNT: usize = 7;
@@ -42,6 +43,9 @@ const LEFT_MAX_WIDTH: u16 = 20;
 const MIDDLE_MIN_WIDTH: u16 = 24;
 const MIDDLE_MAX_WIDTH: u16 = 40;
 const MIN_DETAIL_WIDTH: u16 = 20;
+/// Columns occupied by the code gutter: comment marker (2) plus a
+/// right-aligned line number (4) plus one space.
+const CODE_GUTTER: usize = 7;
 
 pub const KEYBINDINGS: &[(&str, &[(&str, &str)])] = &[
     (
@@ -82,9 +86,8 @@ pub const KEYBINDINGS: &[(&str, &[(&str, &str)])] = &[
             (":", "palette"),
             ("r", "refresh"),
             ("y", "copy install snippet or path"),
-            ("d", "diff tab"),
-            ("c", "code tab"),
-            ("p", "preview tab"),
+            ("Tab", "next detail tab"),
+            ("p c d v f i n", "detail tabs"),
             ("m", "comment line (from any detail tab)"),
             ("Y", "copy tuicr comments"),
             ("o/O", "open gitui / jjui on repository"),
@@ -289,6 +292,8 @@ enum HelpState {
 enum ListTarget {
     None,
     Overview,
+    /// The Overview Nested/Matrix mode row: activating it toggles the mode.
+    OverviewMode,
     Artifact {
         module: String,
         kind: String,
@@ -392,6 +397,8 @@ struct DetailCache {
     /// Lines already wrapped at the pane width (glow output): render a
     /// scrolled window without Paragraph wrap, which would break tables.
     windowed: bool,
+    /// Row offsets of diff hunk headers, for [ and ] navigation.
+    hunks: Vec<usize>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -756,6 +763,8 @@ impl App {
             self.palette.display_text(self.palette_error.as_deref())
         } else if let Some(toast) = &self.toast {
             format!(" {toast}")
+        } else if let Some((current, total)) = self.hunk_position() {
+            format!("hunk {current}/{total}  ·  ] next hunk  ·  [ previous hunk  ·  j/k scroll")
         } else {
             hint_row(self.focused)
         };
@@ -842,12 +851,20 @@ impl App {
                     } else {
                         Style::default()
                     };
-                    ListItem::new(Line::from(vec![
+                    let mut spans = vec![
                         Span::styled(status_dot(row.status), status_style(row.status)),
                         Span::raw(" "),
                         Span::styled(row.label.clone(), base),
-                        Span::styled(format!("  {}", row.detail), base.fg(Color::DarkGray)),
-                    ]))
+                    ];
+                    // Detail text only on the selected row: unselected rows
+                    // stay calm and nothing truncates while browsing.
+                    if index == selected && !row.detail.is_empty() {
+                        spans.push(Span::styled(
+                            format!("  {}", row.detail),
+                            base.fg(Color::DarkGray),
+                        ));
+                    }
+                    ListItem::new(Line::from(spans))
                 })
                 .collect()
         };
@@ -955,12 +972,11 @@ impl App {
                 .min(u16::try_from(max_scroll).unwrap_or(u16::MAX));
             let artifact = &self.view.modules[module_index].artifacts[artifact_index];
             let lines = self.code_window(artifact, viewport);
-            // The window is pre-sliced; wrapping the visible slice keeps long
-            // lines readable without paying whole-file layout costs.
-            frame.render_widget(
-                Paragraph::new(Text::from(lines)).wrap(Wrap { trim: false }),
-                chunks[1],
-            );
+            // Pre-expand long lines so continuation rows align after the
+            // line-number gutter with a ↪ marker instead of sliding under it.
+            let mut rows = expand_gutter_wrapped(lines, CODE_GUTTER, usize::from(chunks[1].width));
+            rows.truncate(viewport);
+            frame.render_widget(Paragraph::new(Text::from(rows)), chunks[1]);
         } else {
             let expected_key = {
                 let module = &self.view.modules[module_index];
@@ -1034,6 +1050,7 @@ impl App {
                 width: cache_width,
                 lines,
                 windowed,
+                hunks: Vec::new(),
             });
         }
         self.render_cached_detail(frame, area);
@@ -1143,11 +1160,13 @@ impl App {
                 let artifact = &module.artifacts[artifact_index];
                 self.build_detail_lines(Some(module), artifact, self.detail_tab, cache_width)
             };
+            let hunks = hunk_offsets(&lines);
             self.preview_cache = Some(DetailCache {
                 key,
                 width: cache_width,
                 lines,
                 windowed,
+                hunks,
             });
             #[cfg(test)]
             {
@@ -1168,10 +1187,17 @@ impl App {
         match tab {
             DetailTab::Preview => preview_lines_for_width(artifact, width),
             DetailTab::Code => (
-                rich::highlight_code(&artifact.relative_path, &artifact.raw_source),
+                expand_gutter_wrapped(
+                    rich::highlight_code(&artifact.relative_path, &artifact.raw_source),
+                    CODE_GUTTER,
+                    usize::from(width),
+                ),
                 true,
             ),
-            DetailTab::Diff => (diff_lines(module, artifact), false),
+            DetailTab::Diff => (
+                expand_gutter_wrapped(diff_lines(module, artifact, width), 1, usize::from(width)),
+                true,
+            ),
             DetailTab::Provenance => (
                 module.map_or_else(
                     || vec![Line::from("module not found")],
@@ -1179,7 +1205,7 @@ impl App {
                 ),
                 false,
             ),
-            DetailTab::Frontmatter => (frontmatter_lines(artifact), false),
+            DetailTab::Frontmatter => (frontmatter_lines(artifact, width), true),
             DetailTab::History => (history_lines(artifact), false),
             DetailTab::Companions => (companion_lines(artifact), false),
         }
@@ -1231,8 +1257,7 @@ impl App {
     fn render_tabs(&self, frame: &mut Frame<'_>, area: Rect) {
         let spans = DetailTab::ALL
             .iter()
-            .enumerate()
-            .flat_map(|(index, tab)| {
+            .flat_map(|tab| {
                 let style = if *tab == self.detail_tab {
                     Style::default()
                         .fg(Color::Black)
@@ -1241,10 +1266,7 @@ impl App {
                 } else {
                     Style::default().fg(Color::DarkGray)
                 };
-                [
-                    Span::raw(" "),
-                    Span::styled(format!("{} {}", index + 1, tab.label()), style),
-                ]
+                [Span::raw(" "), Span::styled(tab.label(), style)]
             })
             .collect::<Vec<_>>();
         frame.render_widget(Paragraph::new(Line::from(spans)), area);
@@ -1492,11 +1514,55 @@ impl App {
         };
     }
 
+    /// Jumps the diff viewport to the next or previous hunk header.
+    fn jump_hunk(&mut self, forward: bool) {
+        let Some(cache) = self.preview_cache.as_ref() else {
+            return;
+        };
+        let current = usize::from(self.detail_scroll);
+        let target = if forward {
+            cache.hunks.iter().find(|&&offset| offset > current)
+        } else {
+            cache.hunks.iter().rev().find(|&&offset| offset < current)
+        };
+        if let Some(&offset) = target {
+            self.detail_scroll = u16::try_from(offset).unwrap_or(u16::MAX);
+        }
+    }
+
+    /// (current hunk, total hunks) for the footer while the Diff tab scrolls.
+    fn hunk_position(&self) -> Option<(usize, usize)> {
+        let cache = self.preview_cache.as_ref()?;
+        if self.detail_tab != DetailTab::Diff || cache.hunks.is_empty() {
+            return None;
+        }
+        let current = usize::from(self.detail_scroll);
+        let index = cache
+            .hunks
+            .iter()
+            .take_while(|&&offset| offset <= current)
+            .count()
+            .max(1);
+        Some((index, cache.hunks.len()))
+    }
+
+    fn toggle_overview_mode(&mut self) {
+        self.overview_mode = match self.overview_mode {
+            OverviewMode::Nested => OverviewMode::Matrix,
+            OverviewMode::Matrix => OverviewMode::Nested,
+        };
+        self.invalidate_rows();
+    }
+
     pub fn drill_or_expand(&mut self) {
         self.ensure_rows();
         match self.focused {
             ColumnFocus::Sections => self.focused = ColumnFocus::List,
             ColumnFocus::List => {
+                if let Some(ListTarget::OverviewMode) = self.selected_target() {
+                    self.toggle_overview_mode();
+                    return;
+                }
                 if let Some(ListTarget::ProvenanceArtifact { .. }) = self.selected_target() {
                     self.detail_tab = DetailTab::Provenance;
                 }
@@ -1548,8 +1614,15 @@ impl App {
                 let row = visual_row.saturating_add(self.list_offset);
                 self.ensure_rows();
                 let rows = self.cached_rows();
-                if rows.get(row).is_some_and(ListRow::is_selectable) {
+                let selectable = rows.get(row).is_some_and(ListRow::is_selectable);
+                let toggles = rows
+                    .get(row)
+                    .is_some_and(|hit| matches!(hit.target, ListTarget::OverviewMode));
+                if selectable {
                     self.list_selected[self.section as usize] = row;
+                    if toggles {
+                        self.toggle_overview_mode();
+                    }
                 }
             }
         } else if regions.detail.contains(position) {
@@ -1905,11 +1978,7 @@ impl App {
             KeyCode::Home | KeyCode::Char('g') => self.select_first_row(),
             KeyCode::End | KeyCode::Char('G') => self.select_last_row(),
             KeyCode::Char('m') if self.section == Section::Overview => {
-                self.overview_mode = match self.overview_mode {
-                    OverviewMode::Nested => OverviewMode::Matrix,
-                    OverviewMode::Matrix => OverviewMode::Nested,
-                };
-                self.invalidate_rows();
+                self.toggle_overview_mode();
             }
             _ => {}
         }
@@ -1931,13 +2000,15 @@ impl App {
             }
             KeyCode::Home | KeyCode::Char('g') => self.detail_scroll = 0,
             KeyCode::End | KeyCode::Char('G') => self.detail_scroll = u16::MAX,
-            KeyCode::Char('p' | '1') => self.set_detail_tab(DetailTab::Preview),
-            KeyCode::Char('c' | '2') => self.set_detail_tab(DetailTab::Code),
-            KeyCode::Char('d' | '3') => self.set_detail_tab(DetailTab::Diff),
-            KeyCode::Char('4') => self.set_detail_tab(DetailTab::Provenance),
-            KeyCode::Char('5') => self.set_detail_tab(DetailTab::Frontmatter),
-            KeyCode::Char('6') => self.set_detail_tab(DetailTab::History),
-            KeyCode::Char('7') => self.set_detail_tab(DetailTab::Companions),
+            KeyCode::Char(']') if self.detail_tab == DetailTab::Diff => self.jump_hunk(true),
+            KeyCode::Char('[') if self.detail_tab == DetailTab::Diff => self.jump_hunk(false),
+            KeyCode::Char('p') => self.set_detail_tab(DetailTab::Preview),
+            KeyCode::Char('c') => self.set_detail_tab(DetailTab::Code),
+            KeyCode::Char('d') => self.set_detail_tab(DetailTab::Diff),
+            KeyCode::Char('v') => self.set_detail_tab(DetailTab::Provenance),
+            KeyCode::Char('f') => self.set_detail_tab(DetailTab::Frontmatter),
+            KeyCode::Char('i') => self.set_detail_tab(DetailTab::History),
+            KeyCode::Char('n') => self.set_detail_tab(DetailTab::Companions),
             KeyCode::Tab => self.next_detail_tab(),
             KeyCode::Char('m') => {
                 if self.detail_tab != DetailTab::Code {
@@ -2064,12 +2135,12 @@ impl App {
             ListRow::item("Summary", "status counts", ListTarget::Overview, "ok"),
             ListRow::item(
                 if self.overview_mode == OverviewMode::Matrix {
-                    "Matrix"
+                    "Matrix view"
                 } else {
-                    "Nested"
+                    "Nested view"
                 },
-                "press m to toggle",
-                ListTarget::Overview,
+                "Enter or click toggles",
+                ListTarget::OverviewMode,
                 "ok",
             ),
         ]
@@ -2794,20 +2865,16 @@ fn column_widths_for_rows(rows: &[ListRow]) -> MillerColumnWidths {
     let left =
         usize_to_u16(section_label_width.saturating_add(6)).clamp(LEFT_MIN_WIDTH, LEFT_MAX_WIDTH);
 
+    // Detail text renders only on the selected row, so the column sizes to
+    // the labels; the selected row's detail may clip at the column edge and
+    // is always fully visible in the detail pane.
     let row_width = rows
         .iter()
-        .map(|row| {
-            let detail_width = if row.detail.is_empty() {
-                0
-            } else {
-                row.detail.chars().count().saturating_add(2)
-            };
-            row.label.chars().count().saturating_add(detail_width)
-        })
+        .map(|row| row.label.chars().count())
         .max()
         .unwrap_or_default();
     let middle =
-        usize_to_u16(row_width.saturating_add(4)).clamp(MIDDLE_MIN_WIDTH, MIDDLE_MAX_WIDTH);
+        usize_to_u16(row_width.saturating_add(8)).clamp(MIDDLE_MIN_WIDTH, MIDDLE_MAX_WIDTH);
 
     MillerColumnWidths { left, middle }
 }
@@ -2865,20 +2932,22 @@ fn artifact_row(artifact: &ArtifactView, module: &str) -> ListRow {
     )
 }
 
+/// gitui-style status letters: shape carries the state, color reinforces it.
 fn status_dot(status: &str) -> &'static str {
     match status {
-        "modified" | "stale" | "new" => "●",
+        "modified" => "M",
+        "stale" => "!",
+        "new" => "?",
         _ => "·",
     }
 }
 
 fn status_style(status: &str) -> Style {
     match status {
-        "modified" => Style::default().fg(Color::Red),
-        "stale" => Style::default().fg(Color::Yellow),
-        "new" => Style::default().fg(Color::Blue),
-        "source" => Style::default().fg(Color::DarkGray),
-        _ => Style::default().fg(Color::Green),
+        "modified" => Style::default().fg(Color::Yellow),
+        "stale" => Style::default().fg(Color::Red),
+        "new" => Style::default().fg(Color::Magenta),
+        _ => Style::default().fg(Color::DarkGray),
     }
 }
 
@@ -2895,16 +2964,15 @@ fn bordered_row_at(region: Rect, x: u16, y: u16) -> Option<usize> {
 }
 
 /// Maps a column inside the tab bar to its tab, mirroring the span layout in
-/// `render_tabs`: one leading space, then `"{number} {label}"` per tab.
+/// `render_tabs`: one space then the label per tab. The space before a label
+/// snaps to that tab so there are no dead cells between targets.
 fn tab_at_column(column: u16) -> Option<DetailTab> {
     let mut cursor = 0u16;
-    for (index, tab) in DetailTab::ALL.iter().enumerate() {
-        let label = format!("{} {}", index + 1, tab.label());
-        let width = u16::try_from(label.chars().count()).unwrap_or(u16::MAX);
-        let start = cursor.saturating_add(1);
-        let end = start.saturating_add(width);
-        if column >= start && column < end {
-            return Some(*tab);
+    for tab in DetailTab::ALL {
+        let width = u16::try_from(tab.label().chars().count()).unwrap_or(u16::MAX);
+        let end = cursor.saturating_add(1).saturating_add(width);
+        if column < end {
+            return Some(tab);
         }
         cursor = end;
     }
@@ -2914,11 +2982,11 @@ fn tab_at_column(column: u16) -> Option<DetailTab> {
 fn hint_row(focused: ColumnFocus) -> String {
     if focused == ColumnFocus::Detail {
         return [
-            "1-7 tabs",
+            "Tab/p c d v f i n tabs",
+            "1-9 sections",
             "j/k scroll",
-            "m comment line",
+            "m comment",
             "Y copy review",
-            "h back",
             "? help",
         ]
         .join("  ·  ");
@@ -2938,6 +3006,13 @@ fn hint_row(focused: ColumnFocus) -> String {
 fn wrap_plain(text: &str, width: usize) -> Vec<Line<'static>> {
     if width == 0 {
         return vec![Line::from(text.to_string())];
+    }
+    // Explicit newlines are paragraph structure; wrap each line separately.
+    if text.contains('\n') {
+        return text
+            .lines()
+            .flat_map(|line| wrap_plain(line, width))
+            .collect();
     }
     let mut lines = Vec::new();
     let mut current = String::new();
@@ -3057,8 +3132,13 @@ fn input_pending() -> bool {
     crossterm::event::poll(std::time::Duration::ZERO).unwrap_or(false)
 }
 
-/// Uncommitted changes to the artifact's source file, colored like a pager.
-fn diff_lines(module: Option<&ModuleView>, artifact: &ArtifactView) -> Vec<Line<'static>> {
+/// Uncommitted changes to the artifact's source file, colored like a pager,
+/// with a separator rule before each hunk header.
+fn diff_lines(
+    module: Option<&ModuleView>,
+    artifact: &ArtifactView,
+    width: u16,
+) -> Vec<Line<'static>> {
     let header = Line::from(Span::styled(
         "Diff · uncommitted source changes",
         Style::default().add_modifier(Modifier::BOLD),
@@ -3066,24 +3146,37 @@ fn diff_lines(module: Option<&ModuleView>, artifact: &ArtifactView) -> Vec<Line<
     let Some(repo) = module.and_then(|module| module.local_path.as_ref()) else {
         return vec![header, Line::from("no local repo for this module")];
     };
-    if artifact
-        .vcs
-        .as_ref()
-        .is_some_and(|vcs| vcs.worktree == WorktreeState::Untracked)
-    {
-        return vec![
-            header,
-            Line::from(vec![
-                Span::styled("● ", Style::default().fg(Color::Magenta)),
-                Span::raw("untracked file — the whole file is new"),
-            ]),
-        ];
-    }
     let path = if artifact.source_path.is_empty() {
         artifact.relative_path.as_str()
     } else {
         artifact.source_path.as_str()
     };
+    if artifact
+        .vcs
+        .as_ref()
+        .is_some_and(|vcs| vcs.worktree == WorktreeState::Untracked)
+    {
+        // A new file has no diff against HEAD; show the whole body as added
+        // so the reviewer can still inspect it here.
+        let mut lines = vec![
+            header,
+            Line::from(vec![
+                Span::styled("● ", Style::default().fg(Color::Magenta)),
+                Span::raw("untracked file — whole body is new"),
+            ]),
+            Line::default(),
+        ];
+        match std::fs::read_to_string(repo.join(path)) {
+            Ok(body) => lines.extend(body.lines().map(|line| {
+                Line::from(Span::styled(
+                    format!("+{line}"),
+                    Style::default().fg(Color::Green),
+                ))
+            })),
+            Err(error) => lines.push(Line::from(format!("could not read {path}: {error}"))),
+        }
+        return lines;
+    }
     let output = std::process::Command::new("git")
         .args(["diff", "HEAD", "--", path])
         .current_dir(repo)
@@ -3108,9 +3201,32 @@ fn diff_lines(module: Option<&ModuleView>, artifact: &ArtifactView) -> Vec<Line<
             ]),
         ];
     }
+    let separator = "─".repeat(usize::from(width.max(8)).saturating_sub(2));
     let mut lines = vec![header, Line::default()];
-    lines.extend(diff.lines().map(diff_line_colored));
+    for raw in diff.lines() {
+        if raw.starts_with("@@") {
+            lines.push(Line::from(Span::styled(
+                separator.clone(),
+                Style::default().fg(Color::DarkGray),
+            )));
+        }
+        lines.push(diff_line_colored(raw));
+    }
     lines
+}
+
+/// Row offsets of hunk headers within rendered diff lines.
+fn hunk_offsets(lines: &[Line<'_>]) -> Vec<usize> {
+    lines
+        .iter()
+        .enumerate()
+        .filter(|(_, line)| {
+            line.spans
+                .first()
+                .is_some_and(|span| span.content.starts_with("@@"))
+        })
+        .map(|(index, _)| index)
+        .collect()
 }
 
 fn diff_line_colored(line: &str) -> Line<'static> {
@@ -3132,11 +3248,11 @@ fn diff_line_colored(line: &str) -> Line<'static> {
     Line::from(Span::styled(line.to_string(), style))
 }
 
-fn frontmatter_lines(artifact: &ArtifactView) -> Vec<Line<'static>> {
+fn frontmatter_lines(artifact: &ArtifactView, width: u16) -> Vec<Line<'static>> {
     if artifact.metadata.is_empty() {
         return vec![Line::from("no frontmatter metadata")];
     }
-    artifact
+    let lines = artifact
         .metadata
         .iter()
         .map(|(key, value)| {
@@ -3145,7 +3261,9 @@ fn frontmatter_lines(artifact: &ArtifactView) -> Vec<Line<'static>> {
                 Span::raw(value.clone()),
             ])
         })
-        .collect()
+        .collect();
+    // Values wrap within the value column, never back to column zero.
+    expand_gutter_wrapped(lines, 18, usize::from(width))
 }
 
 fn history_lines(artifact: &ArtifactView) -> Vec<Line<'static>> {
