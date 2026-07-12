@@ -106,7 +106,7 @@ pub(super) fn read_source_content(
 }
 
 /// Parses flat frontmatter fields, preserving their source order for display.
-pub(super) fn parse_frontmatter(content: &str) -> Vec<(String, String)> {
+pub fn parse_frontmatter(content: &str) -> Vec<(String, String)> {
     let mut fields = Vec::new();
     let Some(rest) = content.strip_prefix("---") else {
         return fields;

@@ -39,7 +39,7 @@ pub(super) fn sidecar_name_warning(relative_path: &str, sidecar_path: &Path) -> 
     }
 }
 
-pub(super) fn git_log_in_repo(repo: &Path, file_rel: &str) -> Vec<GitCommit> {
+pub fn git_log_in_repo(repo: &Path, file_rel: &str) -> Vec<GitCommit> {
     let output = Command::new("git")
         .args(["log", "--follow", "-n", "5", GIT_LOG_FORMAT, "--", file_rel])
         .current_dir(repo)

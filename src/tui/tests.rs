@@ -239,7 +239,7 @@ fn provenance_and_history_tabs_render_scanned_data() {
 
     let provenance = rendered(&mut app);
     assert!(provenance.contains("target-one"));
-    assert!(provenance.contains("OK"));
+    assert!(provenance.contains("1/1 verified"));
 
     app.set_detail_tab(DetailTab::History);
     let history = rendered(&mut app);
