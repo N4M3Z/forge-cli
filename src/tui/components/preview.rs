@@ -13,7 +13,7 @@ use super::super::app::DetailTab;
 /// Display rows the lines occupy when word-wrapped to `width`. Counts each
 /// line as at least one row plus one per full width beyond it; wide glyphs
 /// count as one column, close enough to keep the last line reachable.
-fn wrapped_rows(lines: &[Line<'_>], width: u16) -> usize {
+pub(in super::super) fn wrapped_rows(lines: &[Line<'_>], width: u16) -> usize {
     if width == 0 {
         return lines.len();
     }

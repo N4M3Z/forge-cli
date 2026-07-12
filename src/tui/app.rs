@@ -31,7 +31,7 @@ use crate::cli::{config, watchlist};
 
 use super::components::{
     palette::{Palette, PaletteCommand},
-    preview::ArtifactPreview,
+    preview::{ArtifactPreview, wrapped_rows},
 };
 use super::rich;
 
@@ -172,6 +172,26 @@ impl Section {
             "config" | "configuration" => Some(Self::Config),
             "schemas" | "schema" | "manifests" | "manifest" => Some(Self::Schemas),
             _ => None,
+        }
+    }
+
+    /// The key that reaches this section from the Sections column, shown as
+    /// the row prefix so every advertised shortcut actually works.
+    fn shortcut_label(self) -> &'static str {
+        match self {
+            Self::Overview => "1",
+            Self::Skills => "2",
+            Self::Agents => "3",
+            Self::Rules => "4",
+            Self::Repositories => "5",
+            Self::Adrs => "6",
+            Self::Provenance => "7",
+            Self::Variants => "8",
+            Self::Search => "9",
+            Self::Settings => "t",
+            Self::Hooks => "h",
+            Self::Config => "c",
+            Self::Schemas => "m",
         }
     }
 
@@ -465,6 +485,11 @@ pub struct App {
     list_offset: usize,
     /// Selection seen at the last render, to detect selection movement.
     list_last_selected: usize,
+    /// Second-press confirmation state for quitting with unsaved comments.
+    quit_armed: bool,
+    /// Whether keystrokes in the Search section edit the query (explicit
+    /// input mode) or navigate the result list.
+    search_typing: bool,
 }
 
 impl App {
@@ -536,6 +561,8 @@ impl App {
             pending_external: None,
             list_offset: 0,
             list_last_selected: 0,
+            quit_armed: false,
+            search_typing: false,
         }
     }
 
@@ -544,6 +571,12 @@ impl App {
             self.toast = Some("scan already running".to_string());
             return;
         }
+        self.start_scan();
+    }
+
+    /// Restarts the scan even when one is in flight, superseding its result —
+    /// used after an external tool may have changed the repos.
+    pub fn force_refresh(&mut self) {
         self.start_scan();
     }
 
@@ -741,7 +774,8 @@ impl App {
             .iter()
             .enumerate()
             .map(|(index, section)| {
-                let prefix = format!("{} ", index + 1);
+                let _ = index;
+                let prefix = format!("{} ", section.shortcut_label());
                 let style = if *section == self.section {
                     selected_style(self.focused == ColumnFocus::Sections)
                 } else {
@@ -961,6 +995,20 @@ impl App {
             .as_ref()
             .is_none_or(|cache| cache.key != key || cache.width != cache_width);
         if needs_build {
+            if self.preview_cache.is_some() && input_pending() {
+                frame.render_widget(
+                    Paragraph::new("rendering…").style(Style::default().fg(Color::DarkGray)),
+                    area,
+                );
+                return;
+            }
+            if self
+                .preview_cache
+                .as_ref()
+                .is_some_and(|cache| cache.key != key)
+            {
+                self.detail_scroll = 0;
+            }
             let raw = std::fs::read_to_string(&adr.local_path)
                 .unwrap_or_else(|error| format!("could not read {}: {error}", adr.local_path));
             let body = commands::services::strip_frontmatter(&raw);
@@ -1009,6 +1057,12 @@ impl App {
             let lines = self.preview_window(viewport);
             frame.render_widget(Paragraph::new(Text::from(lines)), area);
         } else {
+            let total = self
+                .preview_cache
+                .as_ref()
+                .map_or(0, |cache| wrapped_rows(&cache.lines, area.width.max(1)));
+            let max_scroll = u16::try_from(total.saturating_sub(viewport)).unwrap_or(u16::MAX);
+            self.detail_scroll = self.detail_scroll.min(max_scroll);
             let lines = self.preview_cache_lines();
             frame.render_widget(
                 Paragraph::new(Text::from(lines))
@@ -1048,6 +1102,7 @@ impl App {
                 .as_ref()
                 .is_none_or(|cache| cache.path != key);
             if needs_build {
+                self.detail_scroll = 0;
                 let lines = rich::highlight_code(&artifact.relative_path, &artifact.raw_source);
                 self.code_cache = Some(CodeCache { path: key, lines });
                 #[cfg(test)]
@@ -1073,6 +1128,15 @@ impl App {
             let expensive = matches!(self.detail_tab, DetailTab::Preview | DetailTab::Diff);
             if expensive && self.preview_cache.is_some() && input_pending() {
                 return;
+            }
+            // A different target means new content: scrolling must restart at
+            // the top, or a short document renders as a blank pane.
+            if self
+                .preview_cache
+                .as_ref()
+                .is_some_and(|cache| cache.key != key)
+            {
+                self.detail_scroll = 0;
             }
             let (lines, windowed) = {
                 let module = &self.view.modules[module_index];
@@ -1271,7 +1335,28 @@ impl App {
     }
 
     pub fn request_quit(&mut self) {
+        if !self.comments.is_empty() && !self.quit_armed {
+            self.quit_armed = true;
+            self.toast = Some(format!(
+                "{} unsaved comments — press q again to quit (Y copies them first)",
+                self.comments.len()
+            ));
+            return;
+        }
         self.run_state = RunState::Quit;
+    }
+
+    pub fn disarm_quit(&mut self) {
+        self.quit_armed = false;
+    }
+
+    /// Esc walks focus back toward Sections and quits only from there —
+    /// backing out of a pane must never kill the session.
+    pub fn escape(&mut self) {
+        match self.focused {
+            ColumnFocus::Detail | ColumnFocus::List => self.focus_previous(),
+            ColumnFocus::Sections => self.request_quit(),
+        }
     }
 
     #[must_use]
@@ -1612,13 +1697,20 @@ impl App {
 
     #[must_use]
     pub fn is_search_input_active(&self) -> bool {
-        self.section == Section::Search && self.focused == ColumnFocus::List
+        self.section == Section::Search && self.focused == ColumnFocus::List && self.search_typing
+    }
+
+    pub fn begin_search_input(&mut self) {
+        self.focused = ColumnFocus::List;
+        self.search_typing = true;
     }
 
     pub fn search_input_key(&mut self, key: KeyEvent) {
         match key.code {
-            KeyCode::Esc => self.focus_previous(),
-            KeyCode::Enter => self.clamp_list_selection(),
+            KeyCode::Esc | KeyCode::Enter => {
+                self.search_typing = false;
+                self.clamp_list_selection();
+            }
             KeyCode::Backspace => {
                 self.search.query.pop();
                 self.list_selected[self.section as usize] = 0;
@@ -1689,14 +1781,20 @@ impl App {
 
         let digest = self.tuicr_digest();
         let copied = copy_to_pbcopy(&digest);
-        if !copied {
-            eprintln!("{digest}");
-        }
         let count = self.comments.len();
         self.toast = Some(if copied {
             format!("copied {count} comments")
         } else {
-            "pbcopy unavailable".to_string()
+            // stderr is invisible inside the alternate screen; a file is the
+            // only fallback that survives.
+            let fallback = std::env::temp_dir().join("forge-tuicr-review.md");
+            match std::fs::write(&fallback, &digest) {
+                Ok(()) => format!(
+                    "pbcopy unavailable — review written to {}",
+                    fallback.display()
+                ),
+                Err(error) => format!("pbcopy unavailable and file write failed: {error}"),
+            }
         });
     }
 
@@ -1832,6 +1930,7 @@ impl App {
                 self.detail_scroll = self.detail_scroll.saturating_sub(10);
             }
             KeyCode::Home | KeyCode::Char('g') => self.detail_scroll = 0,
+            KeyCode::End | KeyCode::Char('G') => self.detail_scroll = u16::MAX,
             KeyCode::Char('p' | '1') => self.set_detail_tab(DetailTab::Preview),
             KeyCode::Char('c' | '2') => self.set_detail_tab(DetailTab::Code),
             KeyCode::Char('d' | '3') => self.set_detail_tab(DetailTab::Diff),
@@ -2095,8 +2194,13 @@ impl App {
 
     fn search_rows(&self) -> Vec<ListRow> {
         let mut rows = vec![ListRow::header(format!(
-            "query: {}  kind: {}  status: {}  sort: {}",
+            "query: {}{}  kind: {}  status: {}  sort: {}",
             value_or_any(&self.search.query),
+            if self.search_typing {
+                "▌ (Enter done)"
+            } else {
+                "  (/ edits)"
+            },
             value_or_any(&self.search.kind),
             value_or_any(&self.search.status),
             value_or_any(&self.search.sort)
