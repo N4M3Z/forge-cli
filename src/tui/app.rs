@@ -7,7 +7,7 @@ use std::{
     thread,
 };
 
-use crossterm::event::{KeyCode, KeyEvent};
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::{
     Frame,
     layout::{Constraint, Direction, Layout, Position, Rect},
@@ -500,6 +500,11 @@ pub struct App {
     list_last_selected: usize,
     /// Second-press confirmation state for quitting with unsaved comments.
     quit_armed: bool,
+    /// Line cursor for the Code tab, decoupled from the viewport: keys move
+    /// it (viewport follows), the wheel scrolls without touching it.
+    code_cursor: usize,
+    /// Detail body height at the last render, for cursor-follow and paging.
+    detail_viewport: usize,
     /// Synthesized artifact for the selected ADR or companion, keyed by a
     /// stable identity so tab switches do not re-read files or re-run git.
     synthesized: Option<(String, ArtifactView)>,
@@ -578,6 +583,8 @@ impl App {
             list_offset: 0,
             list_last_selected: 0,
             quit_armed: false,
+            code_cursor: 0,
+            detail_viewport: 1,
             synthesized: None,
             search_typing: false,
         }
@@ -887,7 +894,23 @@ impl App {
     }
 
     fn render_detail(&mut self, frame: &mut Frame<'_>, area: Rect) {
-        let block = column_block(" Detail ", self.focused == ColumnFocus::Detail);
+        let position = match self.detail_tab {
+            DetailTab::Code => self
+                .code_cache
+                .as_ref()
+                .map(|cache| (self.code_cursor + 1, cache.lines.len())),
+            _ => self
+                .preview_cache
+                .as_ref()
+                .map(|cache| (usize::from(self.detail_scroll) + 1, cache.lines.len())),
+        };
+        let title = match position {
+            Some((current, total)) if total > 0 => {
+                format!(" Detail · {}/{total} ", current.min(total))
+            }
+            _ => " Detail ".to_string(),
+        };
+        let block = column_block(&title, self.focused == ColumnFocus::Detail);
         let inner = block.inner(area);
         frame.render_widget(block, area);
 
@@ -986,6 +1009,7 @@ impl App {
         self.prepare_artifact_detail_cache(module_index, artifact_index, chunks[1].width);
         if self.detail_tab == DetailTab::Code {
             let viewport = usize::from(chunks[1].height.max(1));
+            self.detail_viewport = viewport;
             // The cursor is the top visible line, so every line must be able
             // to reach the top — clamp to the last line, not the last page.
             let max_scroll = self
@@ -1199,6 +1223,7 @@ impl App {
     /// wrapped at pane width (glow), wrap-and-scroll otherwise.
     fn render_cached_detail(&mut self, frame: &mut Frame<'_>, area: Rect) {
         let viewport = usize::from(area.height.max(1));
+        self.detail_viewport = viewport;
         let windowed = self
             .preview_cache
             .as_ref()
@@ -1259,6 +1284,7 @@ impl App {
                 .is_none_or(|cache| cache.path != key);
             if needs_build {
                 self.detail_scroll = 0;
+                self.code_cursor = 0;
                 let lines = rich::highlight_code(&artifact.relative_path, &artifact.raw_source);
                 self.code_cache = Some(CodeCache { path: key, lines });
                 #[cfg(test)]
@@ -1338,15 +1364,25 @@ impl App {
                 true,
             ),
             DetailTab::Provenance => (
-                module.map_or_else(
-                    || vec![Line::from("module not found")],
-                    |module| self.provenance_lines(module, artifact),
+                expand_gutter_wrapped(
+                    module.map_or_else(
+                        || vec![Line::from("module not found")],
+                        |module| self.provenance_lines(module, artifact),
+                    ),
+                    2,
+                    usize::from(width),
                 ),
-                false,
+                true,
             ),
             DetailTab::Frontmatter => (frontmatter_lines(artifact, width), true),
-            DetailTab::History => (history_lines(artifact), false),
-            DetailTab::Companions => (companion_lines(artifact), false),
+            DetailTab::History => (
+                expand_gutter_wrapped(history_lines(artifact), 2, usize::from(width)),
+                true,
+            ),
+            DetailTab::Companions => (
+                expand_gutter_wrapped(companion_lines(artifact), 2, usize::from(width)),
+                true,
+            ),
         }
     }
 
@@ -1653,6 +1689,22 @@ impl App {
         };
     }
 
+    /// One navigation step in the detail pane: moves the Code cursor when the
+    /// Code tab is active, otherwise scrolls the viewport.
+    fn detail_step(&mut self, delta: isize) {
+        if self.detail_tab == DetailTab::Code {
+            self.move_code_cursor(delta);
+        } else if delta.is_negative() {
+            self.detail_scroll = self
+                .detail_scroll
+                .saturating_sub(u16::try_from(-delta).unwrap_or(0));
+        } else {
+            self.detail_scroll = self
+                .detail_scroll
+                .saturating_add(u16::try_from(delta).unwrap_or(0));
+        }
+    }
+
     /// Jumps the diff viewport to the next or previous hunk header.
     fn jump_hunk(&mut self, forward: bool) {
         let Some(cache) = self.preview_cache.as_ref() else {
@@ -1758,9 +1810,13 @@ impl App {
                     .get(row)
                     .is_some_and(|hit| matches!(hit.target, ListTarget::OverviewMode));
                 if selectable {
+                    let already_selected = self.list_selected[self.section as usize] == row;
                     self.list_selected[self.section as usize] = row;
                     if toggles {
                         self.toggle_overview_mode();
+                    } else if already_selected {
+                        // Click on the selected row activates it, gitui-style.
+                        self.drill_or_expand();
                     }
                 }
             }
@@ -1865,6 +1921,9 @@ impl App {
     }
 
     pub fn set_detail_tab(&mut self, tab: DetailTab) {
+        if self.detail_tab == tab {
+            return;
+        }
         self.detail_tab = tab;
         self.detail_scroll = 0;
     }
@@ -2132,21 +2191,28 @@ impl App {
     }
 
     fn detail_key(&mut self, key: KeyEvent) {
+        let page = isize::try_from(self.detail_viewport.max(2) - 1).unwrap_or(10);
+        let half = (page / 2).max(1);
         match key.code {
-            KeyCode::Down | KeyCode::Char('j') => {
-                self.detail_scroll = self.detail_scroll.saturating_add(1);
+            KeyCode::Down | KeyCode::Char('j') => self.detail_step(1),
+            KeyCode::Up | KeyCode::Char('k') => self.detail_step(-1),
+            KeyCode::PageDown | KeyCode::Char(' ') => self.detail_step(page),
+            KeyCode::PageUp | KeyCode::Char('b') => self.detail_step(-page),
+            KeyCode::Char('d') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                self.detail_step(half);
             }
-            KeyCode::Up | KeyCode::Char('k') => {
-                self.detail_scroll = self.detail_scroll.saturating_sub(1);
+            KeyCode::Char('u') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                self.detail_step(-half);
             }
-            KeyCode::PageDown => {
-                self.detail_scroll = self.detail_scroll.saturating_add(10);
+            KeyCode::Home | KeyCode::Char('g') => {
+                self.code_cursor = 0;
+                self.detail_scroll = 0;
             }
-            KeyCode::PageUp => {
-                self.detail_scroll = self.detail_scroll.saturating_sub(10);
+            KeyCode::End | KeyCode::Char('G') => {
+                self.code_cursor = usize::MAX;
+                self.detail_scroll = u16::MAX;
+                self.move_code_cursor(0);
             }
-            KeyCode::Home | KeyCode::Char('g') => self.detail_scroll = 0,
-            KeyCode::End | KeyCode::Char('G') => self.detail_scroll = u16::MAX,
             KeyCode::Char(']') if self.detail_tab == DetailTab::Diff => self.jump_hunk(true),
             KeyCode::Char('[') if self.detail_tab == DetailTab::Diff => self.jump_hunk(false),
             KeyCode::Char('p') => self.set_detail_tab(DetailTab::Preview),
@@ -2606,9 +2672,25 @@ impl App {
 
     fn current_code_line(&self, artifact: &ArtifactView) -> usize {
         let line_count = artifact.raw_source.lines().count().max(1);
-        usize::from(self.detail_scroll)
-            .saturating_add(1)
-            .min(line_count)
+        self.code_cursor.saturating_add(1).min(line_count)
+    }
+
+    /// Moves the Code cursor and drags the viewport along only when the
+    /// cursor leaves it.
+    fn move_code_cursor(&mut self, delta: isize) {
+        let total = self
+            .code_cache
+            .as_ref()
+            .map_or(1, |cache| cache.lines.len().max(1));
+        let cursor = self.code_cursor.saturating_add_signed(delta).min(total - 1);
+        self.code_cursor = cursor;
+        let scroll = usize::from(self.detail_scroll);
+        let viewport = self.detail_viewport.max(1);
+        if cursor < scroll {
+            self.detail_scroll = u16::try_from(cursor).unwrap_or(u16::MAX);
+        } else if cursor >= scroll + viewport {
+            self.detail_scroll = u16::try_from(cursor + 1 - viewport).unwrap_or(u16::MAX);
+        }
     }
 
     fn find_artifact(
