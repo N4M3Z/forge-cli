@@ -35,6 +35,10 @@ pub fn handle_key(app: &mut App, key: KeyEvent) {
         app.comment_prompt_key(key);
         return;
     }
+    if app.is_deploy_picker_open() {
+        app.deploy_picker_key(key);
+        return;
+    }
     if app.is_search_input_active()
         && matches!(
             key.code,
@@ -89,6 +93,8 @@ pub fn handle_key(app: &mut App, key: KeyEvent) {
         KeyCode::Char('n') => app.set_detail_tab(super::app::DetailTab::Companions),
         KeyCode::Char('o') => app.open_repo_tool(false),
         KeyCode::Char('O') => app.open_repo_tool(true),
+        KeyCode::Char('D') => app.open_deploy_picker(),
+        KeyCode::Char('L') => app.launch_harness(),
         _ => app.focused_key(key),
     }
 }

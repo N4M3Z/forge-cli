@@ -491,6 +491,43 @@ fn mouse_wheel_scrolls_detail_without_moving_selection() {
 }
 
 #[test]
+fn deploy_picker_queues_additive_install_for_selected_module() {
+    let mut app = fixture_app();
+    app.set_section_by_number(2);
+    app.drill_or_expand();
+
+    app.open_deploy_picker();
+    assert!(
+        !app.is_deploy_picker_open(),
+        "fixture module has no local repo"
+    );
+
+    app.set_module_local_path_for_test("forge-core", PathBuf::from("/tmp/forge-core"));
+    app.open_deploy_picker();
+    assert!(app.is_deploy_picker_open());
+
+    event::handle_key(&mut app, key(KeyCode::Enter));
+    let command = app.take_external().expect("install queued");
+    assert!(command.args.contains(&"install".to_string()));
+    assert!(command.args.contains(&"--no-prune".to_string()));
+    assert!(command.args.contains(&"/tmp/forge-core".to_string()));
+}
+
+#[test]
+fn launch_queues_harness_in_module_repo() {
+    let mut app = fixture_app();
+    app.set_section_by_number(2);
+    app.drill_or_expand();
+    app.set_module_local_path_for_test("forge-core", PathBuf::from("/tmp/forge-core"));
+
+    event::handle_key(&mut app, key(KeyCode::Char('L')));
+
+    let command = app.take_external().expect("launch queued");
+    assert_eq!(command.directory, PathBuf::from("/tmp/forge-core"));
+    assert!(command.args.is_empty());
+}
+
+#[test]
 fn comment_prompt_opens_from_preview_tab() {
     let mut app = fixture_app();
     app.set_section_by_number(2);

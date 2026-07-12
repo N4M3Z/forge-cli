@@ -91,6 +91,8 @@ pub const KEYBINDINGS: &[(&str, &[(&str, &str)])] = &[
             ("m", "comment line (from any detail tab)"),
             ("Y", "copy tuicr comments"),
             ("o/O", "open gitui / jjui on repository"),
+            ("D", "deploy module to a target"),
+            ("L", "launch harness session in repository"),
         ],
     ),
     ("Global", &[("?", "help"), ("F1", "help"), ("q", "quit")]),
@@ -382,6 +384,23 @@ pub struct MillerColumnWidths {
     pub middle: u16,
 }
 
+/// A command to run with the real terminal while the TUI is suspended.
+#[derive(Debug, Clone)]
+pub struct ExternalCommand {
+    pub program: String,
+    pub args: Vec<String>,
+    pub directory: PathBuf,
+}
+
+/// Modal target picker for deploying a module.
+#[derive(Debug, Clone)]
+struct DeployPicker {
+    module_name: String,
+    source: PathBuf,
+    options: Vec<(String, PathBuf)>,
+    selected: usize,
+}
+
 /// Screen rectangles captured during render so mouse events can be
 /// hit-tested against what is actually on screen.
 #[derive(Debug, Clone, Copy, Default)]
@@ -493,9 +512,11 @@ pub struct App {
     help_state: HelpState,
     palette: Palette,
     mouse_regions: MouseRegions,
-    /// External TUI (gitui/jjui) queued to run in a repo; the event loop
-    /// suspends the terminal, runs it, and resumes.
-    pending_external: Option<(String, PathBuf)>,
+    /// External command queued to run with the real terminal (gitui/jjui,
+    /// deploys, harness launches); the event loop suspends, runs, resumes.
+    pending_external: Option<ExternalCommand>,
+    /// Target picker for deploying a module: options and selection.
+    deploy_picker: Option<DeployPicker>,
     /// First visible row of the list column (viewport scroll offset).
     list_offset: usize,
     /// Selection seen at the last render, to detect selection movement.
@@ -582,6 +603,7 @@ impl App {
             palette: Palette::new(),
             mouse_regions: MouseRegions::default(),
             pending_external: None,
+            deploy_picker: None,
             list_offset: 0,
             list_last_selected: 0,
             quit_armed: false,
@@ -743,6 +765,9 @@ impl App {
         self.render_detail(frame, columns[2]);
         self.render_footer(frame, layout[2]);
 
+        if let Some(picker) = &self.deploy_picker {
+            render_deploy_picker(frame, frame.area(), picker);
+        }
         if self.help_state == HelpState::Open {
             render_help(frame, frame.area());
         }
@@ -1992,11 +2017,120 @@ impl App {
             self.toast = Some(format!("{program}: no local clone for {name}"));
             return;
         };
-        self.pending_external = Some((program.to_string(), path));
+        self.pending_external = Some(ExternalCommand {
+            program: program.to_string(),
+            args: Vec::new(),
+            directory: path,
+        });
     }
 
-    pub fn take_external(&mut self) -> Option<(String, PathBuf)> {
+    pub fn take_external(&mut self) -> Option<ExternalCommand> {
         self.pending_external.take()
+    }
+
+    /// Module owning the current selection, with its local repo path.
+    fn selected_module_repo(&self) -> Option<(String, PathBuf)> {
+        let name = match self.selected_target()? {
+            ListTarget::Module(name) => name,
+            ListTarget::Artifact { module, .. }
+            | ListTarget::ProvenanceArtifact { module, .. }
+            | ListTarget::Companion { module, .. } => module,
+            ListTarget::Adr { repo, .. } => repo,
+            _ => return None,
+        };
+        let module = self
+            .view
+            .modules
+            .iter()
+            .find(|module| module.name == name)?;
+        let path = module.local_path.clone()?;
+        Some((name, path))
+    }
+
+    /// Opens the deploy target picker for the selected artifact's module.
+    pub fn open_deploy_picker(&mut self) {
+        let Some((module_name, source)) = self.selected_module_repo() else {
+            self.toast = Some("deploy: select an artifact or repository first".to_string());
+            return;
+        };
+        let mut options: Vec<(String, PathBuf)> = Vec::new();
+        if let Some(home) = dirs::home_dir() {
+            options.push(("user scope (~)".to_string(), home));
+        }
+        options.push((
+            format!("this project ({})", self.root.display()),
+            self.root.clone(),
+        ));
+        for location in &self.watched_locations {
+            options.push((format!("watched: {}", location.display()), location.clone()));
+        }
+        self.deploy_picker = Some(DeployPicker {
+            module_name,
+            source,
+            options,
+            selected: 0,
+        });
+    }
+
+    #[must_use]
+    pub fn is_deploy_picker_open(&self) -> bool {
+        self.deploy_picker.is_some()
+    }
+
+    /// One keypress inside the deploy picker: j/k select, Enter deploys the
+    /// module to the chosen target additively (install --no-prune), Esc closes.
+    pub fn deploy_picker_key(&mut self, key: KeyEvent) {
+        let Some(picker) = self.deploy_picker.as_mut() else {
+            return;
+        };
+        match key.code {
+            KeyCode::Esc | KeyCode::Char('q') => self.deploy_picker = None,
+            KeyCode::Down | KeyCode::Char('j') => {
+                picker.selected = (picker.selected + 1).min(picker.options.len().saturating_sub(1));
+            }
+            KeyCode::Up | KeyCode::Char('k') => {
+                picker.selected = picker.selected.saturating_sub(1);
+            }
+            KeyCode::Enter => {
+                let picker = self.deploy_picker.take().expect("picker is open");
+                let Some((_, target)) = picker.options.get(picker.selected) else {
+                    return;
+                };
+                let program = std::env::current_exe()
+                    .map_or_else(|_| "forge".to_string(), |exe| exe.display().to_string());
+                self.pending_external = Some(ExternalCommand {
+                    program,
+                    args: vec![
+                        "install".to_string(),
+                        "--source".to_string(),
+                        picker.source.display().to_string(),
+                        "--target".to_string(),
+                        target.display().to_string(),
+                        "--no-prune".to_string(),
+                    ],
+                    directory: picker.source.clone(),
+                });
+                self.toast = Some(format!("deploying {} …", picker.module_name));
+            }
+            _ => {}
+        }
+    }
+
+    /// Suspends into a harness session in the selected module's repo. Uses
+    /// `FORGE_TUI_LAUNCH` when set, `forge launch` once this binary grows it,
+    /// otherwise the claude CLI.
+    pub fn launch_harness(&mut self) {
+        let Some((module_name, path)) = self.selected_module_repo() else {
+            self.toast = Some("launch: select an artifact or repository first".to_string());
+            return;
+        };
+        let program = std::env::var("FORGE_TUI_LAUNCH").unwrap_or_else(|_| "claude".to_string());
+        self.toast = Some(format!("launching {program} in {module_name}"));
+        self.pending_external = Some(ExternalCommand {
+            program,
+            args: Vec::new(),
+            directory: path,
+        });
     }
 
     /// Digits address detail tabs while the detail pane has focus; sections
@@ -2026,6 +2160,18 @@ impl App {
     #[must_use]
     pub fn detail_tab(&self) -> DetailTab {
         self.detail_tab
+    }
+
+    #[cfg(test)]
+    pub fn set_module_local_path_for_test(&mut self, name: &str, path: PathBuf) {
+        if let Some(module) = self
+            .view
+            .modules
+            .iter_mut()
+            .find(|module| module.name == name)
+        {
+            module.local_path = Some(path);
+        }
     }
 
     #[cfg(test)]
@@ -3332,6 +3478,45 @@ fn tab_at_column(column: u16) -> Option<DetailTab> {
         cursor = end;
     }
     None
+}
+
+/// Centered modal listing deploy targets for a module.
+fn render_deploy_picker(frame: &mut Frame<'_>, area: Rect, picker: &DeployPicker) {
+    let height = u16::try_from(picker.options.len())
+        .unwrap_or(u16::MAX)
+        .saturating_add(4);
+    let width = area.width.saturating_mul(2) / 3;
+    let popup = Rect {
+        x: area.width.saturating_sub(width) / 2,
+        y: area.height.saturating_sub(height) / 2,
+        width: width.min(area.width),
+        height: height.min(area.height),
+    };
+    frame.render_widget(Clear, popup);
+    let block = Block::default()
+        .title(format!(" Deploy {} to… ", picker.module_name))
+        .title_bottom(Line::from(Span::styled(
+            " j/k select · Enter deploy (additive) · Esc cancel ",
+            Style::default().fg(Color::DarkGray),
+        )))
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::Cyan));
+    let inner = block.inner(popup);
+    frame.render_widget(block, popup);
+    let items: Vec<ListItem<'_>> = picker
+        .options
+        .iter()
+        .enumerate()
+        .map(|(index, (label, _))| {
+            let style = if index == picker.selected {
+                selected_style(true)
+            } else {
+                Style::default()
+            };
+            ListItem::new(Line::from(Span::styled(label.clone(), style)))
+        })
+        .collect();
+    frame.render_widget(List::new(items), inner);
 }
 
 fn hint_row(focused: ColumnFocus) -> String {
