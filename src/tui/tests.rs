@@ -363,16 +363,17 @@ fn search_input_mode_is_explicit() {
 }
 
 #[test]
-fn digit_switches_section_from_any_focus_and_letter_switches_tab() {
+fn digits_follow_focus_sections_from_list_tabs_from_detail() {
     let mut app = fixture_app();
-    app.focus_next();
     app.focus_next();
 
     event::handle_key(&mut app, key(KeyCode::Char('2')));
     assert_eq!(app.section(), Section::Skills);
 
-    event::handle_key(&mut app, key(KeyCode::Char('c')));
-    assert_eq!(app.detail_tab(), DetailTab::Code);
+    app.focus_next();
+    event::handle_key(&mut app, key(KeyCode::Char('3')));
+    assert_eq!(app.detail_tab(), DetailTab::Diff);
+    assert_eq!(app.section(), Section::Skills);
 }
 
 #[test]

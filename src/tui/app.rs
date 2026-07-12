@@ -949,11 +949,7 @@ impl App {
                 self.render_companion_detail(frame, inner, &module, &parent, &name);
             }
             Some(ListTarget::Module(name)) => {
-                if let Some(module) = self.view.modules.iter().find(|module| module.name == name) {
-                    render_module_detail(frame, inner, module, self.detail_scroll);
-                } else {
-                    frame.render_widget(Paragraph::new("repository not found"), inner);
-                }
+                self.render_module_rich(frame, inner, &name);
             }
             Some(ListTarget::Variant {
                 module,
@@ -1055,6 +1051,68 @@ impl App {
 
     /// Full ADR document rendered through the markdown pipeline, replacing the
     /// one-paragraph summary that used to cut the body off.
+    /// Repository detail: header, VCS state, recent commits, and the repo
+    /// README rendered through glow — cached like every other detail view.
+    fn render_module_rich(&mut self, frame: &mut Frame<'_>, area: Rect, name: &str) {
+        let Some(module_index) = self
+            .view
+            .modules
+            .iter()
+            .position(|module| module.name == name)
+        else {
+            frame.render_widget(Paragraph::new("repository not found"), area);
+            return;
+        };
+        let cache_width = area.width.max(1);
+        let key = format!("Module:{name}");
+        let needs_build = self
+            .preview_cache
+            .as_ref()
+            .is_none_or(|cache| cache.key != key || cache.width != cache_width);
+        if needs_build {
+            if self.preview_cache.is_some() && input_pending() {
+                frame.render_widget(
+                    Paragraph::new("rendering…").style(Style::default().fg(Color::DarkGray)),
+                    area,
+                );
+                return;
+            }
+            if self
+                .preview_cache
+                .as_ref()
+                .is_some_and(|cache| cache.key != key)
+            {
+                self.detail_scroll = 0;
+            }
+            let module = &self.view.modules[module_index];
+            let mut lines = module_header_lines(module);
+            if let Some(readme) = module
+                .local_path
+                .as_ref()
+                .and_then(|path| std::fs::read_to_string(path.join("README.md")).ok())
+            {
+                lines.push(Line::from(Span::styled(
+                    "─".repeat(usize::from(cache_width)),
+                    Style::default().fg(Color::DarkGray),
+                )));
+                match rich::render_markdown_with_glow(&readme, cache_width) {
+                    Some(rendered) => lines.extend(rendered),
+                    None => lines.extend(readme.lines().map(|line| Line::from(line.to_string()))),
+                }
+            }
+            let lines = expand_gutter_wrapped(lines, 2, usize::from(cache_width));
+            self.preview_cache = Some(DetailCache {
+                key,
+                width: cache_width,
+                lines,
+                windowed: true,
+                hunks: Vec::new(),
+                line_map: Vec::new(),
+            });
+        }
+        self.render_cached_detail(frame, area);
+    }
+
     /// Renders a synthesized artifact (ADR, companion) through the same
     /// tabbed detail pipeline as scanned artifacts: one artifact view
     /// everywhere.
@@ -1456,7 +1514,8 @@ impl App {
     fn render_tabs(&self, frame: &mut Frame<'_>, area: Rect) {
         let spans = DetailTab::ALL
             .iter()
-            .flat_map(|tab| {
+            .enumerate()
+            .flat_map(|(index, tab)| {
                 let style = if *tab == self.detail_tab {
                     Style::default()
                         .fg(Color::Black)
@@ -1465,7 +1524,10 @@ impl App {
                 } else {
                     Style::default().fg(Color::DarkGray)
                 };
-                [Span::raw(" "), Span::styled(tab.label(), style)]
+                [
+                    Span::raw(" "),
+                    Span::styled(format!("{} {}", index + 1, tab.label()), style),
+                ]
             })
             .collect::<Vec<_>>();
         frame.render_widget(Paragraph::new(Line::from(spans)), area);
@@ -1937,6 +1999,13 @@ impl App {
         self.pending_external.take()
     }
 
+    /// Digits address detail tabs while the detail pane has focus; sections
+    /// otherwise.
+    #[must_use]
+    pub fn detail_digits_active(&self) -> bool {
+        self.focused == ColumnFocus::Detail
+    }
+
     pub fn set_section_by_shortcut(&mut self, character: char) -> bool {
         let Some(section) = Section::from_shortcut(character) else {
             return false;
@@ -2245,6 +2314,10 @@ impl App {
             }
             KeyCode::Char('u') if key.modifiers.contains(KeyModifiers::CONTROL) => {
                 self.detail_step(-half);
+            }
+            KeyCode::Char(digit @ '1'..='7') => {
+                let index = usize::from(digit as u8 - b'1');
+                self.set_detail_tab(DetailTab::ALL[index]);
             }
             KeyCode::Home | KeyCode::Char('g') => {
                 self.detail_cursor = 0;
@@ -2929,7 +3002,7 @@ fn sidecar_yaml_lines(module: &ModuleView, artifact: &ArtifactView) -> Vec<Line<
     lines
 }
 
-fn render_module_detail(frame: &mut Frame<'_>, area: Rect, module: &ModuleView, scroll: u16) {
+fn module_header_lines(module: &ModuleView) -> Vec<Line<'static>> {
     let mut lines = vec![
         Line::from(Span::styled(
             module.name.clone(),
@@ -2984,12 +3057,7 @@ fn render_module_detail(frame: &mut Frame<'_>, area: Rect, module: &ModuleView, 
             Style::default().fg(Color::DarkGray),
         )));
     }
-    frame.render_widget(
-        Paragraph::new(Text::from(lines))
-            .wrap(Wrap { trim: false })
-            .scroll((scroll, 0)),
-        area,
-    );
+    lines
 }
 
 fn module_vcs_line(vcs: &VcsState) -> Line<'static> {
@@ -3254,11 +3322,12 @@ fn bordered_row_at(region: Rect, x: u16, y: u16) -> Option<usize> {
 /// snaps to that tab so there are no dead cells between targets.
 fn tab_at_column(column: u16) -> Option<DetailTab> {
     let mut cursor = 0u16;
-    for tab in DetailTab::ALL {
-        let width = u16::try_from(tab.label().chars().count()).unwrap_or(u16::MAX);
+    for (index, tab) in DetailTab::ALL.iter().enumerate() {
+        let label = format!("{} {}", index + 1, tab.label());
+        let width = u16::try_from(label.chars().count()).unwrap_or(u16::MAX);
         let end = cursor.saturating_add(1).saturating_add(width);
         if column < end {
-            return Some(tab);
+            return Some(*tab);
         }
         cursor = end;
     }
@@ -3268,10 +3337,10 @@ fn tab_at_column(column: u16) -> Option<DetailTab> {
 fn hint_row(focused: ColumnFocus) -> String {
     if focused == ColumnFocus::Detail {
         return [
-            "Tab/p c d v f i n tabs",
-            "1-9 sections",
-            "j/k scroll",
+            "1-7/Tab tabs",
+            "j/k move",
             "m comment",
+            "[ ] hunks",
             "Y copy review",
             "? help",
         ]

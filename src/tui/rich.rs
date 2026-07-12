@@ -63,6 +63,10 @@ fn glow_lines(text: &str, width: u16) -> Option<Vec<Line<'static>>> {
     let style = glow_style_path()?;
     let mut child = Command::new("glow")
         .args(["-s", &style, "-w", &width.to_string()])
+        // glow sees a pipe, not a terminal, and silently drops all color
+        // without these.
+        .env("CLICOLOR_FORCE", "1")
+        .env("COLORTERM", "truecolor")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
