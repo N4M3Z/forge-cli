@@ -347,17 +347,19 @@ fn unknown_palette_command_sets_error() {
 }
 
 #[test]
-fn search_section_list_focus_types_query_before_global_shortcuts() {
+fn search_input_mode_is_explicit() {
     let mut app = fixture_app();
-    app.set_section_by_number(9);
-    app.focus_next();
+    event::handle_key(&mut app, key(KeyCode::Char('/')));
 
     for character in ['h', 'e', 'l', 'l', 'o'] {
         event::handle_key(&mut app, key(KeyCode::Char(character)));
     }
-
     assert_eq!(app.search_query(), "hello");
     assert_eq!(app.section(), Section::Search);
+
+    event::handle_key(&mut app, key(KeyCode::Enter));
+    event::handle_key(&mut app, key(KeyCode::Char('j')));
+    assert_eq!(app.search_query(), "hello");
 }
 
 #[test]

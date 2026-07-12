@@ -51,12 +51,17 @@ pub fn handle_key(app: &mut App, key: KeyEvent) {
         return;
     }
 
+    if !matches!(key.code, KeyCode::Char('q') | KeyCode::Esc) {
+        app.disarm_quit();
+    }
     match key.code {
-        KeyCode::Esc | KeyCode::Char('q') => app.request_quit(),
+        KeyCode::Esc => app.escape(),
+        KeyCode::Char('q') => app.request_quit(),
         KeyCode::Char('?') | KeyCode::F(1) => app.toggle_help(),
         KeyCode::Char(':') => app.open_palette(),
         KeyCode::Char('/') => {
             app.set_section_by_number(9);
+            app.begin_search_input();
         }
         KeyCode::Char('r') => app.refresh(),
         KeyCode::Char('Y') => app.copy_tuicr_review(),

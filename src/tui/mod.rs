@@ -192,8 +192,9 @@ fn run_external_tool(
     *terminal = setup_terminal()?;
     terminal.clear()?;
     // The tool may have committed, amended, or touched files: rescan so VCS
-    // state, diffs, and history reflect what it left behind.
-    app.refresh();
+    // state, diffs, and history reflect what it left behind. Force it — a
+    // scan already in flight predates whatever the tool changed.
+    app.force_refresh();
     match status {
         Ok(status) if status.success() => {}
         Ok(status) => app.set_toast(format!("{program} exited with {status}")),
