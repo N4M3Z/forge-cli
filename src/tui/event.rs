@@ -55,13 +55,12 @@ pub fn handle_key(app: &mut App, key: KeyEvent) {
         app.search_input_key(key);
         return;
     }
-    // Digits switch sections while browsing; with the detail pane focused
-    // they address its numbered tabs instead. Letter shortcuts (t/h/c/m)
-    // stay scoped to the Sections column where they are advertised.
-    if !app.detail_digits_active()
-        && let KeyCode::Char(character @ '0'..='9') = key.code
-        && app.set_section_by_shortcut(character)
-    {
+    // Digits always address the numbered detail tabs; sections are reached
+    // by navigation, the palette, and the letter shortcuts (t/h/c/m) shown
+    // in the Sections column.
+    if let KeyCode::Char(digit @ '1'..='6') = key.code {
+        let index = usize::from(digit as u8 - b'1');
+        app.set_detail_tab(super::app::DetailTab::ALL[index]);
         return;
     }
     if app.has_section_digit_shortcuts()
@@ -97,7 +96,6 @@ pub fn handle_key(app: &mut App, key: KeyEvent) {
         KeyCode::Char('v') => app.set_detail_tab(super::app::DetailTab::Provenance),
         KeyCode::Char('f') => app.set_detail_tab(super::app::DetailTab::Frontmatter),
         KeyCode::Char('i') => app.set_detail_tab(super::app::DetailTab::History),
-        KeyCode::Char('n') => app.set_detail_tab(super::app::DetailTab::Companions),
         KeyCode::Char('o') => app.open_repo_tool(false),
         KeyCode::Char('O') => app.open_repo_tool(true),
         KeyCode::Char('D') => app.open_deploy_picker(),
@@ -115,7 +113,7 @@ fn handle_preview_key(app: &mut App, key: KeyEvent) {
         KeyCode::PageUp | KeyCode::Char('b') => app.preview_scroll_up(10),
         KeyCode::Home | KeyCode::Char('g') => app.preview_scroll_to_top(),
         KeyCode::End | KeyCode::Char('G') => app.preview_scroll_to_bottom(),
-        KeyCode::Char(digit @ '1'..='7') => {
+        KeyCode::Char(digit @ '1'..='6') => {
             let index = usize::from(digit as u8 - b'1');
             app.set_detail_tab(super::app::DetailTab::ALL[index]);
         }
@@ -125,7 +123,6 @@ fn handle_preview_key(app: &mut App, key: KeyEvent) {
         KeyCode::Char('v') => app.set_detail_tab(super::app::DetailTab::Provenance),
         KeyCode::Char('f') => app.set_detail_tab(super::app::DetailTab::Frontmatter),
         KeyCode::Char('i') => app.set_detail_tab(super::app::DetailTab::History),
-        KeyCode::Char('n') => app.set_detail_tab(super::app::DetailTab::Companions),
         _ => {}
     }
 }

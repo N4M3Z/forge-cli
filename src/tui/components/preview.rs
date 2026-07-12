@@ -117,7 +117,7 @@ impl ArtifactPreview {
         let block = Block::default()
             .title(title)
             .title_bottom(Line::from(Span::styled(
-                " 1-7 tabs · j/k · ␣/b page · g/G ends · Esc close ",
+                " 1-6 tabs · j/k · ␣/b page · g/G ends · Esc close ",
                 Style::default().fg(Color::DarkGray),
             )))
             .borders(Borders::ALL)

@@ -363,17 +363,16 @@ fn search_input_mode_is_explicit() {
 }
 
 #[test]
-fn digits_follow_focus_sections_from_list_tabs_from_detail() {
+fn digits_switch_detail_tabs_from_any_focus() {
     let mut app = fixture_app();
-    app.focus_next();
 
-    event::handle_key(&mut app, key(KeyCode::Char('2')));
-    assert_eq!(app.section(), Section::Skills);
-
-    app.focus_next();
     event::handle_key(&mut app, key(KeyCode::Char('3')));
     assert_eq!(app.detail_tab(), DetailTab::Diff);
-    assert_eq!(app.section(), Section::Skills);
+    assert_eq!(app.section(), Section::Overview);
+
+    app.focus_next();
+    event::handle_key(&mut app, key(KeyCode::Char('2')));
+    assert_eq!(app.detail_tab(), DetailTab::Code);
 }
 
 #[test]
@@ -451,7 +450,7 @@ fn tuicr_digest_exports_line_comments() {
 fn mouse_click_selects_section_and_focuses() {
     let mut app = fixture_app();
     let output = rendered(&mut app);
-    let (x, y) = buffer_position(&output, "2 Skills");
+    let (x, y) = buffer_position(&output, "Skills");
 
     app.mouse_click(x, y);
 
