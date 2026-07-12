@@ -504,6 +504,20 @@ fn comment_prompt_opens_from_preview_tab() {
 }
 
 #[test]
+fn diff_gutter_maps_rows_to_new_file_lines() {
+    use ratatui::text::{Line, Span};
+    let lines = vec![
+        Line::from("Diff · uncommitted source changes"),
+        Line::from(Span::raw("  35      -removed")),
+        Line::from(Span::raw("       37 +added")),
+        Line::from(Span::raw("  36   38  context")),
+        Line::from(Span::raw("        ↪ continuation")),
+    ];
+    let map = super::app::diff_line_map_for_test(&lines);
+    assert_eq!(map, vec![None, None, Some(37), Some(38), Some(38)]);
+}
+
+#[test]
 fn tuicr_comment_kind_cycles_in_order() {
     assert_eq!(CommentKind::Issue.next(), CommentKind::Note);
     assert_eq!(CommentKind::Note.next(), CommentKind::Suggestion);

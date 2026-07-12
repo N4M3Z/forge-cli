@@ -405,6 +405,8 @@ struct DetailCache {
     windowed: bool,
     /// Row offsets of diff hunk headers, for [ and ] navigation.
     hunks: Vec<usize>,
+    /// Per-row source line (new file) in the Diff tab, for per-line comments.
+    line_map: Vec<Option<usize>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -502,7 +504,7 @@ pub struct App {
     quit_armed: bool,
     /// Line cursor for the Code tab, decoupled from the viewport: keys move
     /// it (viewport follows), the wheel scrolls without touching it.
-    code_cursor: usize,
+    detail_cursor: usize,
     /// Detail body height at the last render, for cursor-follow and paging.
     detail_viewport: usize,
     /// Synthesized artifact for the selected ADR or companion, keyed by a
@@ -583,7 +585,7 @@ impl App {
             list_offset: 0,
             list_last_selected: 0,
             quit_armed: false,
-            code_cursor: 0,
+            detail_cursor: 0,
             detail_viewport: 1,
             synthesized: None,
             search_typing: false,
@@ -898,7 +900,7 @@ impl App {
             DetailTab::Code => self
                 .code_cache
                 .as_ref()
-                .map(|cache| (self.code_cursor + 1, cache.lines.len())),
+                .map(|cache| (self.detail_cursor + 1, cache.lines.len())),
             _ => self
                 .preview_cache
                 .as_ref()
@@ -1109,12 +1111,18 @@ impl App {
                 self.build_detail_lines(module, artifact, self.detail_tab, cache_width)
             };
             let hunks = hunk_offsets(&lines);
+            let line_map = if self.detail_tab == DetailTab::Diff {
+                diff_line_map(&lines)
+            } else {
+                Vec::new()
+            };
             self.preview_cache = Some(DetailCache {
                 key,
                 width: cache_width,
                 lines,
                 windowed,
                 hunks,
+                line_map,
             });
         }
         self.render_cached_detail(frame, chunks[1]);
@@ -1235,7 +1243,15 @@ impl App {
                 .map_or(0, |cache| cache.lines.len());
             let max_scroll = u16::try_from(total.saturating_sub(viewport)).unwrap_or(u16::MAX);
             self.detail_scroll = self.detail_scroll.min(max_scroll);
-            let lines = self.preview_window(viewport);
+            let mut lines = self.preview_window(viewport);
+            if self.detail_tab == DetailTab::Diff {
+                let scroll = usize::from(self.detail_scroll);
+                if let Some(row) = self.detail_cursor.checked_sub(scroll)
+                    && let Some(line) = lines.get_mut(row)
+                {
+                    line.style = selected_style(self.focused == ColumnFocus::Detail);
+                }
+            }
             frame.render_widget(Paragraph::new(Text::from(lines)), area);
         } else {
             let total = self
@@ -1284,7 +1300,7 @@ impl App {
                 .is_none_or(|cache| cache.path != key);
             if needs_build {
                 self.detail_scroll = 0;
-                self.code_cursor = 0;
+                self.detail_cursor = 0;
                 let lines = rich::highlight_code(&artifact.relative_path, &artifact.raw_source);
                 self.code_cache = Some(CodeCache { path: key, lines });
                 #[cfg(test)]
@@ -1319,6 +1335,7 @@ impl App {
                 .is_some_and(|cache| cache.key != key)
             {
                 self.detail_scroll = 0;
+                self.detail_cursor = 0;
             }
             let (lines, windowed) = {
                 let module = &self.view.modules[module_index];
@@ -1326,12 +1343,19 @@ impl App {
                 self.build_detail_lines(Some(module), artifact, self.detail_tab, cache_width)
             };
             let hunks = hunk_offsets(&lines);
+            let line_map = if self.detail_tab == DetailTab::Diff {
+                diff_line_map(&lines)
+            } else {
+                Vec::new()
+            };
+            self.detail_cursor = self.detail_cursor.min(lines.len().saturating_sub(1));
             self.preview_cache = Some(DetailCache {
                 key,
                 width: cache_width,
                 lines,
                 windowed,
                 hunks,
+                line_map,
             });
             #[cfg(test)]
             {
@@ -1360,7 +1384,7 @@ impl App {
                 true,
             ),
             DetailTab::Diff => (
-                expand_gutter_wrapped(diff_lines(module, artifact, width), 1, usize::from(width)),
+                expand_gutter_wrapped(diff_lines(module, artifact, width), 10, usize::from(width)),
                 true,
             ),
             DetailTab::Provenance => (
@@ -1692,8 +1716,8 @@ impl App {
     /// One navigation step in the detail pane: moves the Code cursor when the
     /// Code tab is active, otherwise scrolls the viewport.
     fn detail_step(&mut self, delta: isize) {
-        if self.detail_tab == DetailTab::Code {
-            self.move_code_cursor(delta);
+        if matches!(self.detail_tab, DetailTab::Code | DetailTab::Diff) {
+            self.move_detail_cursor(delta);
         } else if delta.is_negative() {
             self.detail_scroll = self
                 .detail_scroll
@@ -1718,6 +1742,7 @@ impl App {
         };
         if let Some(&offset) = target {
             self.detail_scroll = u16::try_from(offset).unwrap_or(u16::MAX);
+            self.detail_cursor = offset;
         }
     }
 
@@ -2114,12 +2139,29 @@ impl App {
     }
 
     fn open_comment_prompt(&mut self) {
-        let Some(artifact) = self.selected_artifact() else {
+        let Some((module, path, code_line)) = self.selected_artifact().map(|artifact| {
+            (
+                artifact.module.clone(),
+                artifact.relative_path.clone(),
+                self.current_code_line(artifact),
+            )
+        }) else {
             return;
         };
-        let module = artifact.module.clone();
-        let path = artifact.relative_path.clone();
-        let line_number = self.current_code_line(artifact);
+        let line_number = if self.detail_tab == DetailTab::Diff {
+            let mapped = self
+                .preview_cache
+                .as_ref()
+                .and_then(|cache| cache.line_map.get(self.detail_cursor).copied().flatten());
+            let Some(line) = mapped else {
+                self.toast =
+                    Some("no source line here — move to an added or context row".to_string());
+                return;
+            };
+            line
+        } else {
+            code_line
+        };
         let (kind, text) = self
             .comments
             .get(&(module.clone(), path.clone(), line_number))
@@ -2205,13 +2247,13 @@ impl App {
                 self.detail_step(-half);
             }
             KeyCode::Home | KeyCode::Char('g') => {
-                self.code_cursor = 0;
+                self.detail_cursor = 0;
                 self.detail_scroll = 0;
             }
             KeyCode::End | KeyCode::Char('G') => {
-                self.code_cursor = usize::MAX;
+                self.detail_cursor = usize::MAX;
                 self.detail_scroll = u16::MAX;
-                self.move_code_cursor(0);
+                self.move_detail_cursor(0);
             }
             KeyCode::Char(']') if self.detail_tab == DetailTab::Diff => self.jump_hunk(true),
             KeyCode::Char('[') if self.detail_tab == DetailTab::Diff => self.jump_hunk(false),
@@ -2224,7 +2266,7 @@ impl App {
             KeyCode::Char('n') => self.set_detail_tab(DetailTab::Companions),
             KeyCode::Tab => self.next_detail_tab(),
             KeyCode::Char('m') => {
-                if self.detail_tab != DetailTab::Code {
+                if !matches!(self.detail_tab, DetailTab::Code | DetailTab::Diff) {
                     self.set_detail_tab(DetailTab::Code);
                 }
                 self.open_comment_prompt();
@@ -2672,18 +2714,27 @@ impl App {
 
     fn current_code_line(&self, artifact: &ArtifactView) -> usize {
         let line_count = artifact.raw_source.lines().count().max(1);
-        self.code_cursor.saturating_add(1).min(line_count)
+        self.detail_cursor.saturating_add(1).min(line_count)
     }
 
     /// Moves the Code cursor and drags the viewport along only when the
     /// cursor leaves it.
-    fn move_code_cursor(&mut self, delta: isize) {
-        let total = self
-            .code_cache
-            .as_ref()
-            .map_or(1, |cache| cache.lines.len().max(1));
-        let cursor = self.code_cursor.saturating_add_signed(delta).min(total - 1);
-        self.code_cursor = cursor;
+    fn move_detail_cursor(&mut self, delta: isize) {
+        let total = match self.detail_tab {
+            DetailTab::Code => self
+                .code_cache
+                .as_ref()
+                .map_or(1, |cache| cache.lines.len().max(1)),
+            _ => self
+                .preview_cache
+                .as_ref()
+                .map_or(1, |cache| cache.lines.len().max(1)),
+        };
+        let cursor = self
+            .detail_cursor
+            .saturating_add_signed(delta)
+            .min(total - 1);
+        self.detail_cursor = cursor;
         let scroll = usize::from(self.detail_scroll);
         let viewport = self.detail_viewport.max(1);
         if cursor < scroll {
@@ -3407,11 +3458,14 @@ fn diff_lines(
             Line::default(),
         ];
         match std::fs::read_to_string(repo.join(path)) {
-            Ok(body) => lines.extend(body.lines().map(|line| {
-                Line::from(Span::styled(
-                    format!("+{line}"),
-                    Style::default().fg(Color::Green),
-                ))
+            Ok(body) => lines.extend(body.lines().enumerate().map(|(index, line)| {
+                Line::from(vec![
+                    Span::styled(
+                        format!("{:>4} {:>4} ", "", index + 1),
+                        Style::default().fg(Color::DarkGray),
+                    ),
+                    Span::styled(format!("+{line}"), Style::default().fg(Color::Green)),
+                ])
             })),
             Err(error) => lines.push(Line::from(format!("could not read {path}: {error}"))),
         }
@@ -3443,16 +3497,111 @@ fn diff_lines(
     }
     let separator = "─".repeat(usize::from(width.max(8)).saturating_sub(2));
     let mut lines = vec![header, Line::default()];
+    let mut old_line = 0usize;
+    let mut new_line = 0usize;
     for raw in diff.lines() {
         if raw.starts_with("@@") {
+            if let Some((old_start, new_start)) = parse_hunk_header(raw) {
+                old_line = old_start;
+                new_line = new_start;
+            }
             lines.push(Line::from(Span::styled(
                 separator.clone(),
                 Style::default().fg(Color::DarkGray),
             )));
+            lines.push(diff_line_colored(raw));
+            continue;
         }
-        lines.push(diff_line_colored(raw));
+        if raw.starts_with("+++")
+            || raw.starts_with("---")
+            || raw.starts_with("diff ")
+            || raw.starts_with("index ")
+            || raw.starts_with('\\')
+        {
+            lines.push(diff_line_colored(raw));
+            continue;
+        }
+        lines.push(numbered_diff_row(raw, &mut old_line, &mut new_line));
     }
     lines
+}
+
+/// One diff content row with its old/new number gutter, advancing the
+/// counters by the row's origin.
+fn numbered_diff_row(raw: &str, old_line: &mut usize, new_line: &mut usize) -> Line<'static> {
+    let gutter = match raw.chars().next() {
+        Some('+') => {
+            let gutter = format!("{:>4} {:>4} ", "", new_line);
+            *new_line += 1;
+            gutter
+        }
+        Some('-') => {
+            let gutter = format!("{:>4} {:>4} ", old_line, "");
+            *old_line += 1;
+            gutter
+        }
+        _ => {
+            let gutter = format!("{old_line:>4} {new_line:>4} ");
+            *old_line += 1;
+            *new_line += 1;
+            gutter
+        }
+    };
+    let mut spans = vec![Span::styled(gutter, Style::default().fg(Color::DarkGray))];
+    spans.extend(diff_line_colored(raw).spans);
+    Line::from(spans)
+}
+
+/// Parses `@@ -35,7 +36,8 @@ …` into the starting old and new line numbers.
+fn parse_hunk_header(raw: &str) -> Option<(usize, usize)> {
+    let mut fields = raw.split_whitespace();
+    let _ = fields.next()?;
+    let old_start = fields
+        .next()?
+        .trim_start_matches('-')
+        .split(',')
+        .next()?
+        .parse()
+        .ok()?;
+    let new_start = fields
+        .next()?
+        .trim_start_matches('+')
+        .split(',')
+        .next()?
+        .parse()
+        .ok()?;
+    Some((old_start, new_start))
+}
+
+/// Source line (new file) per rendered diff row: parsed from the number
+/// gutter each row carries, with wrap continuations inheriting their line.
+fn diff_line_map(lines: &[Line<'_>]) -> Vec<Option<usize>> {
+    let mut map = Vec::with_capacity(lines.len());
+    let mut last: Option<usize> = None;
+    for line in lines {
+        let first = line.spans.first().map_or("", |span| span.content.as_ref());
+        let value = if first.trim_start().starts_with('↪') {
+            last
+        } else {
+            parse_gutter_new_line(first)
+        };
+        map.push(value);
+        last = value;
+    }
+    map
+}
+
+#[cfg(test)]
+pub(super) fn diff_line_map_for_test(lines: &[Line<'_>]) -> Vec<Option<usize>> {
+    diff_line_map(lines)
+}
+
+fn parse_gutter_new_line(gutter: &str) -> Option<usize> {
+    let columns: Vec<char> = gutter.chars().collect();
+    if columns.len() < 10 {
+        return None;
+    }
+    columns[5..9].iter().collect::<String>().trim().parse().ok()
 }
 
 /// The Deployments block of the provenance view: per-target verification
