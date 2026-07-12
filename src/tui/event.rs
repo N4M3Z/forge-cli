@@ -55,6 +55,15 @@ pub fn handle_key(app: &mut App, key: KeyEvent) {
         app.search_input_key(key);
         return;
     }
+    if app.is_list_filter_typing()
+        && matches!(
+            key.code,
+            KeyCode::Char(_) | KeyCode::Backspace | KeyCode::Esc | KeyCode::Enter
+        )
+    {
+        app.list_filter_key(key);
+        return;
+    }
     // Digits always address the numbered detail tabs; sections are reached
     // by navigation, the palette, and the letter shortcuts (t/h/c/m) shown
     // in the Sections column.
@@ -78,10 +87,8 @@ pub fn handle_key(app: &mut App, key: KeyEvent) {
         KeyCode::Char('q') => app.request_quit(),
         KeyCode::Char('?') | KeyCode::F(1) => app.toggle_help(),
         KeyCode::Char(':') => app.open_palette(),
-        KeyCode::Char('/') => {
-            app.set_section_by_number(9);
-            app.begin_search_input();
-        }
+        KeyCode::Char('/') => app.begin_list_filter(),
+        KeyCode::Char('!') => app.toggle_problems_only(),
         KeyCode::Char('r') => app.refresh(),
         KeyCode::Char('Y') => app.copy_tuicr_review(),
         KeyCode::Char('y') => app.copy_selected(),
