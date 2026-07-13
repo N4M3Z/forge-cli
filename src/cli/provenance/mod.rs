@@ -77,13 +77,13 @@ pub fn execute(
         " {}  {}    {}",
         dim.apply_to("│"),
         dim.apply_to("built"),
-        &details.metadata.started_on
+        details.metadata.started_on
     );
     println!(
         " {}  {}  {} {}",
         dim.apply_to("│"),
         dim.apply_to("builder"),
-        &details.builder.id,
+        details.builder.id,
         dim.apply_to(&details.builder.version.forge)
     );
     println!(" {}", dim.apply_to("│"));
@@ -94,7 +94,7 @@ pub fn execute(
             " {}  {} {} {}",
             dim.apply_to("│"),
             dim.apply_to("input"),
-            &dependency.uri,
+            dependency.uri,
             dim.apply_to(format!("sha256:{short}"))
         );
     }

@@ -166,10 +166,7 @@ fn resolve_expression<'yaml>(root: &'yaml Value, expression: &str) -> Option<&'y
     let mut current = root;
 
     for segment in &segments {
-        match current.get(*segment) {
-            Some(next) => current = next,
-            None => return None,
-        }
+        current = current.get(*segment)?;
     }
 
     Some(current)

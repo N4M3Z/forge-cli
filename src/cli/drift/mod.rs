@@ -604,7 +604,7 @@ fn print_drift_entry(entry: &DriftEntry) {
             println!(
                 "   {} {} {} {}{}",
                 cyan.apply_to("●"),
-                &entry.name,
+                entry.name,
                 dim.apply_to("—"),
                 cyan.apply_to("local only"),
                 lineage,
@@ -649,7 +649,7 @@ fn print_drift_card(entry: &DriftEntry, lineage: &str) {
     );
     let body_drifted = matches!(entry.status, DriftStatus::BodyOnly | DriftStatus::Both);
 
-    println!("   {} {}{}", dim.apply_to("┌"), &entry.name, lineage);
+    println!("   {} {}{}", dim.apply_to("┌"), entry.name, lineage);
 
     if frontmatter_drifted {
         let keys_display = if entry.changed_keys.is_empty() {
