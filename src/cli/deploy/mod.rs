@@ -21,6 +21,7 @@ use crate::cli::config;
 /// Modified  → skip (unless --force)
 /// ```
 #[allow(clippy::fn_params_excessive_bools, clippy::too_many_lines)]
+#[allow(clippy::too_many_arguments)]
 pub fn execute(
     path: &str,
     target: Option<&str>,
@@ -29,7 +30,11 @@ pub fn execute(
     prune: bool,
     _interactive: bool,
     dry_run: bool,
+    only: Option<&str>,
 ) -> Result<ActionResult, Error> {
+    // A scoped deploy leaves everything else at the target alone: pruning
+    // against a filtered key set would quarantine the rest of the module.
+    let prune = prune && only.is_none();
     let module_root = Path::new(path);
     require_module_root(module_root)?;
     let mut result = ActionResult::new();
@@ -72,9 +77,10 @@ pub fn execute(
                 validate_target_boundary(&target_base, Path::new(dir))?;
             }
             deployed_by_root.entry(target_base.clone()).or_default();
-            manifests
-                .entry(target_base.clone())
-                .or_insert_with(|| load_deployed_manifest(&target_base));
+            if !manifests.contains_key(&target_base) {
+                let entries = load_manifest_or_recover(&target_base, only)?;
+                manifests.insert(target_base.clone(), entries);
+            }
         }
 
         for kind in commands::provider::ContentKind::ALL {
@@ -89,9 +95,13 @@ pub fn execute(
                 validate_target_boundary(&target_base, Path::new(dir))?;
             }
 
-            let existing_manifest = manifests
-                .entry(target_base.clone())
-                .or_insert_with(|| load_deployed_manifest(&target_base));
+            if !manifests.contains_key(&target_base) {
+                let entries = load_manifest_or_recover(&target_base, only)?;
+                manifests.insert(target_base.clone(), entries);
+            }
+            let Some(existing_manifest) = manifests.get_mut(&target_base) else {
+                continue;
+            };
             let deployed_keys = deployed_by_root.entry(target_base.clone()).or_default();
 
             deploy_provider_kind_files(
@@ -103,6 +113,7 @@ pub fn execute(
                 &mut result,
                 provider_name,
                 force,
+                only,
             )?;
         }
 
@@ -134,6 +145,32 @@ fn resolve_target_base(target_root: &str, effective_target: Option<&str>) -> Pat
     }
 }
 
+/// Whether a manifest key falls under an `--only` prefix. A prefix ending in
+/// `/` or `.` matches literally; a bare prefix (`skills/Alpha`) matches only
+/// at a path or extension boundary, so `skills/AlphaOther/` stays untouched.
+fn only_matches(manifest_key: &str, prefix: &str) -> bool {
+    // Providers rename artifacts during assembly (gemini slugifies
+    // SecurityArchitect to security-architect); compare shapes that survive
+    // the rename: lowercase with separators dropped.
+    let key = normalize_only(manifest_key);
+    let prefix = normalize_only(prefix);
+    if prefix.ends_with('/') || prefix.ends_with('.') {
+        return key.starts_with(&prefix);
+    }
+    key == prefix
+        || key
+            .strip_prefix(&prefix)
+            .is_some_and(|rest| rest.starts_with('/') || rest.starts_with('.'))
+}
+
+fn normalize_only(value: &str) -> String {
+    value
+        .chars()
+        .filter(|character| *character != '-' && *character != '_')
+        .flat_map(char::to_lowercase)
+        .collect()
+}
+
 /// Deploy one content kind for a single provider.
 #[allow(clippy::too_many_arguments)]
 fn deploy_provider_kind_files(
@@ -145,6 +182,7 @@ fn deploy_provider_kind_files(
     result: &mut ActionResult,
     provider_name: &str,
     force: bool,
+    only: Option<&str>,
 ) -> Result<(), Error> {
     let files = collect_files_recursive(kind_dir)?;
 
@@ -159,6 +197,9 @@ fn deploy_provider_kind_files(
             .to_string_lossy()
             .to_string();
         let manifest_key = format!("{kind}/{relative}");
+        if only.is_some_and(|prefix| !only_matches(&manifest_key, prefix)) {
+            continue;
+        }
         deployed_keys.insert(manifest_key.clone());
         let target_path = target_base.join(kind.as_str()).join(&relative);
 
@@ -166,11 +207,6 @@ fn deploy_provider_kind_files(
         let build_fingerprint = manifest::content_sha256(&build_content);
         let provenance_relative = manifest::provenance_path(&manifest_key);
         let sidecar_source = manifest::sidecar_path(&build_path);
-
-        if sidecar_source.is_file() {
-            let provenance_target = target_base.join(&provenance_relative);
-            let _ = copy_file(&sidecar_source, &provenance_target);
-        }
 
         let target_content = fs::read_to_string(&target_path).ok();
         let status = manifest::status(
@@ -181,7 +217,19 @@ fn deploy_provider_kind_files(
 
         match status {
             manifest::FileStatus::New | manifest::FileStatus::Stale => {
+                ensure_destination_within(&target_path, target_base)?;
                 copy_file(&build_path, &target_path)?;
+                // Provenance travels only with content that actually
+                // installed; a skipped modified file keeps its old sidecar.
+                if sidecar_source.is_file() {
+                    let provenance_target = target_base.join(&provenance_relative);
+                    if let Err(error) = copy_file(&sidecar_source, &provenance_target) {
+                        eprintln!(
+                            "warning: sidecar copy failed for {}: {error}",
+                            provenance_target.display()
+                        );
+                    }
+                }
                 new_manifest.insert(
                     manifest_key,
                     manifest::ManifestEntry {
@@ -236,7 +284,6 @@ fn deploy_provider_kind_files(
     }
     Ok(())
 }
-
 #[allow(clippy::too_many_arguments)]
 #[allow(clippy::too_many_lines)]
 fn prune_stale_files(
@@ -434,7 +481,10 @@ fn require_module_root(module_root: &Path) -> Result<(), Error> {
 }
 
 /// Verify the resolved target path stays within the specified base directory.
+/// Containment is checked against the deepest existing ancestor BEFORE any
+/// directory is created, so an escaping path never mutates the filesystem.
 fn validate_target_boundary(target_path: &Path, base_directory: &Path) -> Result<(), Error> {
+    ensure_destination_within(&target_path.join("probe"), base_directory)?;
     fs::create_dir_all(target_path).map_err(|error| {
         Error::new(
             ErrorKind::Io,
@@ -471,19 +521,38 @@ fn validate_target_boundary(target_path: &Path, base_directory: &Path) -> Result
 /// Load the previously deployed `.manifest` from a provider's target directory.
 pub(crate) fn load_deployed_manifest(
     target_base: &Path,
-) -> HashMap<String, manifest::ManifestEntry> {
+) -> Result<HashMap<String, manifest::ManifestEntry>, Error> {
     let manifest_path = target_base.join(".manifest");
     let Ok(content) = fs::read_to_string(&manifest_path) else {
-        return HashMap::new();
+        return Ok(HashMap::new());
     };
-    match manifest::read(&content) {
-        Ok(entries) => entries,
+    manifest::read(&content).map_err(|error| {
+        Error::new(
+            ErrorKind::Config,
+            format!("corrupt .manifest at {}: {error}", manifest_path.display()),
+        )
+    })
+}
+
+/// Manifest for a filtered deploy must parse: silently rebuilding it from a
+/// partial deploy would drop every entry outside the filter. A full deploy
+/// may rebuild with a warning.
+fn load_manifest_or_recover(
+    target_base: &Path,
+    only: Option<&str>,
+) -> Result<HashMap<String, manifest::ManifestEntry>, Error> {
+    match load_deployed_manifest(target_base) {
+        Ok(entries) => Ok(entries),
+        Err(error) if only.is_some() => Err(Error::new(
+            ErrorKind::Config,
+            format!(
+                "refusing filtered deploy over a corrupt manifest ({error}); \
+                 run a full install to rebuild it"
+            ),
+        )),
         Err(error) => {
-            eprintln!(
-                "warning: corrupt .manifest at {}: {error}",
-                manifest_path.display()
-            );
-            HashMap::new()
+            eprintln!("warning: {error}; rebuilding manifest from this deploy");
+            Ok(HashMap::new())
         }
     }
 }
@@ -506,6 +575,46 @@ fn write_manifest(
     let manifest_path = target_base.join(".manifest");
     fs::write(&manifest_path, &yaml)
         .map_err(|e| Error::new(ErrorKind::Io, format!("cannot write .manifest: {e}")))
+}
+
+/// Verify that writing `target_path` cannot escape `base`: the deepest
+/// existing ancestor (which any symlinked component resolves through) must
+/// canonicalize inside the base directory.
+fn ensure_destination_within(target_path: &Path, base: &Path) -> Result<(), Error> {
+    fs::create_dir_all(base).map_err(|error| {
+        Error::new(
+            ErrorKind::Io,
+            format!("cannot create {}: {error}", base.display()),
+        )
+    })?;
+    let resolved_base = base.canonicalize().map_err(|error| {
+        Error::new(
+            ErrorKind::Io,
+            format!("cannot resolve {}: {error}", base.display()),
+        )
+    })?;
+    let existing = target_path
+        .ancestors()
+        .find(|ancestor| ancestor.exists())
+        .unwrap_or(base);
+    let resolved = existing.canonicalize().map_err(|error| {
+        Error::new(
+            ErrorKind::Io,
+            format!("cannot resolve {}: {error}", existing.display()),
+        )
+    })?;
+    if resolved.starts_with(&resolved_base) {
+        Ok(())
+    } else {
+        Err(Error::new(
+            ErrorKind::Config,
+            format!(
+                "destination escapes target: {} resolves to {}",
+                target_path.display(),
+                resolved.display()
+            ),
+        ))
+    }
 }
 
 /// Copy a file, creating parent directories as needed.

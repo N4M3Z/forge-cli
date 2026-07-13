@@ -47,7 +47,7 @@ fn collect_files_recursive_errors_on_missing_directory() {
 #[test]
 fn load_deployed_manifest_returns_empty_for_missing_file() {
     let temp_directory = TempDir::new().unwrap();
-    let manifest = load_deployed_manifest(temp_directory.path());
+    let manifest = load_deployed_manifest(temp_directory.path()).unwrap();
     assert!(manifest.is_empty());
 }
 
@@ -80,7 +80,7 @@ fn write_then_load_manifest_roundtrips() {
     );
 
     write_manifest(temp_directory.path(), &entries).unwrap();
-    let loaded = load_deployed_manifest(temp_directory.path());
+    let loaded = load_deployed_manifest(temp_directory.path()).unwrap();
     assert_eq!(loaded["rules/UseRTK.md"].fingerprint, "abc123");
 }
 
@@ -200,4 +200,75 @@ fn prune_empty_parents_never_removes_stop() {
 
     assert!(!nested.exists());
     assert!(stop.exists(), "stop directory must never be removed");
+}
+
+#[test]
+fn deploy_provider_files_only_prefix_filters_deployment() {
+    let temp_directory = TempDir::new().unwrap();
+    let build_dir = temp_directory.path().join("build/claude");
+    std::fs::create_dir_all(build_dir.join("skills/Alpha")).unwrap();
+    std::fs::create_dir_all(build_dir.join("skills/Beta")).unwrap();
+    std::fs::write(build_dir.join("skills/Alpha/SKILL.md"), "alpha body").unwrap();
+    std::fs::write(build_dir.join("skills/Beta/SKILL.md"), "beta body").unwrap();
+    let target = temp_directory.path().join("target");
+
+    let mut manifest_entries = HashMap::new();
+    let mut deployed_keys = HashSet::new();
+    let mut result = ActionResult::new();
+    deploy_provider_kind_files(
+        &build_dir.join("skills"),
+        commands::provider::ContentKind::Skills,
+        &target,
+        &mut manifest_entries,
+        &mut deployed_keys,
+        &mut result,
+        "claude",
+        false,
+        Some("skills/Alpha/"),
+    )
+    .unwrap();
+
+    assert!(target.join("skills/Alpha/SKILL.md").is_file());
+    assert!(!target.join("skills/Beta/SKILL.md").exists());
+    assert!(deployed_keys.contains("skills/Alpha/SKILL.md"));
+    assert!(!deployed_keys.contains("skills/Beta/SKILL.md"));
+    assert_eq!(
+        std::fs::read_to_string(target.join("skills/Alpha/SKILL.md")).unwrap(),
+        "alpha body"
+    );
+}
+
+#[test]
+fn only_matches_respects_boundaries() {
+    assert!(only_matches("skills/Alpha/SKILL.md", "skills/Alpha/"));
+    assert!(only_matches("skills/Alpha/SKILL.md", "skills/Alpha"));
+    assert!(!only_matches("skills/AlphaOther/SKILL.md", "skills/Alpha"));
+    assert!(only_matches("agents/Name.md", "agents/Name."));
+    assert!(only_matches("agents/Name.toml", "agents/Name"));
+    assert!(!only_matches("agents/NameOther.md", "agents/Name"));
+}
+
+#[test]
+fn only_matches_survives_provider_slugging() {
+    assert!(only_matches(
+        "agents/security-architect.md",
+        "agents/SecurityArchitect"
+    ));
+    assert!(!only_matches(
+        "agents/security-architect-two.md",
+        "agents/SecurityArchitect"
+    ));
+}
+
+#[test]
+fn ensure_destination_within_rejects_symlink_escape() {
+    let temp_directory = TempDir::new().unwrap();
+    let base = temp_directory.path().join("base");
+    let outside = temp_directory.path().join("outside");
+    std::fs::create_dir_all(base.join("skills")).unwrap();
+    std::fs::create_dir_all(&outside).unwrap();
+    std::os::unix::fs::symlink(&outside, base.join("skills/Escape")).unwrap();
+
+    assert!(ensure_destination_within(&base.join("skills/Inside/SKILL.md"), &base).is_ok());
+    assert!(ensure_destination_within(&base.join("skills/Escape/SKILL.md"), &base).is_err());
 }

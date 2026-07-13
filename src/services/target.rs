@@ -39,7 +39,7 @@ pub(super) fn sidecar_name_warning(relative_path: &str, sidecar_path: &Path) -> 
     }
 }
 
-pub(super) fn git_log_in_repo(repo: &Path, file_rel: &str) -> Vec<GitCommit> {
+pub fn git_log_in_repo(repo: &Path, file_rel: &str) -> Vec<GitCommit> {
     let output = Command::new("git")
         .args(["log", "--follow", "-n", "5", GIT_LOG_FORMAT, "--", file_rel])
         .current_dir(repo)
@@ -106,6 +106,9 @@ pub(super) fn scan_target(
                 source_uri: source,
                 is_target: false,
                 artifacts: Vec::new(),
+                local_path: None,
+                vcs: None,
+                git_log: Vec::new(),
             });
 
             let provider_status = ProviderStatus {
@@ -174,6 +177,7 @@ pub(super) fn build_deployed_artifact(
         kind: kind.to_string(),
         module: String::new(),
         relative_path: relative_key.to_string(),
+        source_path: source_path.unwrap_or_default().to_string(),
         description,
         content_preview,
         content_body,
@@ -188,6 +192,7 @@ pub(super) fn build_deployed_artifact(
         module_tint: 0,
         companions: Vec::new(),
         variants: Vec::new(),
+        vcs: None,
     }
 }
 

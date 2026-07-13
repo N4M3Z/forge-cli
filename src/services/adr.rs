@@ -65,6 +65,7 @@ pub(super) fn discover_adrs(
                 state,
                 source,
                 summary: adr_summary(&raw),
+                local_path: decisions.join(&name).to_string_lossy().into_owned(),
             });
         }
     }
@@ -148,6 +149,7 @@ pub fn build_adr_artifact(adr: &Adr, local_repos: &HashMap<String, PathBuf>) -> 
         kind: "adr".to_string(),
         module: adr.repo.clone(),
         relative_path: adr.relative_path.clone(),
+        source_path: adr.relative_path.clone(),
         description: adr.title.clone(),
         content_preview: String::new(),
         content_body: content.body,
@@ -162,6 +164,7 @@ pub fn build_adr_artifact(adr: &Adr, local_repos: &HashMap<String, PathBuf>) -> 
         module_tint: 0,
         companions: Vec::new(),
         variants: Vec::new(),
+        vcs: None,
     }
 }
 
