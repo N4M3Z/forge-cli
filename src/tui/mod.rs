@@ -1,6 +1,7 @@
 pub mod app;
 pub mod components;
 pub mod event;
+mod rich;
 
 use std::{
     io::{self, Stdout},

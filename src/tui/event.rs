@@ -18,6 +18,10 @@ pub fn handle_key(app: &mut App, key: KeyEvent) {
         handle_palette_key(app, key);
         return;
     }
+    if app.is_comment_prompt_open() {
+        app.comment_prompt_key(key);
+        return;
+    }
     if app.is_search_input_active()
         && matches!(
             key.code,
@@ -42,6 +46,7 @@ pub fn handle_key(app: &mut App, key: KeyEvent) {
             app.set_section_by_number(9);
         }
         KeyCode::Char('r') => app.refresh(),
+        KeyCode::Char('Y') => app.copy_tuicr_review(),
         KeyCode::Char('y') => app.copy_selected(),
         KeyCode::Enter | KeyCode::Right | KeyCode::Char('l') => app.drill_or_expand(),
         KeyCode::Left | KeyCode::Char('h') => app.move_back(),
