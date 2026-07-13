@@ -410,6 +410,57 @@ fn install_deploys_skill_to_agentskills_provider() {
 // --- Manifest tests ---
 
 #[test]
+fn install_routes_content_kinds_to_target_map_roots() {
+    let module_directory = tempfile::tempdir().unwrap();
+    let target_directory = tempfile::tempdir().unwrap();
+
+    scaffold_module(module_directory.path());
+    fs::write(
+        module_directory.path().join("defaults.yaml"),
+        "providers:\n    claude:\n        target:\n            default: .claude\n            skills: .agents\n",
+    )
+    .unwrap();
+    create_skill(module_directory.path(), "MappedSkill");
+    create_rule(module_directory.path(), "MappedRule");
+
+    forge()
+        .args([
+            "install",
+            "--source",
+            module_directory.path().to_str().unwrap(),
+            "--target",
+            target_directory.path().to_str().unwrap(),
+            "--provider",
+            "claude",
+        ])
+        .assert()
+        .success();
+
+    assert!(
+        target_directory
+            .path()
+            .join(".agents/skills/MappedSkill/SKILL.md")
+            .is_file(),
+        "target.skills override should route skills to .agents"
+    );
+    assert!(
+        target_directory
+            .path()
+            .join(".claude/rules/MappedRule.md")
+            .is_file(),
+        "missing target.rules should fall back to target.default"
+    );
+    assert!(
+        target_directory.path().join(".agents/.manifest").is_file(),
+        "mapped skill root should get its own manifest"
+    );
+    assert!(
+        target_directory.path().join(".claude/.manifest").is_file(),
+        "default root should get its own manifest"
+    );
+}
+
+#[test]
 fn install_creates_nested_manifest() {
     let module_directory = tempfile::tempdir().unwrap();
     let target_directory = tempfile::tempdir().unwrap();

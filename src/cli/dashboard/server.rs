@@ -70,7 +70,7 @@ fn load_provider_targets(root: &Path) -> Vec<(String, String)> {
     };
     let mut targets: Vec<(String, String)> = providers
         .into_iter()
-        .map(|(name, config)| (name, config.target))
+        .map(|(name, config)| (name, config.default_target().to_string()))
         .collect();
     targets.sort_by(|a, b| a.0.cmp(&b.0));
     targets

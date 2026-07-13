@@ -65,16 +65,28 @@ fn merge_value(base: &mut Value, overlay: Value, key_path: &str) {
                 }
             }
         }
-        (Value::Mapping(_), overlay_value) => {
-            warn_type_conflict(key_path, "mapping", describe_value(&overlay_value));
+        (base_value @ Value::Mapping(_), overlay_value) => {
+            if replace_on_type_conflict(key_path) {
+                *base_value = overlay_value;
+            } else {
+                warn_type_conflict(key_path, "mapping", describe_value(&overlay_value));
+            }
         }
-        (base_value, Value::Mapping(_)) => {
-            warn_type_conflict(key_path, describe_value(base_value), "mapping");
+        (base_value, overlay_value @ Value::Mapping(_)) => {
+            if replace_on_type_conflict(key_path) {
+                *base_value = overlay_value;
+            } else {
+                warn_type_conflict(key_path, describe_value(base_value), "mapping");
+            }
         }
         (base_value, overlay) => {
             *base_value = overlay;
         }
     }
+}
+
+fn replace_on_type_conflict(key_path: &str) -> bool {
+    key_path.starts_with("providers.") && key_path.ends_with(".target")
 }
 
 fn warn_type_conflict(key_path: &str, base_type: &str, overlay_type: &str) {

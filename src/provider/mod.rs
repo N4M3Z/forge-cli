@@ -54,7 +54,7 @@ impl AssemblyRule {
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct ProviderConfig {
-    pub target: String,
+    pub target: ProviderTarget,
     pub assembly: Option<Vec<String>>,
     pub deploy: Option<Vec<String>>,
     pub keep_fields: Option<HashMap<String, Vec<String>>>,
@@ -68,12 +68,28 @@ pub struct ProviderConfig {
 }
 
 impl ProviderConfig {
+    pub fn default_target(&self) -> &str {
+        self.target.default_target()
+    }
+
+    pub fn target_for_kind(&self, kind: ContentKind) -> &str {
+        self.target.target_for_kind(kind)
+    }
+
+    pub fn target_roots(&self) -> Vec<&str> {
+        self.target.roots()
+    }
+
     pub fn matches_target(&self, target_name: &str, provider_key: &str) -> bool {
         if target_name == provider_key {
             return true;
         }
 
-        if target_name == self.target || target_name == self.target.trim_start_matches('.') {
+        if self
+            .target_roots()
+            .iter()
+            .any(|target| target_name == *target || target_name == target.trim_start_matches('.'))
+        {
             return true;
         }
 
@@ -81,6 +97,57 @@ impl ProviderConfig {
             .as_ref()
             .is_some_and(|aliases| aliases.iter().any(|alias| alias == target_name))
     }
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[serde(untagged)]
+pub enum ProviderTarget {
+    Single(String),
+    ByKind(ProviderTargetMap),
+}
+
+impl ProviderTarget {
+    pub fn default_target(&self) -> &str {
+        match self {
+            Self::Single(target) => target,
+            Self::ByKind(targets) => &targets.default,
+        }
+    }
+
+    pub fn target_for_kind(&self, kind: ContentKind) -> &str {
+        match self {
+            Self::Single(target) => target,
+            Self::ByKind(targets) => match kind {
+                ContentKind::Agents => targets.agents.as_deref().unwrap_or(&targets.default),
+                ContentKind::Skills => targets.skills.as_deref().unwrap_or(&targets.default),
+                ContentKind::Rules => targets.rules.as_deref().unwrap_or(&targets.default),
+            },
+        }
+    }
+
+    pub fn roots(&self) -> Vec<&str> {
+        let mut roots = vec![self.default_target()];
+        if let Self::ByKind(targets) = self {
+            for target in [&targets.agents, &targets.skills, &targets.rules]
+                .into_iter()
+                .flatten()
+            {
+                if !roots.contains(&target.as_str()) {
+                    roots.push(target.as_str());
+                }
+            }
+        }
+        roots
+    }
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct ProviderTargetMap {
+    pub default: String,
+    pub agents: Option<String>,
+    pub skills: Option<String>,
+    pub rules: Option<String>,
 }
 
 // --- Loading ---

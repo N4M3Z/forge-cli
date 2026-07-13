@@ -110,6 +110,17 @@ providers:
             - strip-links
 ```
 
+`target` may also be a map when a provider needs different roots for different
+content kinds. Missing kinds fall back to `default`; unknown keys are rejected:
+
+```yaml
+providers:
+    example:
+        target:
+            default: ".example"
+            skills: ".agents"
+```
+
 ## Usage
 
 Every command takes its inputs as named flags. Source modules use `--source <DIR>` (defaults to `.` for in-tree commands), targets use `--target <DIR>`, upstreams use `--upstream <DIR>`. There are no positional path arguments.

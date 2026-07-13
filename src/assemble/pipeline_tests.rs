@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use super::pipeline::{self, SourceFile};
-use crate::provider::ProviderConfig;
+use crate::provider::{ProviderConfig, ProviderTarget};
 
 fn make_source<'a>(relative_path: &'a str, content: &'a str, passthrough: bool) -> SourceFile<'a> {
     SourceFile {
@@ -14,7 +14,7 @@ fn make_source<'a>(relative_path: &'a str, content: &'a str, passthrough: bool) 
 
 fn make_provider(assembly: Option<Vec<&str>>) -> ProviderConfig {
     ProviderConfig {
-        target: ".test".to_string(),
+        target: ProviderTarget::Single(".test".to_string()),
         assembly: assembly.map(|v| v.into_iter().map(String::from).collect()),
         deploy: None,
         keep_fields: None,
@@ -155,7 +155,7 @@ fn unknown_rule_collected_as_error() {
     providers.insert(
         "bad".to_string(),
         ProviderConfig {
-            target: ".bad".to_string(),
+            target: ProviderTarget::Single(".bad".to_string()),
             assembly: Some(vec!["nonexistent-rule".to_string()]),
             deploy: None,
             keep_fields: None,

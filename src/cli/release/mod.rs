@@ -62,7 +62,7 @@ pub fn execute(path: &str, embed: bool) -> Result<ActionResult, Error> {
     })?;
 
     for (provider_name, provider_config) in &providers {
-        let staged_provider = staging_dir.join(&provider_config.target);
+        let staged_provider = staging_dir.join(provider_config.default_target());
         if !staged_provider.is_dir() {
             continue;
         }
@@ -81,7 +81,7 @@ pub fn execute(path: &str, embed: bool) -> Result<ActionResult, Error> {
         })?;
 
         // Move installed provider tree (including .manifest) into wrapper
-        let dotfolder = wrapper_dir.join(&provider_config.target);
+        let dotfolder = wrapper_dir.join(provider_config.default_target());
         fs::rename(&staged_provider, &dotfolder).map_err(|error| {
             Error::new(
                 ErrorKind::Io,
@@ -109,7 +109,7 @@ pub fn execute(path: &str, embed: bool) -> Result<ActionResult, Error> {
         let _ = fs::remove_dir_all(&wrapper_dir);
 
         result.installed.push(DeployedFile {
-            source: provider_config.target.clone(),
+            source: provider_config.default_target().to_string(),
             target: tarball_path.to_string_lossy().to_string(),
             provider: provider_name.clone(),
         });

@@ -52,7 +52,7 @@ fn load_providers_returns_embedded_defaults() {
 fn load_providers_module_config_overrides_target() {
     let module_config = "providers:\n    claude:\n        target: .custom-claude\n";
     let providers = load_providers(module_config).unwrap();
-    assert_eq!(providers["claude"].target, ".custom-claude");
+    assert_eq!(providers["claude"].default_target(), ".custom-claude");
 }
 
 #[test]
