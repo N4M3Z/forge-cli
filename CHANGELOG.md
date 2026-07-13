@@ -6,8 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-07-13
+
 ### Added
 
+- The TUI acts, not just displays: deploy-to-target and harness-launch pickers (add targets by path, persisted to `~/.config/forge`), in-panel filtering with `/` and problems-only with `!`, an enterable Overview that jumps to status and kind views, one unified artifact detail with numbered tabs across skills, ADRs, and companions, letter shortcuts for sections, tuicr-style gutter word wrap, diff hunk navigation with per-line commenting, clickable commits, and git plus jj history views. (#89)
+- `forge install` and `forge deploy` accept `--only <prefix>` for single-artifact deploys. Matching is boundary-aware and survives provider slugging (gemini's `SecurityArchitect` → `security-architect`); the flag implies no-prune and refuses to operate over a corrupt `.manifest` rather than silently rebuilding a partial one. (#89)
+- Provider `defaults.yaml` targets accept per-kind maps alongside single strings, deploying agents, skills, and rules to different roots under one provider. (#86)
+- Release tarballs ship with GitHub build provenance attestations. (#84)
 - `forge launch <tool>` composes coding-tool launches through ordered middleware (`pxpipe`, `otel`, `presidio`, `squid`, `docker`, `tmux`) plus external `forge-launch-mw-*` script middleware. It supports configured default chains and tool base-url env mappings, `--with a,b,c`, legacy `--pxpipe`/`--direct`, `--tmux[=name]`, scoped child env injection, best-effort proxy preflight, and `--dry-run` plan output.
 - The `agentskills` provider installs Agent Skills-compatible `SKILL.md` files under `.agents/skills/<Name>/SKILL.md`, with `agents` as an alias for `--provider agents` and an Agent Skills frontmatter whitelist.
 - `forge adopt <url>` fetches an upstream HTTPS artifact (or `file://` fixture), applies the `align` transform into a module skill or companion file, and writes an `adopt/v1` provenance sidecar with the upstream digest pin.
