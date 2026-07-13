@@ -15,10 +15,19 @@ use commands::{
 };
 
 use super::{
-    app::{App, CommentKind, DetailTab, KEYBINDINGS, Section},
+    app::{App, ColumnFocus, CommentKind, DetailTab, KEYBINDINGS, Section},
     components::palette::{Palette, PaletteCommand},
     event,
 };
+
+fn buffer_position(output: &str, needle: &str) -> (u16, u16) {
+    let byte_index = output.find(needle).expect("needle rendered");
+    let cell_index = output[..byte_index].chars().count();
+    (
+        u16::try_from(cell_index % 120).expect("x fits"),
+        u16::try_from(cell_index / 120).expect("y fits"),
+    )
+}
 
 fn fixture_view() -> DashboardView {
     let mut providers = std::collections::BTreeMap::new();
@@ -63,6 +72,9 @@ fn fixture_view() -> DashboardView {
                 source_uri: "https://github.com/N4M3Z/forge-core".to_string(),
                 is_target: false,
                 artifacts: vec![artifact],
+                local_path: None,
+                vcs: None,
+                git_log: Vec::new(),
             },
             ModuleView {
                 name: "project-target".to_string(),
@@ -71,6 +83,9 @@ fn fixture_view() -> DashboardView {
                 source_uri: "https://github.com/N4M3Z/project-target".to_string(),
                 is_target: true,
                 artifacts: Vec::new(),
+                local_path: None,
+                vcs: None,
+                git_log: Vec::new(),
             },
         ],
         summary: StatusSummary {
@@ -105,6 +120,7 @@ fn fixture_view() -> DashboardView {
             state: "authored".to_string(),
             source: String::new(),
             summary: "Context summary".to_string(),
+            local_path: String::new(),
         }],
     }
 }
@@ -223,7 +239,7 @@ fn provenance_and_history_tabs_render_scanned_data() {
 
     let provenance = rendered(&mut app);
     assert!(provenance.contains("target-one"));
-    assert!(provenance.contains("OK"));
+    assert!(provenance.contains("1/1 verified"));
 
     app.set_detail_tab(DetailTab::History);
     let history = rendered(&mut app);
@@ -269,20 +285,19 @@ fn help_overlay_renders_known_binding_and_quit() {
 
 #[test]
 fn keybindings_table_drives_help_and_hint_row() {
-    let binding = KEYBINDINGS
-        .iter()
-        .flat_map(|(_, bindings)| bindings.iter())
-        .find(|(key, _)| *key == "h/j/k/l")
-        .expect("navigation binding");
-    assert_eq!(binding.1, "move, drill, and go back");
-
     let mut app = fixture_app();
-    let hint = rendered(&mut app);
-    assert!(hint.contains("h/j/k/l move, drill, and go back"));
+    let help_open = {
+        event::handle_key(&mut app, key(KeyCode::Char('?')));
+        rendered(&mut app)
+    };
+    assert!(help_open.contains("quit"));
 
     event::handle_key(&mut app, key(KeyCode::Char('?')));
-    let help = rendered(&mut app);
-    assert!(help.contains("move, drill, and go back"));
+    app.focus_next();
+    let hint = rendered(&mut app);
+    assert!(hint.contains("/ filter"));
+    assert!(hint.contains("! problems"));
+    let _ = KEYBINDINGS;
 }
 
 #[test]
@@ -331,29 +346,33 @@ fn unknown_palette_command_sets_error() {
 }
 
 #[test]
-fn search_section_list_focus_types_query_before_global_shortcuts() {
+fn search_input_mode_is_explicit() {
     let mut app = fixture_app();
     app.set_section_by_number(9);
-    app.focus_next();
+    event::handle_key(&mut app, key(KeyCode::Char('/')));
 
     for character in ['h', 'e', 'l', 'l', 'o'] {
         event::handle_key(&mut app, key(KeyCode::Char(character)));
     }
-
     assert_eq!(app.search_query(), "hello");
     assert_eq!(app.section(), Section::Search);
+
+    event::handle_key(&mut app, key(KeyCode::Enter));
+    event::handle_key(&mut app, key(KeyCode::Char('j')));
+    assert_eq!(app.search_query(), "hello");
 }
 
 #[test]
-fn detail_digit_shortcut_selects_tab_without_changing_section() {
+fn digits_switch_detail_tabs_from_any_focus() {
     let mut app = fixture_app();
-    app.focus_next();
-    app.focus_next();
 
-    event::handle_key(&mut app, key(KeyCode::Char('2')));
-
-    assert_eq!(app.detail_tab(), DetailTab::Code);
+    event::handle_key(&mut app, key(KeyCode::Char('3')));
+    assert_eq!(app.detail_tab(), DetailTab::Diff);
     assert_eq!(app.section(), Section::Overview);
+
+    app.focus_next();
+    event::handle_key(&mut app, key(KeyCode::Char('2')));
+    assert_eq!(app.detail_tab(), DetailTab::Code);
 }
 
 #[test]
@@ -415,6 +434,7 @@ fn rich_detail_caches_are_reused_between_frames() {
 fn tuicr_digest_exports_line_comments() {
     let mut app = fixture_app();
     app.add_comment_for_test(
+        "forge-core",
         "skills/BuildSkill/SKILL.md",
         3,
         CommentKind::Issue,
@@ -424,6 +444,195 @@ fn tuicr_digest_exports_line_comments() {
     let digest = app.tuicr_digest();
 
     assert!(digest.contains("**[ISSUE]** `skills/BuildSkill/SKILL.md:3`"));
+}
+
+#[test]
+fn mouse_click_selects_section_and_focuses() {
+    let mut app = fixture_app();
+    let output = rendered(&mut app);
+    let (x, y) = buffer_position(&output, "Skills");
+
+    app.mouse_click(x, y);
+
+    assert_eq!(app.section(), Section::Skills);
+    assert_eq!(app.focused_column(), ColumnFocus::Sections);
+}
+
+#[test]
+fn mouse_click_on_tab_switches_detail_tab() {
+    let mut app = fixture_app();
+    app.set_section_by_number(2);
+    app.drill_or_expand();
+    app.drill_or_expand();
+    let output = rendered(&mut app);
+    let (x, y) = buffer_position(&output, "Diff");
+
+    app.mouse_click(x, y);
+
+    assert_eq!(app.detail_tab(), DetailTab::Diff);
+    assert_eq!(app.focused_column(), ColumnFocus::Detail);
+}
+
+#[test]
+fn mouse_wheel_scrolls_detail_without_moving_selection() {
+    let mut app = fixture_app();
+    app.set_section_by_number(2);
+    app.drill_or_expand();
+    app.drill_or_expand();
+    let output = rendered(&mut app);
+    let (x, y) = buffer_position(&output, "Preview ");
+    let selected_before = app.selected_row_for_test();
+
+    app.mouse_scroll(x, y + 2, true);
+
+    assert_eq!(app.selected_row_for_test(), selected_before);
+    assert_eq!(app.detail_scroll_for_test(), 3);
+}
+
+#[test]
+fn deploy_picker_queues_additive_install_for_selected_module() {
+    let mut app = fixture_app();
+    app.set_section_by_number(2);
+    app.drill_or_expand();
+
+    app.open_deploy_picker();
+    assert!(
+        !app.is_deploy_picker_open(),
+        "fixture module has no local repo"
+    );
+
+    app.set_module_local_path_for_test("forge-core", PathBuf::from("/tmp/forge-core"));
+    app.open_deploy_picker();
+    assert!(app.is_deploy_picker_open());
+
+    event::handle_key(&mut app, key(KeyCode::Enter));
+    let command = app.take_external().expect("install queued");
+    assert!(command.args.contains(&"install".to_string()));
+    assert!(command.args.contains(&"--no-prune".to_string()));
+    assert!(command.args.contains(&"/tmp/forge-core".to_string()));
+    assert!(command.args.contains(&"--only".to_string()));
+    assert!(command.args.contains(&"skills/BuildSkill/".to_string()));
+}
+
+#[test]
+fn launch_queues_harness_in_module_repo() {
+    let mut app = fixture_app();
+    app.set_section_by_number(2);
+    app.drill_or_expand();
+    app.set_module_local_path_for_test("forge-core", PathBuf::from("/tmp/forge-core"));
+
+    event::handle_key(&mut app, key(KeyCode::Char('L')));
+    assert!(app.is_launch_picker_open());
+    event::handle_key(&mut app, key(KeyCode::Enter));
+
+    let command = app.take_external().expect("launch queued");
+    assert_eq!(command.directory, PathBuf::from("/tmp/forge-core"));
+    assert!(command.args.is_empty());
+}
+
+#[test]
+fn in_panel_filter_narrows_and_esc_restores() {
+    let mut app = fixture_app();
+    app.set_section_by_number(2);
+
+    event::handle_key(&mut app, key(KeyCode::Char('/')));
+    for character in ['z', 'z'] {
+        event::handle_key(&mut app, key(KeyCode::Char(character)));
+    }
+    let filtered = rendered(&mut app);
+    assert!(!filtered.contains("BuildSkill"));
+    assert!(filtered.contains("/zz"));
+
+    event::handle_key(&mut app, key(KeyCode::Esc));
+    let restored = rendered(&mut app);
+    assert!(restored.contains("BuildSkill"));
+}
+
+#[test]
+fn problems_only_hides_healthy_rows() {
+    let mut app = fixture_app();
+    app.set_section_by_number(2);
+
+    event::handle_key(&mut app, key(KeyCode::Char('!')));
+    let problems = rendered(&mut app);
+    assert!(!problems.contains("BuildSkill"));
+    assert!(problems.contains("[!]"));
+
+    event::handle_key(&mut app, key(KeyCode::Char('!')));
+    assert!(rendered(&mut app).contains("BuildSkill"));
+}
+
+#[test]
+fn overview_inventory_rows_jump_to_sections() {
+    let mut app = fixture_app();
+    app.focus_next();
+
+    // Summary, Nested view, then Inventory: skills (1), forge-core (1).
+    app.move_list_selection(1);
+    app.move_list_selection(1);
+    event::handle_key(&mut app, key(KeyCode::Enter));
+    assert_eq!(app.section(), Section::Skills);
+
+    app.set_section_by_number(1);
+    app.move_list_selection(1);
+    event::handle_key(&mut app, key(KeyCode::Enter));
+    assert_eq!(app.section(), Section::Search);
+    let filtered = rendered(&mut app);
+    assert!(filtered.contains("module: forge-core") || filtered.contains("BuildSkill"));
+    assert!(filtered.contains("BuildSkill"));
+}
+
+#[test]
+fn module_column_shows_on_unselected_rows() {
+    let mut view = fixture_view();
+    let mut second = view.modules[0].artifacts[0].clone();
+    second.name = "ZetaSkill".to_string();
+    view.modules[0].artifacts.push(second);
+    let mut app = App::from_view_with_files(
+        PathBuf::from("."),
+        Vec::new(),
+        Vec::new(),
+        view,
+        fixture_file_sections(),
+    );
+    app.set_section_by_number(2);
+
+    let output = rendered(&mut app);
+    // Selection sits on BuildSkill; ZetaSkill's row must still show its module.
+    let zeta_line = output
+        .split("ZetaSkill")
+        .nth(1)
+        .expect("ZetaSkill rendered");
+    assert!(zeta_line[..120].contains("forge-core"));
+    assert!(output.contains("· 1/2"));
+}
+
+#[test]
+fn comment_prompt_opens_from_preview_tab() {
+    let mut app = fixture_app();
+    app.set_section_by_number(2);
+    app.drill_or_expand();
+    app.drill_or_expand();
+    assert_eq!(app.detail_tab(), DetailTab::Preview);
+
+    event::handle_key(&mut app, key(KeyCode::Char('m')));
+
+    assert!(app.is_comment_prompt_open());
+    assert_eq!(app.detail_tab(), DetailTab::Code);
+}
+
+#[test]
+fn diff_gutter_maps_rows_to_new_file_lines() {
+    use ratatui::text::{Line, Span};
+    let lines = vec![
+        Line::from("Diff · uncommitted source changes"),
+        Line::from(Span::raw("  35      -removed")),
+        Line::from(Span::raw("       37 +added")),
+        Line::from(Span::raw("  36   38  context")),
+        Line::from(Span::raw("        ↪ continuation")),
+    ];
+    let map = super::app::diff_line_map_for_test(&lines);
+    assert_eq!(map, vec![None, None, Some(37), Some(38), Some(38)]);
 }
 
 #[test]

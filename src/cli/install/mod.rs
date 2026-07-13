@@ -29,6 +29,7 @@ pub fn execute(
     prune: bool,
     interactive: bool,
     dry_run: bool,
+    only: Option<&str>,
     model: Option<&str>,
     allow_stale: bool,
 ) -> Result<ActionResult, Error> {
@@ -42,6 +43,7 @@ pub fn execute(
         prune,
         interactive,
         dry_run,
+        only,
     )
 }
 

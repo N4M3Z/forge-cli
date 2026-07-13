@@ -145,19 +145,28 @@ pub fn list(json: bool) -> Result<i32, String> {
 
 /// Adds a local path to the watchlist.
 pub fn add_path(path: &str, json: bool) -> Result<i32, String> {
+    if add_path_silent(path)? {
+        announce(json, &format!("watching: {path}"));
+    } else {
+        announce(json, &format!("already watched: {path}"));
+    }
+    Ok(0)
+}
+
+/// Adds a path to the watchlist without printing. Returns whether the path
+/// was newly added (false when it was already watched).
+pub fn add_path_silent(path: &str) -> Result<bool, String> {
     let mut config = load_strict()?;
     if config
         .locations
         .iter()
         .any(|entry| matches!(entry, WatchEntry::Path(existing) if existing == path))
     {
-        announce(json, &format!("already watched: {path}"));
-        return Ok(0);
+        return Ok(false);
     }
     config.locations.push(WatchEntry::Path(path.to_string()));
     sort_and_save(&mut config)?;
-    announce(json, &format!("watching: {path}"));
-    Ok(0)
+    Ok(true)
 }
 
 /// Adds a SHA-pinned remote repo. HTTPS-only, full 40-char lowercase-hex commit required.

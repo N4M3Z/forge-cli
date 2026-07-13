@@ -31,6 +31,8 @@ pub struct Adr {
     pub source: String,
     /// First prose paragraph (Context section when present), for the list preview.
     pub summary: String,
+    /// Absolute path of the ADR file on disk, for full-document rendering.
+    pub local_path: String,
 }
 
 /// One repo's ADRs in the list view: the repo label, its total, and the ADRs
@@ -206,6 +208,12 @@ pub struct ModuleView {
     /// the canon sources discovered through their deployed artifacts.
     pub is_target: bool,
     pub artifacts: Vec<ArtifactView>,
+    /// Local clone of the module's source repo, when one was discovered.
+    pub local_path: Option<std::path::PathBuf>,
+    /// Repo-level version-control state (branch, ahead/behind, dirty).
+    pub vcs: Option<VcsState>,
+    /// Most recent commits across the whole repo.
+    pub git_log: Vec<GitCommit>,
 }
 
 impl ModuleView {
@@ -224,6 +232,10 @@ pub struct ArtifactView {
     pub kind: String,
     pub module: String,
     pub relative_path: String,
+    /// Path of the source file relative to the module repo, when known. Falls
+    /// back to `relative_path` (the deploy key) for VCS matching — the two
+    /// diverge once modules live inside a monorepo.
+    pub source_path: String,
     pub description: String,
     pub content_preview: String,
     pub content_body: String,
@@ -246,6 +258,27 @@ pub struct ArtifactView {
     /// Per-harness and per-model qualifier overrides found in the source tree
     /// (the model-targeting variants from PROV-0005), empty when none.
     pub variants: Vec<Variant>,
+    /// Version-control state of the artifact's source file, `None` when the
+    /// module has no local repo.
+    pub vcs: Option<VcsState>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct VcsState {
+    pub branch: String,
+    pub worktree: WorktreeState,
+    /// Commits on HEAD not yet on the upstream, and vice versa. Both zero when
+    /// the branch has no upstream.
+    pub ahead: usize,
+    pub behind: usize,
+    pub jj_colocated: bool,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
+pub enum WorktreeState {
+    Clean,
+    Modified,
+    Untracked,
 }
 
 /// A harness- or model-qualifier override of a base artifact, discovered in the

@@ -7,38 +7,46 @@ use std::{
     thread,
 };
 
-use crossterm::event::{KeyCode, KeyEvent};
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::{
     Frame,
-    layout::{Constraint, Direction, Layout, Rect},
+    layout::{Constraint, Direction, Layout, Position, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span, Text},
     widgets::{Block, Borders, Clear, List, ListItem, Paragraph, Wrap},
 };
+use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use commands::{
     services::{
         self, builders,
         files::{self, FileSections},
     },
-    view::{Adr, ArtifactView, DashboardView, ModuleView, ProvenanceArtifact, StatusSummary},
+    view::{
+        Adr, ArtifactView, Companion, DashboardView, ModuleView, ProvenanceArtifact, StatusSummary,
+        VcsState, WorktreeState,
+    },
 };
 
 use crate::cli::{config, watchlist};
 
 use super::components::{
     palette::{Palette, PaletteCommand},
-    preview::ArtifactPreview,
+    preview::{ArtifactPreview, wrapped_rows},
 };
 use super::rich;
+use super::word_wrap::expand_gutter_wrapped;
 
 const SECTION_COUNT: usize = 13;
-const DETAIL_TAB_COUNT: usize = 7;
+const DETAIL_TAB_COUNT: usize = 6;
 const LEFT_MIN_WIDTH: u16 = 14;
 const LEFT_MAX_WIDTH: u16 = 20;
 const MIDDLE_MIN_WIDTH: u16 = 24;
 const MIDDLE_MAX_WIDTH: u16 = 40;
 const MIN_DETAIL_WIDTH: u16 = 20;
+/// Columns occupied by the code gutter: comment marker (2) plus a
+/// right-aligned line number (4) plus one space.
+const CODE_GUTTER: usize = 7;
 
 pub const KEYBINDINGS: &[(&str, &[(&str, &str)])] = &[
     (
@@ -57,33 +65,27 @@ pub const KEYBINDINGS: &[(&str, &[(&str, &str)])] = &[
     (
         "Sections",
         &[
-            ("1", "overview"),
-            ("2", "skills"),
-            ("3", "agents"),
-            ("4", "rules"),
-            ("5", "repositories"),
-            ("6", "ADRs"),
-            ("7", "provenance"),
-            ("8", "variants"),
-            ("9", "search"),
-            ("t", "settings"),
-            ("h", "hooks"),
-            ("c", "config"),
-            ("m", "schemas"),
+            ("j/k", "move between sections"),
+            ("o s a r", "overview, skills, agents, rules"),
+            ("R d p v", "repositories, ADRs, provenance, variants"),
+            ("f t h c m", "search, settings, hooks, config, schemas"),
         ],
     ),
     (
         "Actions",
         &[
-            ("/", "search"),
+            ("/", "filter the focused list (Search: edit query)"),
             (":", "palette"),
             ("r", "refresh"),
             ("y", "copy install snippet or path"),
-            ("d", "diff tab"),
-            ("c", "code tab"),
-            ("p", "preview tab"),
-            ("m", "comment current code line"),
+            ("Tab", "next detail tab"),
+            ("p c d v f i", "detail tabs (outside Sections focus)"),
+            ("!", "toggle problems-only"),
+            ("m", "comment line (from any detail tab)"),
             ("Y", "copy tuicr comments"),
+            ("o/O", "open gitui / jjui on repository"),
+            ("D", "deploy module to a target"),
+            ("L", "launch harness session in repository"),
         ],
     ),
     ("Global", &[("?", "help"), ("F1", "help"), ("q", "quit")]),
@@ -171,17 +173,37 @@ impl Section {
         }
     }
 
+    /// The key that reaches this section from the Sections column, shown as
+    /// the row prefix; sections without one show a plain label.
+    fn shortcut_label(self) -> &'static str {
+        match self {
+            Self::Overview => "o",
+            Self::Skills => "s",
+            Self::Agents => "a",
+            Self::Rules => "r",
+            Self::Repositories => "R",
+            Self::Adrs => "d",
+            Self::Provenance => "p",
+            Self::Variants => "v",
+            Self::Search => "f",
+            Self::Settings => "t",
+            Self::Hooks => "h",
+            Self::Config => "c",
+            Self::Schemas => "m",
+        }
+    }
+
     fn from_shortcut(character: char) -> Option<Self> {
         match character {
-            '1' => Some(Self::Overview),
-            '2' => Some(Self::Skills),
-            '3' => Some(Self::Agents),
-            '4' => Some(Self::Rules),
-            '5' => Some(Self::Repositories),
-            '6' => Some(Self::Adrs),
-            '7' => Some(Self::Provenance),
-            '8' => Some(Self::Variants),
-            '9' => Some(Self::Search),
+            'o' => Some(Self::Overview),
+            's' => Some(Self::Skills),
+            'a' => Some(Self::Agents),
+            'r' => Some(Self::Rules),
+            'R' => Some(Self::Repositories),
+            'd' => Some(Self::Adrs),
+            'p' => Some(Self::Provenance),
+            'v' => Some(Self::Variants),
+            'f' => Some(Self::Search),
             't' | 'T' => Some(Self::Settings),
             'h' | 'H' => Some(Self::Hooks),
             'c' | 'C' => Some(Self::Config),
@@ -199,21 +221,19 @@ pub enum DetailTab {
     Provenance = 3,
     Frontmatter = 4,
     History = 5,
-    Companions = 6,
 }
 
 impl DetailTab {
-    const ALL: [Self; DETAIL_TAB_COUNT] = [
+    pub(super) const ALL: [Self; DETAIL_TAB_COUNT] = [
         Self::Preview,
         Self::Code,
         Self::Diff,
         Self::Provenance,
         Self::Frontmatter,
         Self::History,
-        Self::Companions,
     ];
 
-    fn label(self) -> &'static str {
+    pub(super) fn label(self) -> &'static str {
         match self {
             Self::Preview => "Preview",
             Self::Code => "Code",
@@ -221,7 +241,6 @@ impl DetailTab {
             Self::Provenance => "Provenance",
             Self::Frontmatter => "Frontmatter",
             Self::History => "History",
-            Self::Companions => "Companions",
         }
     }
 
@@ -265,6 +284,24 @@ enum HelpState {
 enum ListTarget {
     None,
     Overview,
+    /// The Overview Nested/Matrix mode row: activating it toggles the mode.
+    OverviewMode,
+    /// A status count on the Overview: jumps to Search filtered to it.
+    StatusJump(String),
+    /// A kind group on the Overview: jumps to that kind's section.
+    KindJump(String),
+    /// A module under a kind on the Overview: jumps to the kind's section
+    /// with the in-panel filter set to the module.
+    ModuleJump {
+        kind: String,
+        module: String,
+    },
+    /// A skill companion file, shown as a child row under its parent skill.
+    Companion {
+        module: String,
+        parent: String,
+        name: String,
+    },
     Artifact {
         module: String,
         kind: String,
@@ -347,11 +384,66 @@ pub struct MillerColumnWidths {
     pub middle: u16,
 }
 
+/// A command to run with the real terminal while the TUI is suspended.
+#[derive(Debug, Clone)]
+pub struct ExternalCommand {
+    pub program: String,
+    pub args: Vec<String>,
+    pub directory: PathBuf,
+}
+
+/// Modal target picker for deploying a module or a single artifact.
+#[derive(Debug, Clone)]
+struct DeployPicker {
+    /// What deploys: `module forge-core` or `skill HomebrewToolkit`.
+    scope_label: String,
+    source: PathBuf,
+    /// `--only` prefix when deploying a single artifact.
+    only: Option<String>,
+    options: Vec<(String, PathBuf)>,
+    selected: usize,
+    /// Path being typed when the "add target" row is active.
+    input: Option<String>,
+}
+
+/// Modal harness picker for launching a session in a repo.
+#[derive(Debug, Clone)]
+struct LaunchPicker {
+    module_name: String,
+    directory: PathBuf,
+    options: Vec<(String, String)>,
+    selected: usize,
+}
+
+/// Screen rectangles captured during render so mouse events can be
+/// hit-tested against what is actually on screen.
+#[derive(Debug, Clone, Copy, Default)]
+struct MouseRegions {
+    sections: Rect,
+    list: Rect,
+    detail: Rect,
+    tabs: Rect,
+    /// The detail body below any tab bar, for row-accurate link clicks.
+    detail_body: Rect,
+}
+
+/// Rendered lines for the current detail view, rebuilt only when the target,
+/// tab, or pane width changes — per-frame rebuilds are what made the detail
+/// pane feel slow.
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct PreviewCache {
-    path: String,
+struct DetailCache {
+    key: String,
     width: u16,
     lines: Vec<Line<'static>>,
+    /// Lines already wrapped at the pane width (glow output): render a
+    /// scrolled window without Paragraph wrap, which would break tables.
+    windowed: bool,
+    /// Row offsets of diff hunk headers, for [ and ] navigation.
+    hunks: Vec<usize>,
+    /// Per-row source line (new file) in the Diff tab, for per-line comments.
+    line_map: Vec<Option<usize>>,
+    /// Per-row browser link (commit URLs) — clicking the row opens it.
+    links: Vec<Option<String>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -396,12 +488,14 @@ struct LineComment {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct CommentPrompt {
+    module: String,
     path: String,
     line_number: usize,
     kind: CommentKind,
     text: String,
 }
 
+#[allow(clippy::struct_excessive_bools)]
 pub struct App {
     root: PathBuf,
     providers: Vec<(String, String)>,
@@ -417,9 +511,9 @@ pub struct App {
     rows_dirty: bool,
     #[cfg(test)]
     row_build_count: usize,
-    preview_cache: Option<PreviewCache>,
+    preview_cache: Option<DetailCache>,
     code_cache: Option<CodeCache>,
-    comments: BTreeMap<(String, usize), LineComment>,
+    comments: BTreeMap<(String, String, usize), LineComment>,
     comment_prompt: Option<CommentPrompt>,
     #[cfg(test)]
     preview_cache_build_count: usize,
@@ -436,6 +530,37 @@ pub struct App {
     preview: Option<ArtifactPreview>,
     help_state: HelpState,
     palette: Palette,
+    mouse_regions: MouseRegions,
+    /// External command queued to run with the real terminal (gitui/jjui,
+    /// deploys, harness launches); the event loop suspends, runs, resumes.
+    pending_external: Option<ExternalCommand>,
+    /// Target picker for deploying a module: options and selection.
+    deploy_picker: Option<DeployPicker>,
+    /// Harness picker for launching a session in a repo.
+    launch_picker: Option<LaunchPicker>,
+    /// First visible row of the list column (viewport scroll offset).
+    list_offset: usize,
+    /// Selection seen at the last render, to detect selection movement.
+    list_last_selected: usize,
+    /// Second-press confirmation state for quitting with unsaved comments.
+    quit_armed: bool,
+    /// Line cursor for the Code tab, decoupled from the viewport: keys move
+    /// it (viewport follows), the wheel scrolls without touching it.
+    detail_cursor: usize,
+    /// Detail body height at the last render, for cursor-follow and paging.
+    detail_viewport: usize,
+    /// Synthesized artifact for the selected ADR or companion, keyed by a
+    /// stable identity so tab switches do not re-read files or re-run git.
+    synthesized: Option<(String, ArtifactView)>,
+    /// Whether keystrokes in the Search section edit the query (explicit
+    /// input mode) or navigate the result list.
+    search_typing: bool,
+    /// In-panel filter narrowing the focused list; empty when off.
+    list_filter: String,
+    /// Whether keystrokes edit the in-panel filter.
+    list_filter_typing: bool,
+    /// Show only rows whose status needs attention (modified/stale/new).
+    problems_only: bool,
 }
 
 impl App {
@@ -503,11 +628,42 @@ impl App {
             preview: None,
             help_state: HelpState::Closed,
             palette: Palette::new(),
+            mouse_regions: MouseRegions::default(),
+            pending_external: None,
+            deploy_picker: None,
+            launch_picker: None,
+            list_offset: 0,
+            list_last_selected: 0,
+            quit_armed: false,
+            list_filter: String::new(),
+            list_filter_typing: false,
+            problems_only: false,
+            detail_cursor: 0,
+            detail_viewport: 1,
+            synthesized: None,
+            search_typing: false,
         }
     }
 
     pub fn refresh(&mut self) {
+        if self.scan_state == ScanState::Loading {
+            self.toast = Some("scan already running".to_string());
+            return;
+        }
         self.start_scan();
+    }
+
+    /// Restarts the scan even when one is in flight, superseding its result —
+    /// used after an external tool may have changed the repos.
+    pub fn force_refresh(&mut self) {
+        self.start_scan();
+    }
+
+    /// Whether a background scan is still in flight (used by snapshot mode to
+    /// block until real data is available before rendering a frame).
+    #[must_use]
+    pub fn scan_pending(&self) -> bool {
+        self.scan_receiver.is_some()
     }
 
     pub fn poll_scan(&mut self) {
@@ -523,8 +679,11 @@ impl App {
                 self.scan_state = ScanState::Idle;
                 self.scan_receiver = None;
                 self.toast = Some("scan complete".to_string());
+                let previous_target = self.selected_target();
                 self.invalidate_rows();
                 self.invalidate_detail_caches();
+                self.refresh_open_preview();
+                self.restore_selection(previous_target);
                 self.clamp_list_selection();
             }
             Ok(Err(error)) => {
@@ -576,8 +735,35 @@ impl App {
     }
 
     pub fn render(&mut self, frame: &mut Frame<'_>) {
-        if let Some(preview) = self.preview.as_mut() {
-            preview.render(frame, frame.area());
+        if self.preview.is_some() {
+            let area = frame.area();
+            let inner_width = area.width.saturating_sub(2).max(1);
+            let tab = self.detail_tab;
+            let needs_rebuild = self
+                .preview
+                .as_ref()
+                .is_some_and(|preview| preview.needs_rebuild(tab, inner_width));
+            if needs_rebuild {
+                let artifact = self
+                    .preview
+                    .as_ref()
+                    .map(|preview| preview.artifact().clone())
+                    .expect("preview is open");
+                let (lines, windowed) = {
+                    let module = self
+                        .view
+                        .modules
+                        .iter()
+                        .find(|module| module.name == artifact.module);
+                    self.build_detail_lines(module, &artifact, tab, inner_width)
+                };
+                if let Some(preview) = self.preview.as_mut() {
+                    preview.set_lines(tab, inner_width, lines, windowed);
+                }
+            }
+            if let Some(preview) = self.preview.as_mut() {
+                preview.render(frame, area);
+            }
             return;
         }
 
@@ -601,11 +787,22 @@ impl App {
                 Constraint::Min(0),
             ])
             .split(layout[1]);
+        self.mouse_regions.sections = columns[0];
+        self.mouse_regions.list = columns[1];
+        self.mouse_regions.detail = columns[2];
+        self.mouse_regions.tabs = Rect::default();
+        self.mouse_regions.detail_body = Rect::default();
         self.render_sections(frame, columns[0]);
         self.render_list(frame, columns[1]);
         self.render_detail(frame, columns[2]);
         self.render_footer(frame, layout[2]);
 
+        if let Some(picker) = &self.deploy_picker {
+            render_deploy_picker(frame, frame.area(), picker);
+        }
+        if let Some(picker) = &self.launch_picker {
+            render_launch_picker(frame, frame.area(), picker);
+        }
         if self.help_state == HelpState::Open {
             render_help(frame, frame.area());
         }
@@ -618,8 +815,13 @@ impl App {
             "ready"
         };
         let summary = &self.view.summary;
+        let comments = if self.comments.is_empty() {
+            String::new()
+        } else {
+            format!(" | ✎ {} comments (Y copies)", self.comments.len())
+        };
         let text = format!(
-            " forge tui | {scan} | ok {} stale {} modified {} new {} | {} modules",
+            " forge tui | {scan} | ok {} stale {} modified {} new {} | {} modules{comments}",
             summary.unchanged,
             summary.stale,
             summary.modified,
@@ -645,8 +847,10 @@ impl App {
             self.palette.display_text(self.palette_error.as_deref())
         } else if let Some(toast) = &self.toast {
             format!(" {toast}")
+        } else if let Some((current, total)) = self.hunk_position() {
+            format!("hunk {current}/{total}  ·  ] next hunk  ·  [ previous hunk  ·  j/k scroll")
         } else {
-            hint_row()
+            hint_row(self.focused)
         };
         frame.render_widget(
             Paragraph::new(text).style(Style::default().fg(Color::DarkGray)),
@@ -663,7 +867,8 @@ impl App {
             .iter()
             .enumerate()
             .map(|(index, section)| {
-                let prefix = format!("{} ", index + 1);
+                let _ = index;
+                let prefix = format!("{} ", section.shortcut_label());
                 let style = if *section == self.section {
                     selected_style(self.focused == ColumnFocus::Sections)
                 } else {
@@ -678,26 +883,68 @@ impl App {
         frame.render_widget(List::new(items), inner);
     }
 
-    fn render_list(&self, frame: &mut Frame<'_>, area: Rect) {
-        let title = format!(" {} ", self.section.label());
+    fn render_list(&mut self, frame: &mut Frame<'_>, area: Rect) {
+        let mode = if self.list_filter_typing {
+            format!(" · /{}▌", self.list_filter)
+        } else if !self.list_filter.is_empty() {
+            format!(" · /{}", self.list_filter)
+        } else if self.problems_only {
+            " · [!]".to_string()
+        } else {
+            let selectable = self
+                .cached_rows
+                .iter()
+                .filter(|row| row.is_selectable())
+                .count();
+            if selectable == 0 {
+                String::new()
+            } else {
+                let position = self
+                    .cached_rows
+                    .iter()
+                    .take(self.selected_list_index(&self.cached_rows) + 1)
+                    .filter(|row| row.is_selectable())
+                    .count();
+                format!(" · {position}/{selectable}")
+            }
+        };
+        let title = format!(" {}{mode} ", self.section.label());
         let block = column_block(&title, self.focused == ColumnFocus::List);
         let inner = block.inner(area);
         frame.render_widget(block, area);
 
-        let rows = self.cached_rows();
-        if self.scan_state == ScanState::Loading && rows.is_empty() {
+        if self.scan_state == ScanState::Loading && self.cached_rows.is_empty() {
             frame.render_widget(
                 Paragraph::new("Scanning modules...").style(Style::default().fg(Color::Gray)),
                 inner,
             );
             return;
         }
-        let selected = self.selected_list_index(rows);
+        let viewport = usize::from(inner.height.max(1));
+        let selected = self.selected_list_index(&self.cached_rows);
+        // The viewport follows selection changes (keyboard/click), while wheel
+        // scrolling moves the offset alone — passive gestures never drag the
+        // selection, and moving the selection always brings it back on screen.
+        if selected != self.list_last_selected {
+            if selected < self.list_offset {
+                self.list_offset = selected;
+            } else if selected + 1 > self.list_offset + viewport {
+                self.list_offset = selected + 1 - viewport;
+            }
+            self.list_last_selected = selected;
+        }
+        self.list_offset = self
+            .list_offset
+            .min(self.cached_rows.len().saturating_sub(viewport));
+        let offset = self.list_offset;
+        let rows = &self.cached_rows;
         let items: Vec<ListItem<'_>> = if rows.is_empty() {
             vec![ListItem::new("no rows")]
         } else {
             rows.iter()
                 .enumerate()
+                .skip(offset)
+                .take(viewport)
                 .map(|(index, row)| {
                     if row.header {
                         return ListItem::new(Line::from(Span::styled(
@@ -712,12 +959,30 @@ impl App {
                     } else {
                         Style::default()
                     };
-                    ListItem::new(Line::from(vec![
+                    let mut spans = vec![
                         Span::styled(status_dot(row.status), status_style(row.status)),
                         Span::raw(" "),
                         Span::styled(row.label.clone(), base),
-                        Span::styled(format!("  {}", row.detail), base.fg(Color::DarkGray)),
-                    ]))
+                    ];
+                    // The detail (owning module, qualifier) is a dim
+                    // right-aligned column on every row; when tight it
+                    // truncates from the left, never the label.
+                    if !row.detail.is_empty() {
+                        let used = 2 + UnicodeWidthStr::width(row.label.as_str());
+                        let room = usize::from(inner.width).saturating_sub(used);
+                        if room >= 4 {
+                            let detail_width = UnicodeWidthStr::width(row.detail.as_str());
+                            let (text, shown_width) = if detail_width < room {
+                                (row.detail.clone(), detail_width)
+                            } else {
+                                truncate_left_to_width(&row.detail, room.saturating_sub(2))
+                            };
+                            let pad = room.saturating_sub(shown_width);
+                            spans.push(Span::raw(" ".repeat(pad)));
+                            spans.push(Span::styled(text, base.fg(Color::DarkGray)));
+                        }
+                    }
+                    ListItem::new(Line::from(spans))
                 })
                 .collect()
         };
@@ -725,7 +990,23 @@ impl App {
     }
 
     fn render_detail(&mut self, frame: &mut Frame<'_>, area: Rect) {
-        let block = column_block(" Detail ", self.focused == ColumnFocus::Detail);
+        let position = match self.detail_tab {
+            DetailTab::Code => self
+                .code_cache
+                .as_ref()
+                .map(|cache| (self.detail_cursor + 1, cache.lines.len())),
+            _ => self
+                .preview_cache
+                .as_ref()
+                .map(|cache| (usize::from(self.detail_scroll) + 1, cache.lines.len())),
+        };
+        let title = match position {
+            Some((current, total)) if total > 0 => {
+                format!(" Detail · {}/{total} ", current.min(total))
+            }
+            _ => " Detail ".to_string(),
+        };
+        let block = column_block(&title, self.focused == ColumnFocus::Detail);
         let inner = block.inner(area);
         frame.render_widget(block, area);
 
@@ -744,18 +1025,25 @@ impl App {
                 }
             }
             Some(ListTarget::Adr { repo, id }) => {
-                if let Some(adr) = self.find_adr(&repo, &id) {
-                    render_adr_detail(frame, inner, adr);
+                if let Some(adr) = self.find_adr(&repo, &id).cloned() {
+                    let identity = format!("adr:{}", adr.local_path);
+                    let module_name = adr.repo.clone();
+                    self.render_synthesized_detail(frame, inner, &identity, &module_name, |app| {
+                        app.build_adr_artifact_view(&adr)
+                    });
                 } else {
                     frame.render_widget(Paragraph::new("ADR not found"), inner);
                 }
             }
+            Some(ListTarget::Companion {
+                module,
+                parent,
+                name,
+            }) => {
+                self.render_companion_detail(frame, inner, &module, &parent, &name);
+            }
             Some(ListTarget::Module(name)) => {
-                if let Some(module) = self.view.modules.iter().find(|module| module.name == name) {
-                    render_module_detail(frame, inner, module);
-                } else {
-                    frame.render_widget(Paragraph::new("repository not found"), inner);
-                }
+                self.render_module_rich(frame, inner, &name);
             }
             Some(ListTarget::Variant {
                 module,
@@ -808,25 +1096,362 @@ impl App {
             .direction(Direction::Vertical)
             .constraints([Constraint::Length(2), Constraint::Min(1)])
             .split(area);
+        self.mouse_regions.tabs = chunks[0];
+        self.mouse_regions.detail_body = chunks[1];
         self.render_tabs(frame, chunks[0]);
         self.prepare_artifact_detail_cache(module_index, artifact_index, chunks[1].width);
-        let module = &self.view.modules[module_index];
-        let artifact = &module.artifacts[artifact_index];
-        let lines = match self.detail_tab {
-            DetailTab::Preview => self.preview_cache_lines(),
-            DetailTab::Code => self.code_cache_lines(artifact),
-            DetailTab::Diff => diff_lines(artifact),
-            DetailTab::Provenance => self.provenance_lines(module, artifact),
-            DetailTab::Frontmatter => frontmatter_lines(artifact),
-            DetailTab::History => history_lines(artifact),
-            DetailTab::Companions => companion_lines(artifact),
+        if self.detail_tab == DetailTab::Code {
+            let viewport = usize::from(chunks[1].height.max(1));
+            self.detail_viewport = viewport;
+            // The cursor is the top visible line, so every line must be able
+            // to reach the top — clamp to the last line, not the last page.
+            let max_scroll = self
+                .code_cache
+                .as_ref()
+                .map_or(0, |cache| cache.lines.len())
+                .saturating_sub(1);
+            self.detail_scroll = self
+                .detail_scroll
+                .min(u16::try_from(max_scroll).unwrap_or(u16::MAX));
+            let artifact = &self.view.modules[module_index].artifacts[artifact_index];
+            let lines = self.code_window(artifact, viewport);
+            // Pre-expand long lines so continuation rows align after the
+            // line-number gutter with a ↪ marker instead of sliding under it.
+            let mut rows = expand_gutter_wrapped(lines, CODE_GUTTER, usize::from(chunks[1].width));
+            rows.truncate(viewport);
+            frame.render_widget(Paragraph::new(Text::from(rows)), chunks[1]);
+        } else {
+            let expected_key = {
+                let module = &self.view.modules[module_index];
+                let artifact = &module.artifacts[artifact_index];
+                detail_cache_key(self.detail_tab, &module.name, &artifact.relative_path)
+            };
+            // A deferred rebuild (input still queued) leaves the previous
+            // artifact's lines in the cache; render a placeholder rather than
+            // content that belongs to another selection.
+            if self
+                .preview_cache
+                .as_ref()
+                .is_some_and(|cache| cache.key != expected_key)
+            {
+                frame.render_widget(
+                    Paragraph::new("rendering…").style(Style::default().fg(Color::DarkGray)),
+                    chunks[1],
+                );
+            } else {
+                self.render_cached_detail(frame, chunks[1]);
+            }
+        }
+    }
+
+    /// Full ADR document rendered through the markdown pipeline, replacing the
+    /// one-paragraph summary that used to cut the body off.
+    /// Repository detail: header, VCS state, recent commits, and the repo
+    /// README rendered through glow — cached like every other detail view.
+    fn render_module_rich(&mut self, frame: &mut Frame<'_>, area: Rect, name: &str) {
+        let Some(module_index) = self
+            .view
+            .modules
+            .iter()
+            .position(|module| module.name == name)
+        else {
+            frame.render_widget(Paragraph::new("repository not found"), area);
+            return;
         };
-        frame.render_widget(
-            Paragraph::new(Text::from(lines))
-                .wrap(Wrap { trim: false })
-                .scroll((self.detail_scroll, 0)),
-            chunks[1],
-        );
+        self.mouse_regions.detail_body = area;
+        let cache_width = area.width.max(1);
+        let key = format!("Module:{name}");
+        let needs_build = self
+            .preview_cache
+            .as_ref()
+            .is_none_or(|cache| cache.key != key || cache.width != cache_width);
+        if needs_build {
+            if self.preview_cache.is_some() && input_pending() {
+                frame.render_widget(
+                    Paragraph::new("rendering…").style(Style::default().fg(Color::DarkGray)),
+                    area,
+                );
+                return;
+            }
+            if self
+                .preview_cache
+                .as_ref()
+                .is_some_and(|cache| cache.key != key)
+            {
+                self.detail_scroll = 0;
+            }
+            let module = &self.view.modules[module_index];
+            let mut lines = module_header_lines(module);
+            lines.extend(jj_log_lines(module));
+            if let Some(readme) = module
+                .local_path
+                .as_ref()
+                .and_then(|path| std::fs::read_to_string(path.join("README.md")).ok())
+            {
+                lines.push(Line::from(Span::styled(
+                    "─".repeat(usize::from(cache_width)),
+                    Style::default().fg(Color::DarkGray),
+                )));
+                match rich::render_markdown_with_glow(&readme, cache_width) {
+                    Some(rendered) => lines.extend(rendered),
+                    None => lines.extend(readme.lines().map(|line| Line::from(line.to_string()))),
+                }
+            }
+            let lines = expand_gutter_wrapped(lines, 2, usize::from(cache_width));
+            let row_links = commit_links(&lines, &module.source_uri);
+            self.preview_cache = Some(DetailCache {
+                key,
+                width: cache_width,
+                lines,
+                windowed: true,
+                hunks: Vec::new(),
+                line_map: Vec::new(),
+                links: row_links,
+            });
+        }
+        self.render_cached_detail(frame, area);
+    }
+
+    /// Renders a synthesized artifact (ADR, companion) through the same
+    /// tabbed detail pipeline as scanned artifacts: one artifact view
+    /// everywhere.
+    fn render_synthesized_detail(
+        &mut self,
+        frame: &mut Frame<'_>,
+        area: Rect,
+        identity: &str,
+        module_name: &str,
+        build: impl FnOnce(&Self) -> ArtifactView,
+    ) {
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Length(2), Constraint::Min(1)])
+            .split(area);
+        self.mouse_regions.tabs = chunks[0];
+        self.mouse_regions.detail_body = chunks[1];
+        self.render_tabs(frame, chunks[0]);
+        let cache_width = chunks[1].width.max(1);
+        let key = detail_cache_key(self.detail_tab, module_name, identity);
+        let needs_build = self
+            .preview_cache
+            .as_ref()
+            .is_none_or(|cache| cache.key != key || cache.width != cache_width);
+        if needs_build {
+            if self.preview_cache.is_some() && input_pending() {
+                frame.render_widget(
+                    Paragraph::new("rendering…").style(Style::default().fg(Color::DarkGray)),
+                    chunks[1],
+                );
+                return;
+            }
+            if self
+                .preview_cache
+                .as_ref()
+                .is_some_and(|cache| cache.key != key)
+            {
+                self.detail_scroll = 0;
+            }
+            if self
+                .synthesized
+                .as_ref()
+                .is_none_or(|(cached, _)| cached != identity)
+            {
+                let artifact = build(self);
+                self.synthesized = Some((identity.to_string(), artifact));
+            }
+            let (lines, windowed) = {
+                let (_, artifact) = self.synthesized.as_ref().expect("synthesized just set");
+                let module = self
+                    .view
+                    .modules
+                    .iter()
+                    .find(|module| module.name == module_name);
+                self.build_detail_lines(module, artifact, self.detail_tab, cache_width)
+            };
+            let hunks = hunk_offsets(&lines);
+            let line_map = if self.detail_tab == DetailTab::Diff {
+                diff_line_map(&lines)
+            } else {
+                Vec::new()
+            };
+            let row_links = if self.detail_tab == DetailTab::History {
+                let web = self
+                    .view
+                    .modules
+                    .iter()
+                    .find(|module| module.name == module_name)
+                    .map(|module| module.source_uri.clone())
+                    .unwrap_or_default();
+                commit_links(&lines, &web)
+            } else {
+                Vec::new()
+            };
+            self.preview_cache = Some(DetailCache {
+                key,
+                width: cache_width,
+                lines,
+                windowed,
+                hunks,
+                line_map,
+                links: row_links,
+            });
+        }
+        self.render_cached_detail(frame, chunks[1]);
+    }
+
+    fn render_companion_detail(
+        &mut self,
+        frame: &mut Frame<'_>,
+        area: Rect,
+        module: &str,
+        parent: &str,
+        name: &str,
+    ) {
+        let found = self
+            .view
+            .modules
+            .iter()
+            .find(|candidate| candidate.name == module)
+            .and_then(|candidate| {
+                candidate
+                    .artifacts
+                    .iter()
+                    .find(|artifact| artifact.name == parent)
+            })
+            .and_then(|artifact| {
+                artifact
+                    .companions
+                    .iter()
+                    .find(|companion| companion.name == name)
+            })
+            .cloned();
+        if let Some(companion) = found {
+            let identity = format!("companion:{module}:{parent}:{name}");
+            self.render_synthesized_detail(frame, area, &identity, module, |app| {
+                app.build_companion_artifact_view(module, parent, &companion)
+            });
+        } else {
+            frame.render_widget(Paragraph::new("companion not found"), area);
+        }
+    }
+
+    /// One artifact view for an ADR: full raw source, stripped body,
+    /// frontmatter, per-file git history, and the module's VCS state.
+    fn build_adr_artifact_view(&self, adr: &Adr) -> ArtifactView {
+        let raw = std::fs::read_to_string(&adr.local_path)
+            .unwrap_or_else(|error| format!("could not read {}: {error}", adr.local_path));
+        let body = services::strip_frontmatter(&raw);
+        let module = self
+            .view
+            .modules
+            .iter()
+            .find(|module| module.name == adr.repo);
+        let git_log = module
+            .and_then(|module| module.local_path.as_ref())
+            .map(|repo| services::git_log_in_repo(repo, &adr.relative_path))
+            .unwrap_or_default();
+        ArtifactView {
+            name: format!("{} {}", adr.id, adr.title),
+            kind: "adr".to_string(),
+            module: adr.repo.clone(),
+            relative_path: adr.relative_path.clone(),
+            source_path: adr.relative_path.clone(),
+            description: format!("{} · {}", adr.state, adr.status),
+            metadata: services::parse_frontmatter(&raw),
+            content_body: body,
+            raw_source: raw,
+            git_log,
+            vcs: module.and_then(|module| module.vcs.clone()),
+            ..ArtifactView::default()
+        }
+    }
+
+    /// One artifact view for a skill companion file.
+    fn build_companion_artifact_view(
+        &self,
+        module_name: &str,
+        parent: &str,
+        companion: &Companion,
+    ) -> ArtifactView {
+        let module = self
+            .view
+            .modules
+            .iter()
+            .find(|module| module.name == module_name);
+        let git_log = module
+            .and_then(|module| module.local_path.as_ref())
+            .map(|repo| services::git_log_in_repo(repo, &companion.relative_path))
+            .unwrap_or_default();
+        ArtifactView {
+            name: format!("{parent}/{}", companion.name),
+            kind: "companion".to_string(),
+            module: module_name.to_string(),
+            relative_path: companion.relative_path.clone(),
+            source_path: companion.relative_path.clone(),
+            description: companion.description.clone(),
+            metadata: services::parse_frontmatter(&companion.raw_source),
+            content_body: companion.content_body.clone(),
+            raw_source: companion.raw_source.clone(),
+            git_log,
+            vcs: module.and_then(|module| module.vcs.clone()),
+            ..ArtifactView::default()
+        }
+    }
+
+    /// Draws the current detail cache: windowed when the lines are already
+    /// wrapped at pane width (glow), wrap-and-scroll otherwise.
+    fn render_cached_detail(&mut self, frame: &mut Frame<'_>, area: Rect) {
+        let viewport = usize::from(area.height.max(1));
+        self.detail_viewport = viewport;
+        let windowed = self
+            .preview_cache
+            .as_ref()
+            .is_some_and(|cache| cache.windowed);
+        if windowed {
+            let total = self
+                .preview_cache
+                .as_ref()
+                .map_or(0, |cache| cache.lines.len());
+            let max_scroll = u16::try_from(total.saturating_sub(viewport)).unwrap_or(u16::MAX);
+            self.detail_scroll = self.detail_scroll.min(max_scroll);
+            let mut lines = self.preview_window(viewport);
+            if self.detail_tab == DetailTab::Diff {
+                let scroll = usize::from(self.detail_scroll);
+                if let Some(row) = self.detail_cursor.checked_sub(scroll)
+                    && let Some(line) = lines.get_mut(row)
+                {
+                    line.style = selected_style(self.focused == ColumnFocus::Detail);
+                }
+            }
+            frame.render_widget(Paragraph::new(Text::from(lines)), area);
+        } else {
+            let total = self
+                .preview_cache
+                .as_ref()
+                .map_or(0, |cache| wrapped_rows(&cache.lines, area.width.max(1)));
+            let max_scroll = u16::try_from(total.saturating_sub(viewport)).unwrap_or(u16::MAX);
+            self.detail_scroll = self.detail_scroll.min(max_scroll);
+            let lines = self.preview_cache_lines();
+            frame.render_widget(
+                Paragraph::new(Text::from(lines))
+                    .wrap(Wrap { trim: false })
+                    .scroll((self.detail_scroll, 0)),
+                area,
+            );
+        }
+    }
+
+    fn preview_window(&self, viewport: usize) -> Vec<Line<'static>> {
+        let scroll = usize::from(self.detail_scroll);
+        self.preview_cache.as_ref().map_or_else(Vec::new, |cache| {
+            cache
+                .lines
+                .iter()
+                .skip(scroll)
+                .take(viewport)
+                .cloned()
+                .collect()
+        })
     }
 
     fn prepare_artifact_detail_cache(
@@ -835,49 +1460,127 @@ impl App {
         artifact_index: usize,
         width: u16,
     ) {
-        match self.detail_tab {
-            DetailTab::Preview => {
-                let artifact = &self.view.modules[module_index].artifacts[artifact_index];
-                let path = artifact.relative_path.clone();
-                let cache_width = width.max(1);
-                let needs_build = self
-                    .preview_cache
-                    .as_ref()
-                    .is_none_or(|cache| cache.path != path || cache.width != cache_width);
-                if needs_build {
-                    let lines = preview_lines_for_width(artifact, cache_width);
-                    self.preview_cache = Some(PreviewCache {
-                        path,
-                        width: cache_width,
-                        lines,
-                    });
-                    #[cfg(test)]
-                    {
-                        self.preview_cache_build_count += 1;
-                    }
+        let cache_width = width.max(1);
+        if self.detail_tab == DetailTab::Code {
+            let module = &self.view.modules[module_index];
+            let artifact = &module.artifacts[artifact_index];
+            let key = format!("{}:{}", module.name, artifact.relative_path);
+            let needs_build = self
+                .code_cache
+                .as_ref()
+                .is_none_or(|cache| cache.path != key);
+            if needs_build {
+                self.detail_scroll = 0;
+                self.detail_cursor = 0;
+                let lines = rich::highlight_code(&artifact.relative_path, &artifact.raw_source);
+                self.code_cache = Some(CodeCache { path: key, lines });
+                #[cfg(test)]
+                {
+                    self.code_cache_build_count += 1;
                 }
             }
-            DetailTab::Code => {
-                let artifact = &self.view.modules[module_index].artifacts[artifact_index];
-                let path = artifact.relative_path.clone();
-                let needs_build = self
-                    .code_cache
-                    .as_ref()
-                    .is_none_or(|cache| cache.path != path);
-                if needs_build {
-                    let lines = rich::highlight_code(&path, &artifact.raw_source);
-                    self.code_cache = Some(CodeCache { path, lines });
-                    #[cfg(test)]
-                    {
-                        self.code_cache_build_count += 1;
-                    }
-                }
+            return;
+        }
+        let key = {
+            let module = &self.view.modules[module_index];
+            let artifact = &module.artifacts[artifact_index];
+            detail_cache_key(self.detail_tab, &module.name, &artifact.relative_path)
+        };
+        let needs_build = self
+            .preview_cache
+            .as_ref()
+            .is_none_or(|cache| cache.key != key || cache.width != cache_width);
+        if needs_build {
+            // Preview and Diff spawn subprocesses (glow, git). While keys are
+            // still queued — the user is holding j/k — keep the previous frame
+            // and rebuild once input drains, so browsing never stutters.
+            let expensive = matches!(self.detail_tab, DetailTab::Preview | DetailTab::Diff);
+            if expensive && self.preview_cache.is_some() && input_pending() {
+                return;
             }
-            DetailTab::Diff
-            | DetailTab::Provenance
-            | DetailTab::Frontmatter
-            | DetailTab::History
-            | DetailTab::Companions => {}
+            // A different target means new content: scrolling must restart at
+            // the top, or a short document renders as a blank pane.
+            if self
+                .preview_cache
+                .as_ref()
+                .is_some_and(|cache| cache.key != key)
+            {
+                self.detail_scroll = 0;
+                self.detail_cursor = 0;
+            }
+            let (lines, windowed) = {
+                let module = &self.view.modules[module_index];
+                let artifact = &module.artifacts[artifact_index];
+                self.build_detail_lines(Some(module), artifact, self.detail_tab, cache_width)
+            };
+            let hunks = hunk_offsets(&lines);
+            let line_map = if self.detail_tab == DetailTab::Diff {
+                diff_line_map(&lines)
+            } else {
+                Vec::new()
+            };
+            let row_links = if self.detail_tab == DetailTab::History {
+                let web = self.view.modules[module_index].source_uri.clone();
+                commit_links(&lines, &web)
+            } else {
+                Vec::new()
+            };
+            self.detail_cursor = self.detail_cursor.min(lines.len().saturating_sub(1));
+            self.preview_cache = Some(DetailCache {
+                key,
+                width: cache_width,
+                lines,
+                windowed,
+                hunks,
+                line_map,
+                links: row_links,
+            });
+            #[cfg(test)]
+            {
+                self.preview_cache_build_count += 1;
+            }
+        }
+    }
+
+    /// Renders one detail tab to lines: the single pipeline behind the detail
+    /// pane and the fullscreen zoom, so both show the same rich content.
+    fn build_detail_lines(
+        &self,
+        module: Option<&ModuleView>,
+        artifact: &ArtifactView,
+        tab: DetailTab,
+        width: u16,
+    ) -> (Vec<Line<'static>>, bool) {
+        match tab {
+            DetailTab::Preview => preview_lines_for_width(artifact, width),
+            DetailTab::Code => (
+                expand_gutter_wrapped(
+                    rich::highlight_code(&artifact.relative_path, &artifact.raw_source),
+                    CODE_GUTTER,
+                    usize::from(width),
+                ),
+                true,
+            ),
+            DetailTab::Diff => (
+                expand_gutter_wrapped(diff_lines(module, artifact, width), 10, usize::from(width)),
+                true,
+            ),
+            DetailTab::Provenance => (
+                expand_gutter_wrapped(
+                    module.map_or_else(
+                        || vec![Line::from("module not found")],
+                        |module| self.provenance_lines(module, artifact),
+                    ),
+                    2,
+                    usize::from(width),
+                ),
+                true,
+            ),
+            DetailTab::Frontmatter => (frontmatter_lines(artifact, width), true),
+            DetailTab::History => (
+                expand_gutter_wrapped(history_lines(artifact), 2, usize::from(width)),
+                true,
+            ),
         }
     }
 
@@ -887,18 +1590,24 @@ impl App {
             .map_or_else(Vec::new, |cache| cache.lines.clone())
     }
 
-    fn code_cache_lines(&self, artifact: &ArtifactView) -> Vec<Line<'static>> {
+    fn code_window(&self, artifact: &ArtifactView, viewport: usize) -> Vec<Line<'static>> {
+        let scroll = usize::from(self.detail_scroll);
         let current_line = self.current_code_line(artifact);
+        let module = &artifact.module;
         let path = &artifact.relative_path;
         self.code_cache.as_ref().map_or_else(Vec::new, |cache| {
             cache
                 .lines
                 .iter()
-                .cloned()
                 .enumerate()
-                .map(|(index, mut line)| {
+                .skip(scroll)
+                .take(viewport)
+                .map(|(index, cached_line)| {
+                    let mut line = cached_line.clone();
                     let line_number = index + 1;
-                    let has_comment = self.comments.contains_key(&(path.clone(), line_number));
+                    let has_comment =
+                        self.comments
+                            .contains_key(&(module.clone(), path.clone(), line_number));
                     if let Some(marker) = line.spans.first_mut() {
                         *marker = Span::styled(
                             if has_comment { "◆ " } else { "  " },
@@ -1005,7 +1714,7 @@ impl App {
             Line::from(format!("qualifier: {qualifier}")),
             Line::from(""),
         ];
-        if let Some((_, artifact)) = self.find_artifact(module, kind, name)
+        if let Some((module_view, artifact)) = self.find_artifact(module, kind, name)
             && let Some(variant) = artifact
                 .variants
                 .iter()
@@ -1014,9 +1723,19 @@ impl App {
             lines.push(Line::from(format!("merge mode: {}", variant.mode)));
             lines.push(Line::from(format!("path: {}", variant.relative_path)));
             lines.push(Line::from(""));
-            lines.push(Line::from(
-                "effective merge preview is deferred to the dashboard route",
-            ));
+            match module_view
+                .local_path
+                .as_ref()
+                .map(|repo| std::fs::read_to_string(repo.join(&variant.relative_path)))
+            {
+                Some(Ok(body)) => {
+                    lines.extend(rich::highlight_code(&variant.relative_path, &body));
+                }
+                Some(Err(error)) => {
+                    lines.push(Line::from(format!("could not read variant: {error}")));
+                }
+                None => lines.push(Line::from("no local repo — variant body unavailable")),
+            }
         }
         frame.render_widget(
             Paragraph::new(Text::from(lines)).wrap(Wrap { trim: false }),
@@ -1025,7 +1744,28 @@ impl App {
     }
 
     pub fn request_quit(&mut self) {
+        if !self.comments.is_empty() && !self.quit_armed {
+            self.quit_armed = true;
+            self.toast = Some(format!(
+                "{} unsaved comments — press q again to quit (Y copies them first)",
+                self.comments.len()
+            ));
+            return;
+        }
         self.run_state = RunState::Quit;
+    }
+
+    pub fn disarm_quit(&mut self) {
+        self.quit_armed = false;
+    }
+
+    /// Esc walks focus back toward Sections and quits only from there —
+    /// backing out of a pane must never kill the session.
+    pub fn escape(&mut self) {
+        match self.focused {
+            ColumnFocus::Detail | ColumnFocus::List => self.focus_previous(),
+            ColumnFocus::Sections => self.request_quit(),
+        }
     }
 
     #[must_use]
@@ -1161,11 +1901,94 @@ impl App {
         };
     }
 
+    /// One navigation step in the detail pane: moves the Code cursor when the
+    /// Code tab is active, otherwise scrolls the viewport.
+    fn detail_step(&mut self, delta: isize) {
+        if matches!(self.detail_tab, DetailTab::Code | DetailTab::Diff) {
+            self.move_detail_cursor(delta);
+        } else if delta.is_negative() {
+            self.detail_scroll = self
+                .detail_scroll
+                .saturating_sub(u16::try_from(-delta).unwrap_or(0));
+        } else {
+            self.detail_scroll = self
+                .detail_scroll
+                .saturating_add(u16::try_from(delta).unwrap_or(0));
+        }
+    }
+
+    /// Jumps the diff viewport to the next or previous hunk header.
+    fn jump_hunk(&mut self, forward: bool) {
+        let Some(cache) = self.preview_cache.as_ref() else {
+            return;
+        };
+        let current = usize::from(self.detail_scroll);
+        let target = if forward {
+            cache.hunks.iter().find(|&&offset| offset > current)
+        } else {
+            cache.hunks.iter().rev().find(|&&offset| offset < current)
+        };
+        if let Some(&offset) = target {
+            self.detail_scroll = u16::try_from(offset).unwrap_or(u16::MAX);
+            self.detail_cursor = offset;
+        }
+    }
+
+    /// (current hunk, total hunks) for the footer while the Diff tab scrolls.
+    fn hunk_position(&self) -> Option<(usize, usize)> {
+        let cache = self.preview_cache.as_ref()?;
+        if self.detail_tab != DetailTab::Diff || cache.hunks.is_empty() {
+            return None;
+        }
+        let current = usize::from(self.detail_scroll);
+        let index = cache
+            .hunks
+            .iter()
+            .take_while(|&&offset| offset <= current)
+            .count()
+            .max(1);
+        Some((index, cache.hunks.len()))
+    }
+
+    fn toggle_overview_mode(&mut self) {
+        self.overview_mode = match self.overview_mode {
+            OverviewMode::Nested => OverviewMode::Matrix,
+            OverviewMode::Matrix => OverviewMode::Nested,
+        };
+        self.invalidate_rows();
+    }
+
     pub fn drill_or_expand(&mut self) {
         self.ensure_rows();
         match self.focused {
             ColumnFocus::Sections => self.focused = ColumnFocus::List,
             ColumnFocus::List => {
+                match self.selected_target() {
+                    Some(ListTarget::OverviewMode) => {
+                        self.toggle_overview_mode();
+                        return;
+                    }
+                    Some(ListTarget::StatusJump(status)) => {
+                        self.search = builders::SearchFilters::empty();
+                        self.search.status = status;
+                        self.set_section(Section::Search);
+                        return;
+                    }
+                    Some(ListTarget::KindJump(kind)) => {
+                        if let Some(section) = Section::from_name(&kind) {
+                            self.set_section(section);
+                        }
+                        return;
+                    }
+                    Some(ListTarget::ModuleJump { kind, module }) => {
+                        self.search = builders::SearchFilters::empty();
+                        self.search.kind = kind;
+                        self.search.module = module;
+                        self.set_section(Section::Search);
+                        return;
+                    }
+                    _ => {}
+                }
                 if let Some(ListTarget::ProvenanceArtifact { .. }) = self.selected_target() {
                     self.detail_tab = DetailTab::Provenance;
                 }
@@ -1184,6 +2007,106 @@ impl App {
         self.focus_previous();
     }
 
+    /// Left click: focus the pane under the cursor; select the section, list
+    /// row, or detail tab it lands on. Clicks are discrete and idempotent, so
+    /// mapping them to selection is safe (unlike wheel events).
+    pub fn mouse_click(&mut self, x: u16, y: u16) {
+        if self.preview.is_some()
+            || self.help_state == HelpState::Open
+            || self.palette.is_open()
+            || self.comment_prompt.is_some()
+        {
+            return;
+        }
+        let position = Position { x, y };
+        let regions = self.mouse_regions;
+        if regions.tabs.contains(position) {
+            self.focused = ColumnFocus::Detail;
+            if y == regions.tabs.y
+                && let Some(tab) = tab_at_column(x.saturating_sub(regions.tabs.x))
+            {
+                self.set_detail_tab(tab);
+            }
+        } else if regions.sections.contains(position) {
+            self.focused = ColumnFocus::Sections;
+            if let Some(row) = bordered_row_at(regions.sections, x, y)
+                && row < Section::ALL.len()
+            {
+                self.set_section(Section::ALL[row]);
+            }
+        } else if regions.list.contains(position) {
+            self.focused = ColumnFocus::List;
+            if let Some(visual_row) = bordered_row_at(regions.list, x, y) {
+                let row = visual_row.saturating_add(self.list_offset);
+                self.ensure_rows();
+                let rows = self.cached_rows();
+                let selectable = rows.get(row).is_some_and(ListRow::is_selectable);
+                let toggles = rows
+                    .get(row)
+                    .is_some_and(|hit| matches!(hit.target, ListTarget::OverviewMode));
+                if selectable {
+                    let already_selected = self.list_selected[self.section as usize] == row;
+                    self.list_selected[self.section as usize] = row;
+                    if toggles {
+                        self.toggle_overview_mode();
+                    } else if already_selected {
+                        // Click on the selected row activates it, gitui-style.
+                        self.drill_or_expand();
+                    }
+                }
+            }
+        } else if regions.detail.contains(position) {
+            self.focused = ColumnFocus::Detail;
+            if regions.detail_body.contains(position) {
+                let row = usize::from(y.saturating_sub(regions.detail_body.y))
+                    .saturating_add(usize::from(self.detail_scroll));
+                let link = self
+                    .preview_cache
+                    .as_ref()
+                    .and_then(|cache| cache.links.get(row).cloned().flatten());
+                if let Some(url) = link {
+                    self.toast = Some(if open_in_browser(&url) {
+                        format!("opened {url}")
+                    } else {
+                        format!("could not open {url}")
+                    });
+                }
+            }
+        }
+    }
+
+    /// Mouse wheel scrolls the viewport under the cursor and never moves the
+    /// selection: passive trackpad gestures must not drag application state.
+    pub fn mouse_scroll(&mut self, x: u16, y: u16, down: bool) {
+        const WHEEL_STEP: u16 = 3;
+        if self.preview.is_some() {
+            if down {
+                self.preview_scroll_down(WHEEL_STEP);
+            } else {
+                self.preview_scroll_up(WHEEL_STEP);
+            }
+            return;
+        }
+        if self.help_state == HelpState::Open {
+            return;
+        }
+        let position = Position { x, y };
+        if self.mouse_regions.detail.contains(position) {
+            self.detail_scroll = if down {
+                self.detail_scroll.saturating_add(WHEEL_STEP)
+            } else {
+                self.detail_scroll.saturating_sub(WHEEL_STEP)
+            };
+        } else if self.mouse_regions.list.contains(position) {
+            // Viewport only; the render pass clamps to the row count.
+            self.list_offset = if down {
+                self.list_offset.saturating_add(usize::from(WHEEL_STEP))
+            } else {
+                self.list_offset.saturating_sub(usize::from(WHEEL_STEP))
+            };
+        }
+    }
+
     pub fn focused_key(&mut self, key: KeyEvent) {
         match self.focused {
             ColumnFocus::Sections => self.section_key(key),
@@ -1198,6 +2121,308 @@ impl App {
         }
     }
 
+    /// Toasts show until the next keypress, then yield the footer back to the
+    /// hint row.
+    pub fn clear_toast(&mut self) {
+        self.toast = None;
+    }
+
+    pub fn set_toast(&mut self, message: String) {
+        self.toast = Some(message);
+    }
+
+    /// Queue gitui (or jjui) for the selected repository; the event loop
+    /// suspends the TUI, runs the tool in the repo, and resumes on exit.
+    pub fn open_repo_tool(&mut self, jj: bool) {
+        let program = if jj { "jjui" } else { "gitui" };
+        let name = match self.selected_target() {
+            Some(ListTarget::Module(name)) => name,
+            Some(
+                ListTarget::Artifact { module, .. }
+                | ListTarget::ProvenanceArtifact { module, .. }
+                | ListTarget::Companion { module, .. },
+            ) => module,
+            Some(ListTarget::Adr { repo, .. }) => repo,
+            _ => {
+                self.toast = Some(format!("{program}: select a repository or artifact first"));
+                return;
+            }
+        };
+        let Some(module) = self.view.modules.iter().find(|module| module.name == name) else {
+            return;
+        };
+        let Some(path) = module.local_path.clone() else {
+            self.toast = Some(format!("{program}: no local clone for {name}"));
+            return;
+        };
+        self.pending_external = Some(ExternalCommand {
+            program: program.to_string(),
+            args: Vec::new(),
+            directory: path,
+        });
+    }
+
+    pub fn take_external(&mut self) -> Option<ExternalCommand> {
+        self.pending_external.take()
+    }
+
+    /// Module owning the current selection, with its local repo path.
+    fn selected_module_repo(&self) -> Option<(String, PathBuf)> {
+        let name = match self.selected_target()? {
+            ListTarget::Module(name) => name,
+            ListTarget::Artifact { module, .. }
+            | ListTarget::ProvenanceArtifact { module, .. }
+            | ListTarget::Companion { module, .. } => module,
+            ListTarget::Adr { repo, .. } => repo,
+            _ => return None,
+        };
+        let module = self
+            .view
+            .modules
+            .iter()
+            .find(|module| module.name == name)?;
+        let path = module.local_path.clone()?;
+        Some((name, path))
+    }
+
+    /// Scope of the current selection for deploy: single artifact when one
+    /// is selected (with its `--only` prefix), whole module otherwise.
+    fn selected_deploy_scope(&self) -> Option<(String, Option<String>)> {
+        match self.selected_target()? {
+            ListTarget::Artifact { kind, name, .. }
+            | ListTarget::ProvenanceArtifact { kind, name, .. } => {
+                let artifact = self.selected_artifact()?;
+                let prefix = artifact_only_prefix(&kind, &artifact.relative_path);
+                Some((
+                    format!("{} {name}", kind.trim_end_matches('s')),
+                    Some(prefix),
+                ))
+            }
+            ListTarget::Companion { parent, name, .. } => Some((
+                format!("companion {parent}/{name}"),
+                Some(format!("skills/{parent}/{name}")),
+            )),
+            ListTarget::Module(name) => Some((format!("module {name}"), None)),
+            ListTarget::Adr { repo, .. } => Some((format!("module {repo}"), None)),
+            _ => None,
+        }
+    }
+
+    /// Opens the deploy target picker for the current selection: the single
+    /// artifact when one is selected, its whole module otherwise.
+    pub fn open_deploy_picker(&mut self) {
+        let Some((module_name, source)) = self.selected_module_repo() else {
+            self.toast = Some("deploy: select an artifact or repository first".to_string());
+            return;
+        };
+        let Some((scope_label, only)) = self.selected_deploy_scope() else {
+            self.toast = Some("deploy: nothing deployable selected".to_string());
+            return;
+        };
+        let scope_label = if only.is_some() {
+            scope_label
+        } else {
+            format!("module {module_name}")
+        };
+        let mut options: Vec<(String, PathBuf)> = Vec::new();
+        if let Some(home) = dirs::home_dir() {
+            options.push(("user scope (~)".to_string(), home));
+        }
+        options.push((
+            format!("this project ({})", self.root.display()),
+            self.root.clone(),
+        ));
+        for location in &self.watched_locations {
+            options.push((format!("watched: {}", location.display()), location.clone()));
+        }
+        self.deploy_picker = Some(DeployPicker {
+            scope_label,
+            source,
+            only,
+            options,
+            selected: 0,
+            input: None,
+        });
+    }
+
+    #[must_use]
+    pub fn is_deploy_picker_open(&self) -> bool {
+        self.deploy_picker.is_some()
+    }
+
+    /// One keypress inside the deploy picker: j/k select, Enter deploys to
+    /// the chosen target additively (install --no-prune, scoped by --only
+    /// when a single artifact is selected), the last row adds a new target
+    /// path, Esc closes.
+    pub fn deploy_picker_key(&mut self, key: KeyEvent) {
+        let Some(picker) = self.deploy_picker.as_mut() else {
+            return;
+        };
+        if picker.input.is_some() {
+            self.deploy_input_key(key);
+            return;
+        }
+        let add_row = picker.options.len();
+        match key.code {
+            KeyCode::Esc | KeyCode::Char('q') => self.deploy_picker = None,
+            KeyCode::Down | KeyCode::Char('j') => {
+                picker.selected = (picker.selected + 1).min(add_row);
+            }
+            KeyCode::Up | KeyCode::Char('k') => {
+                picker.selected = picker.selected.saturating_sub(1);
+            }
+            KeyCode::Enter if picker.selected == add_row => {
+                picker.input = Some("~/".to_string());
+            }
+            KeyCode::Enter => {
+                let picker = self.deploy_picker.take().expect("picker is open");
+                let Some((_, target)) = picker.options.get(picker.selected) else {
+                    return;
+                };
+                let program = std::env::current_exe()
+                    .map_or_else(|_| "forge".to_string(), |exe| exe.display().to_string());
+                let mut args = vec![
+                    "install".to_string(),
+                    "--source".to_string(),
+                    picker.source.display().to_string(),
+                    "--target".to_string(),
+                    target.display().to_string(),
+                    "--no-prune".to_string(),
+                ];
+                if let Some(prefix) = &picker.only {
+                    args.push("--only".to_string());
+                    args.push(prefix.clone());
+                }
+                self.pending_external = Some(ExternalCommand {
+                    program,
+                    args,
+                    directory: picker.source.clone(),
+                });
+                self.toast = Some(format!("deploying {} …", picker.scope_label));
+            }
+            _ => {}
+        }
+    }
+
+    /// Path entry for a new deploy target: typed, validated as an existing
+    /// directory, persisted to the watchlist, and selected.
+    fn deploy_input_key(&mut self, key: KeyEvent) {
+        let Some(picker) = self.deploy_picker.as_mut() else {
+            return;
+        };
+        let Some(input) = picker.input.as_mut() else {
+            return;
+        };
+        match key.code {
+            KeyCode::Esc => picker.input = None,
+            KeyCode::Backspace => {
+                input.pop();
+            }
+            KeyCode::Char(character) => input.push(character),
+            KeyCode::Enter => {
+                let raw = input.trim().to_string();
+                picker.input = None;
+                let expanded = expand_home(&raw);
+                let Ok(path) = std::fs::canonicalize(&expanded) else {
+                    self.toast = Some(format!("not a directory: {raw}"));
+                    return;
+                };
+                if !path.is_dir() {
+                    self.toast = Some(format!("not a directory: {raw}"));
+                    return;
+                }
+                match watchlist::add_path_silent(&path.display().to_string()) {
+                    Ok(_) => {
+                        picker
+                            .options
+                            .push((format!("added: {}", path.display()), path));
+                        picker.selected = picker.options.len() - 1;
+                        self.toast = Some("target added — Enter deploys to it".to_string());
+                    }
+                    Err(error) => {
+                        self.toast = Some(format!("could not save target: {error}"));
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// Opens the harness picker for launching a session in the selected
+    /// module's repo: `FORGE_TUI_LAUNCH` first when set, then the harness
+    /// CLIs, then `forge launch` once this binary carries it.
+    pub fn launch_harness(&mut self) {
+        let Some((module_name, path)) = self.selected_module_repo() else {
+            self.toast = Some("launch: select an artifact or repository first".to_string());
+            return;
+        };
+        let mut options: Vec<(String, String)> = Vec::new();
+        if let Ok(custom) = std::env::var("FORGE_TUI_LAUNCH")
+            && !custom.trim().is_empty()
+        {
+            options.push((format!("custom: {custom}"), custom));
+        }
+        for harness in ["claude", "codex", "gemini", "opencode"] {
+            options.push((harness.to_string(), harness.to_string()));
+        }
+        self.launch_picker = Some(LaunchPicker {
+            module_name,
+            directory: path,
+            options,
+            selected: 0,
+        });
+    }
+
+    #[must_use]
+    pub fn is_launch_picker_open(&self) -> bool {
+        self.launch_picker.is_some()
+    }
+
+    /// Whether a modal owns input: mouse events must not reach the panes
+    /// underneath (the fullscreen zoom keeps its wheel scrolling).
+    #[must_use]
+    pub fn modal_blocks_mouse(&self) -> bool {
+        self.is_help_open()
+            || self.is_palette_open()
+            || self.is_comment_prompt_open()
+            || self.deploy_picker.is_some()
+            || self.launch_picker.is_some()
+    }
+
+    pub fn launch_picker_key(&mut self, key: KeyEvent) {
+        let Some(picker) = self.launch_picker.as_mut() else {
+            return;
+        };
+        match key.code {
+            KeyCode::Esc | KeyCode::Char('q') => self.launch_picker = None,
+            KeyCode::Down | KeyCode::Char('j') => {
+                picker.selected = (picker.selected + 1).min(picker.options.len().saturating_sub(1));
+            }
+            KeyCode::Up | KeyCode::Char('k') => {
+                picker.selected = picker.selected.saturating_sub(1);
+            }
+            KeyCode::Enter => {
+                let picker = self.launch_picker.take().expect("picker is open");
+                let Some((label, command)) = picker.options.get(picker.selected) else {
+                    return;
+                };
+                // A custom command may carry arguments; std Command does not
+                // shell-split, so split on whitespace here.
+                let mut words = command.split_whitespace().map(str::to_string);
+                let Some(program) = words.next() else {
+                    return;
+                };
+                self.toast = Some(format!("launching {label} in {}", picker.module_name));
+                self.pending_external = Some(ExternalCommand {
+                    program,
+                    args: words.collect(),
+                    directory: picker.directory.clone(),
+                });
+            }
+            _ => {}
+        }
+    }
+
     pub fn set_section_by_shortcut(&mut self, character: char) -> bool {
         let Some(section) = Section::from_shortcut(character) else {
             return false;
@@ -1207,6 +2432,9 @@ impl App {
     }
 
     pub fn set_detail_tab(&mut self, tab: DetailTab) {
+        if self.detail_tab == tab {
+            return;
+        }
         self.detail_tab = tab;
         self.detail_scroll = 0;
     }
@@ -1215,6 +2443,36 @@ impl App {
     #[must_use]
     pub fn detail_tab(&self) -> DetailTab {
         self.detail_tab
+    }
+
+    #[cfg(test)]
+    pub fn set_module_local_path_for_test(&mut self, name: &str, path: PathBuf) {
+        if let Some(module) = self
+            .view
+            .modules
+            .iter_mut()
+            .find(|module| module.name == name)
+        {
+            module.local_path = Some(path);
+        }
+    }
+
+    #[cfg(test)]
+    #[must_use]
+    pub fn focused_column(&self) -> ColumnFocus {
+        self.focused
+    }
+
+    #[cfg(test)]
+    #[must_use]
+    pub fn detail_scroll_for_test(&self) -> u16 {
+        self.detail_scroll
+    }
+
+    #[cfg(test)]
+    #[must_use]
+    pub fn selected_row_for_test(&self) -> usize {
+        self.list_selected[self.section as usize]
     }
 
     #[cfg(test)]
@@ -1236,13 +2494,20 @@ impl App {
 
     #[must_use]
     pub fn is_search_input_active(&self) -> bool {
-        self.section == Section::Search && self.focused == ColumnFocus::List
+        self.section == Section::Search && self.focused == ColumnFocus::List && self.search_typing
+    }
+
+    pub fn begin_search_input(&mut self) {
+        self.focused = ColumnFocus::List;
+        self.search_typing = true;
     }
 
     pub fn search_input_key(&mut self, key: KeyEvent) {
         match key.code {
-            KeyCode::Esc => self.focus_previous(),
-            KeyCode::Enter => self.clamp_list_selection(),
+            KeyCode::Esc | KeyCode::Enter => {
+                self.search_typing = false;
+                self.clamp_list_selection();
+            }
             KeyCode::Backspace => {
                 self.search.query.pop();
                 self.list_selected[self.section as usize] = 0;
@@ -1293,8 +2558,15 @@ impl App {
 
     pub fn copy_selected(&mut self) {
         self.ensure_rows();
-        if let Some(artifact) = self.selected_artifact() {
-            self.toast = Some(format!("copied source path: {}", artifact.relative_path));
+        if let Some(path) = self
+            .selected_artifact()
+            .map(|artifact| artifact.relative_path.clone())
+        {
+            self.toast = Some(if copy_to_pbcopy(&path) {
+                format!("copied source path: {path}")
+            } else {
+                "pbcopy unavailable".to_string()
+            });
         }
     }
 
@@ -1306,27 +2578,34 @@ impl App {
 
         let digest = self.tuicr_digest();
         let copied = copy_to_pbcopy(&digest);
-        if !copied {
-            eprintln!("{digest}");
-        }
         let count = self.comments.len();
         self.toast = Some(if copied {
             format!("copied {count} comments")
         } else {
-            "pbcopy unavailable".to_string()
+            // stderr is invisible inside the alternate screen; a file is the
+            // only fallback that survives.
+            let fallback = std::env::temp_dir().join("forge-tuicr-review.md");
+            match std::fs::write(&fallback, &digest) {
+                Ok(()) => format!(
+                    "pbcopy unavailable — review written to {}",
+                    fallback.display()
+                ),
+                Err(error) => format!("pbcopy unavailable and file write failed: {error}"),
+            }
         });
     }
 
     #[cfg(test)]
     pub fn add_comment_for_test(
         &mut self,
+        module: impl Into<String>,
         path: impl Into<String>,
         line_number: usize,
         kind: CommentKind,
         text: impl Into<String>,
     ) {
         self.comments.insert(
-            (path.into(), line_number),
+            (module.into(), path.into(), line_number),
             LineComment {
                 kind,
                 text: text.into(),
@@ -1342,13 +2621,14 @@ impl App {
             String::new(),
         ];
         lines.extend(self.comments.iter().enumerate().map(
-            |(index, ((path, line_number), comment))| {
+            |(index, ((module, path, line_number), comment))| {
                 format!(
-                    "{}. **[{}]** `{}:{}` - {}",
+                    "{}. **[{}]** `{}:{}` ({}) - {}",
                     index + 1,
                     comment.kind.label(),
                     path,
                     line_number,
+                    module,
                     comment.text
                 )
             },
@@ -1357,18 +2637,37 @@ impl App {
     }
 
     fn open_comment_prompt(&mut self) {
-        let Some(artifact) = self.selected_artifact() else {
+        let Some((module, path, code_line)) = self.selected_artifact().map(|artifact| {
+            (
+                artifact.module.clone(),
+                artifact.relative_path.clone(),
+                self.current_code_line(artifact),
+            )
+        }) else {
             return;
         };
-        let path = artifact.relative_path.clone();
-        let line_number = self.current_code_line(artifact);
+        let line_number = if self.detail_tab == DetailTab::Diff {
+            let mapped = self
+                .preview_cache
+                .as_ref()
+                .and_then(|cache| cache.line_map.get(self.detail_cursor).copied().flatten());
+            let Some(line) = mapped else {
+                self.toast =
+                    Some("no source line here — move to an added or context row".to_string());
+                return;
+            };
+            line
+        } else {
+            code_line
+        };
         let (kind, text) = self
             .comments
-            .get(&(path.clone(), line_number))
+            .get(&(module.clone(), path.clone(), line_number))
             .map_or((CommentKind::Issue, String::new()), |comment| {
                 (comment.kind, comment.text.clone())
             });
         self.comment_prompt = Some(CommentPrompt {
+            module,
             path,
             line_number,
             kind,
@@ -1382,12 +2681,13 @@ impl App {
         };
         let text = prompt.text.trim().to_string();
         if text.is_empty() {
-            self.comments.remove(&(prompt.path, prompt.line_number));
+            self.comments
+                .remove(&(prompt.module, prompt.path, prompt.line_number));
             self.toast = Some("comment cleared".to_string());
             return;
         }
         self.comments.insert(
-            (prompt.path, prompt.line_number),
+            (prompt.module, prompt.path, prompt.line_number),
             LineComment {
                 kind: prompt.kind,
                 text,
@@ -1419,40 +2719,57 @@ impl App {
             KeyCode::Home | KeyCode::Char('g') => self.select_first_row(),
             KeyCode::End | KeyCode::Char('G') => self.select_last_row(),
             KeyCode::Char('m') if self.section == Section::Overview => {
-                self.overview_mode = match self.overview_mode {
-                    OverviewMode::Nested => OverviewMode::Matrix,
-                    OverviewMode::Matrix => OverviewMode::Nested,
-                };
-                self.invalidate_rows();
+                self.toggle_overview_mode();
+            }
+            KeyCode::Char('m') if self.selected_artifact().is_some() => {
+                self.focused = ColumnFocus::Detail;
+                self.set_detail_tab(DetailTab::Code);
+                self.open_comment_prompt();
             }
             _ => {}
         }
     }
 
     fn detail_key(&mut self, key: KeyEvent) {
+        let page = isize::try_from(self.detail_viewport.max(2) - 1).unwrap_or(10);
+        let half = (page / 2).max(1);
         match key.code {
-            KeyCode::Down | KeyCode::Char('j') => {
-                self.detail_scroll = self.detail_scroll.saturating_add(1);
+            KeyCode::Down | KeyCode::Char('j') => self.detail_step(1),
+            KeyCode::Up | KeyCode::Char('k') => self.detail_step(-1),
+            KeyCode::PageDown | KeyCode::Char(' ') => self.detail_step(page),
+            KeyCode::PageUp | KeyCode::Char('b') => self.detail_step(-page),
+            KeyCode::Char('d') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                self.detail_step(half);
             }
-            KeyCode::Up | KeyCode::Char('k') => {
-                self.detail_scroll = self.detail_scroll.saturating_sub(1);
+            KeyCode::Char('u') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                self.detail_step(-half);
             }
-            KeyCode::PageDown => {
-                self.detail_scroll = self.detail_scroll.saturating_add(10);
+            KeyCode::Char(digit @ '1'..='6') => {
+                let index = usize::from(digit as u8 - b'1');
+                self.set_detail_tab(DetailTab::ALL[index]);
             }
-            KeyCode::PageUp => {
-                self.detail_scroll = self.detail_scroll.saturating_sub(10);
+            KeyCode::Home | KeyCode::Char('g') => {
+                self.detail_cursor = 0;
+                self.detail_scroll = 0;
             }
-            KeyCode::Home | KeyCode::Char('g') => self.detail_scroll = 0,
-            KeyCode::Char('p' | '1') => self.set_detail_tab(DetailTab::Preview),
-            KeyCode::Char('c' | '2') => self.set_detail_tab(DetailTab::Code),
-            KeyCode::Char('d' | '3') => self.set_detail_tab(DetailTab::Diff),
-            KeyCode::Char('4') => self.set_detail_tab(DetailTab::Provenance),
-            KeyCode::Char('5') => self.set_detail_tab(DetailTab::Frontmatter),
-            KeyCode::Char('6') => self.set_detail_tab(DetailTab::History),
-            KeyCode::Char('7') => self.set_detail_tab(DetailTab::Companions),
+            KeyCode::End | KeyCode::Char('G') => {
+                self.detail_cursor = usize::MAX;
+                self.detail_scroll = u16::MAX;
+                self.move_detail_cursor(0);
+            }
+            KeyCode::Char(']') if self.detail_tab == DetailTab::Diff => self.jump_hunk(true),
+            KeyCode::Char('[') if self.detail_tab == DetailTab::Diff => self.jump_hunk(false),
+            KeyCode::Char('p') => self.set_detail_tab(DetailTab::Preview),
+            KeyCode::Char('c') => self.set_detail_tab(DetailTab::Code),
+            KeyCode::Char('d') => self.set_detail_tab(DetailTab::Diff),
+            KeyCode::Char('v') => self.set_detail_tab(DetailTab::Provenance),
+            KeyCode::Char('f') => self.set_detail_tab(DetailTab::Frontmatter),
+            KeyCode::Char('i') => self.set_detail_tab(DetailTab::History),
             KeyCode::Tab => self.next_detail_tab(),
-            KeyCode::Char('m') if self.detail_tab == DetailTab::Code => {
+            KeyCode::Char('m') => {
+                if !matches!(self.detail_tab, DetailTab::Code | DetailTab::Diff) {
+                    self.set_detail_tab(DetailTab::Code);
+                }
                 self.open_comment_prompt();
             }
             _ => {}
@@ -1467,13 +2784,29 @@ impl App {
     fn set_section(&mut self, section: Section) {
         self.section = section;
         self.detail_scroll = 0;
+        self.list_offset = 0;
+        self.list_filter.clear();
+        self.list_filter_typing = false;
+        self.problems_only = false;
         self.invalidate_rows();
         self.clamp_list_selection();
     }
 
     fn ensure_rows(&mut self) {
         if self.rows_dirty {
-            self.cached_rows = self.build_list_rows();
+            let mut rows = self.build_list_rows();
+            if !self.list_filter.is_empty() {
+                let needle = self.list_filter.to_lowercase();
+                rows.retain(|row| {
+                    row.header
+                        || row.label.to_lowercase().contains(&needle)
+                        || row.detail.to_lowercase().contains(&needle)
+                });
+            }
+            if self.problems_only {
+                rows.retain(|row| row.header || matches!(row.status, "modified" | "stale" | "new"));
+            }
+            self.cached_rows = rows;
             self.column_widths = column_widths_for_rows(&self.cached_rows);
             self.rows_dirty = false;
             #[cfg(test)]
@@ -1483,6 +2816,57 @@ impl App {
         }
     }
 
+    /// One keypress editing the in-panel filter: Enter keeps it, Esc clears.
+    pub fn list_filter_key(&mut self, key: KeyEvent) {
+        match key.code {
+            KeyCode::Enter => self.list_filter_typing = false,
+            KeyCode::Esc => {
+                self.list_filter_typing = false;
+                self.list_filter.clear();
+                self.invalidate_rows();
+                self.clamp_list_selection();
+            }
+            KeyCode::Backspace => {
+                self.list_filter.pop();
+                self.list_selected[self.section as usize] = 0;
+                self.list_offset = 0;
+                self.invalidate_rows();
+            }
+            KeyCode::Char(character) => {
+                self.list_filter.push(character);
+                self.list_selected[self.section as usize] = 0;
+                self.list_offset = 0;
+                self.invalidate_rows();
+            }
+            _ => {}
+        }
+    }
+
+    #[must_use]
+    pub fn is_list_filter_typing(&self) -> bool {
+        self.list_filter_typing
+    }
+
+    /// Opens the in-panel filter on the focused list. In the Search section
+    /// `/` edits the global query instead — that list IS the query results.
+    pub fn begin_list_filter(&mut self) {
+        if self.section == Section::Search {
+            self.begin_search_input();
+            return;
+        }
+        self.focused = ColumnFocus::List;
+        self.list_filter_typing = true;
+    }
+
+    /// Toggles the problems-only view of the focused list.
+    pub fn toggle_problems_only(&mut self) {
+        self.problems_only = !self.problems_only;
+        self.list_selected[self.section as usize] = 0;
+        self.list_offset = 0;
+        self.invalidate_rows();
+        self.clamp_list_selection();
+    }
+
     fn invalidate_rows(&mut self) {
         self.rows_dirty = true;
     }
@@ -1490,6 +2874,41 @@ impl App {
     fn invalidate_detail_caches(&mut self) {
         self.preview_cache = None;
         self.code_cache = None;
+    }
+
+    /// After a rescan the zoom overlay's cloned artifact is stale: rebind it
+    /// to the fresh view, or close it when the artifact no longer exists.
+    fn refresh_open_preview(&mut self) {
+        let Some((open, scroll)) = self.preview.as_ref().map(|preview| {
+            let artifact = preview.artifact();
+            (
+                (
+                    artifact.module.clone(),
+                    artifact.kind.clone(),
+                    artifact.name.clone(),
+                ),
+                preview.scroll(),
+            )
+        }) else {
+            return;
+        };
+        let fresh = self
+            .view
+            .modules
+            .iter()
+            .find(|module| module.name == open.0)
+            .and_then(|module| {
+                module
+                    .artifacts
+                    .iter()
+                    .find(|artifact| artifact.kind == open.1 && artifact.name == open.2)
+            })
+            .cloned();
+        self.preview = fresh.map(|artifact| {
+            let mut preview = ArtifactPreview::from_artifact(&artifact);
+            preview.scroll_down(scroll);
+            preview
+        });
     }
 
     fn cached_rows(&self) -> &[ListRow] {
@@ -1534,19 +2953,56 @@ impl App {
     }
 
     fn overview_rows(&self) -> Vec<ListRow> {
-        vec![
+        let summary = &self.view.summary;
+        let mut rows = vec![
             ListRow::item("Summary", "status counts", ListTarget::Overview, "ok"),
             ListRow::item(
                 if self.overview_mode == OverviewMode::Matrix {
-                    "Matrix"
+                    "Matrix view"
                 } else {
-                    "Nested"
+                    "Nested view"
                 },
-                "press m to toggle",
-                ListTarget::Overview,
+                "Enter or click toggles",
+                ListTarget::OverviewMode,
                 "ok",
             ),
-        ]
+        ];
+        rows.push(ListRow::header("Needs attention"));
+        for (status, count) in [
+            ("modified", summary.modified),
+            ("stale", summary.stale),
+            ("new", summary.new),
+        ] {
+            if count > 0 {
+                rows.push(ListRow::item(
+                    format!("{status} {count}"),
+                    "Enter opens filtered",
+                    ListTarget::StatusJump(status.to_string()),
+                    status,
+                ));
+            }
+        }
+        rows.push(ListRow::header("Inventory"));
+        for group in builders::build_nested(&self.view, "kind") {
+            rows.push(ListRow::item(
+                format!("{} ({})", group.label, group.count),
+                String::new(),
+                ListTarget::KindJump(group.kind.clone()),
+                "ok",
+            ));
+            for subgroup in group.subgroups {
+                rows.push(ListRow::item(
+                    format!("  {} ({})", subgroup.label, subgroup.count),
+                    String::new(),
+                    ListTarget::ModuleJump {
+                        kind: group.kind.clone(),
+                        module: subgroup.label.clone(),
+                    },
+                    "ok",
+                ));
+            }
+        }
+        rows
     }
 
     fn artifact_rows(&self, kind_filter: Option<&str>) -> Vec<ListRow> {
@@ -1558,6 +3014,18 @@ impl App {
             rows.push(ListRow::header(kind));
             for (artifact, module) in artifacts {
                 rows.push(artifact_row(artifact, module));
+                for companion in &artifact.companions {
+                    rows.push(ListRow::item(
+                        format!("  ↳ {}", companion.name),
+                        format!("companion of {}", artifact.name),
+                        ListTarget::Companion {
+                            module: module.to_string(),
+                            parent: artifact.name.clone(),
+                            name: companion.name.clone(),
+                        },
+                        "ok",
+                    ));
+                }
             }
         }
         rows
@@ -1652,7 +3120,7 @@ impl App {
                 let qualifier = coverage.cols[index].qualifier.clone();
                 rows.push(ListRow::item(
                     row.name.clone(),
-                    format!("{} · {} · {}", row.kind, qualifier, cell.mode),
+                    format!("{qualifier} · {}", cell.mode),
                     ListTarget::Variant {
                         module: row.module.clone(),
                         kind: row.kind.clone(),
@@ -1668,8 +3136,13 @@ impl App {
 
     fn search_rows(&self) -> Vec<ListRow> {
         let mut rows = vec![ListRow::header(format!(
-            "query: {}  kind: {}  status: {}  sort: {}",
+            "query: {}{}  kind: {}  status: {}  sort: {}",
             value_or_any(&self.search.query),
+            if self.search_typing {
+                "▌ (Enter done)"
+            } else {
+                "  (/ edits)"
+            },
             value_or_any(&self.search.kind),
             value_or_any(&self.search.status),
             value_or_any(&self.search.sort)
@@ -1764,6 +3237,19 @@ impl App {
             .unwrap_or_default()
     }
 
+    /// Re-selects the row carrying the same target after the rows were
+    /// rebuilt, so a background rescan does not silently move the selection
+    /// to whatever row now occupies the old index.
+    fn restore_selection(&mut self, target: Option<ListTarget>) {
+        let Some(target) = target else {
+            return;
+        };
+        self.ensure_rows();
+        if let Some(index) = self.cached_rows.iter().position(|row| row.target == target) {
+            self.list_selected[self.section as usize] = index;
+        }
+    }
+
     fn clamp_list_selection(&mut self) {
         self.ensure_rows();
         let rows = self.cached_rows();
@@ -1771,7 +3257,7 @@ impl App {
         self.list_selected[self.section as usize] = index;
     }
 
-    fn move_list_selection(&mut self, delta: isize) {
+    pub fn move_list_selection(&mut self, delta: isize) {
         self.ensure_rows();
         let rows = self.cached_rows();
         if rows.is_empty() {
@@ -1832,9 +3318,34 @@ impl App {
 
     fn current_code_line(&self, artifact: &ArtifactView) -> usize {
         let line_count = artifact.raw_source.lines().count().max(1);
-        usize::from(self.detail_scroll)
-            .saturating_add(1)
-            .min(line_count)
+        self.detail_cursor.saturating_add(1).min(line_count)
+    }
+
+    /// Moves the Code cursor and drags the viewport along only when the
+    /// cursor leaves it.
+    fn move_detail_cursor(&mut self, delta: isize) {
+        let total = match self.detail_tab {
+            DetailTab::Code => self
+                .code_cache
+                .as_ref()
+                .map_or(1, |cache| cache.lines.len().max(1)),
+            _ => self
+                .preview_cache
+                .as_ref()
+                .map_or(1, |cache| cache.lines.len().max(1)),
+        };
+        let cursor = self
+            .detail_cursor
+            .saturating_add_signed(delta)
+            .min(total - 1);
+        self.detail_cursor = cursor;
+        let scroll = usize::from(self.detail_scroll);
+        let viewport = self.detail_viewport.max(1);
+        if cursor < scroll {
+            self.detail_scroll = u16::try_from(cursor).unwrap_or(u16::MAX);
+        } else if cursor >= scroll + viewport {
+            self.detail_scroll = u16::try_from(cursor + 1 - viewport).unwrap_or(u16::MAX);
+        }
     }
 
     fn find_artifact(
@@ -1921,26 +3432,42 @@ impl App {
     }
 
     fn provenance_lines(&self, module: &ModuleView, artifact: &ArtifactView) -> Vec<Line<'static>> {
+        fn field(key: &str, value: String) -> Line<'static> {
+            Line::from(vec![
+                Span::styled(format!("{key:<14}"), Style::default().fg(Color::Magenta)),
+                Span::raw(value),
+            ])
+        }
+        fn field_if(key: &str, value: &str) -> Option<Line<'static>> {
+            (!value.trim().is_empty()).then(|| field(key, value.to_string()))
+        }
+        let short = |sha: &str| sha.chars().take(12).collect::<String>();
+
         let mut lines = vec![
             Line::from(Span::styled(
-                "Provenance chain",
+                "Provenance",
                 Style::default().add_modifier(Modifier::BOLD),
             )),
-            Line::from(format!(
-                "status: {} · {}",
-                artifact.overall_status(),
-                artifact.staleness_label()
-            )),
+            field(
+                "status",
+                format!(
+                    "{} · {}",
+                    artifact.overall_status(),
+                    artifact.staleness_label()
+                ),
+            ),
         ];
         if let Some(adoption) = &artifact.adoption {
-            lines.push(Line::from(format!(
-                "Upstream: {} @ {}",
-                adoption.source_label, adoption.source_sha
-            )));
-            lines.push(Line::from(format!(
-                "adopt/copy: {} · by {}",
-                adoption.kind, adoption.author
-            )));
+            lines.push(field(
+                "upstream",
+                format!(
+                    "{} @ {}",
+                    adoption.source_label,
+                    short(&adoption.source_sha)
+                ),
+            ));
+            lines.push(field("adopted", adoption.kind.clone()));
+            lines.extend(field_if("author", &adoption.author));
             if !adoption.dependencies.is_empty() {
                 let deps = builders::resolve_dep_links(&self.view, artifact.adoption.as_ref())
                     .iter()
@@ -1948,96 +3475,148 @@ impl App {
                         if dep.module.is_empty() {
                             dep.name.clone()
                         } else {
-                            format!("{} -> {}", dep.name, dep.module)
+                            format!("{} ({})", dep.name, dep.module)
                         }
                     })
                     .collect::<Vec<_>>()
                     .join(", ");
-                lines.push(Line::from(format!("dependencies: {deps}")));
+                lines.push(field("depends on", deps));
             }
             if !adoption.transforms.is_empty() {
-                lines.push(Line::from(format!(
-                    "transforms: {}",
-                    adoption.transforms.join(", ")
-                )));
+                lines.push(field("transforms", adoption.transforms.join(", ")));
             }
-            lines.push(Line::from(format!("license: {}", adoption.license)));
-            lines.push(Line::from(format!("adopted by: {}", adoption.adopted_by)));
+            lines.extend(field_if("license", &adoption.license));
+            lines.extend(field_if("adopted by", &adoption.adopted_by));
         } else {
-            lines.push(Line::from("Upstream: authored source"));
+            lines.push(field("upstream", "authored here".to_string()));
         }
-        lines.push(Line::from(format!("source module: {}", module.name)));
-        lines.push(Line::from(
-            "assemble: current binary metadata available in dashboard",
-        ));
+        lines.push(field("source", module.name.clone()));
+
         let entries = self.provenance_entries(module, artifact);
         let groups = builders::group_deployments(&entries);
-        if groups.is_empty() {
-            lines.push(Line::from("deploy groups: none"));
-        } else {
-            lines.push(Line::from("deploy groups"));
-            for group in groups {
-                lines.push(Line::from(format!(
-                    "  {} {}/{} verified",
-                    group.target, group.verified, group.total
-                )));
-                for harness in group.harnesses {
-                    lines.push(Line::from(format!(
-                        "    {} {} {}",
-                        harness.harness,
-                        if harness.verified { "OK" } else { "DRIFT" },
-                        harness.deployed_path
-                    )));
-                }
-            }
-        }
+        lines.push(Line::default());
+        lines.extend(deployment_lines(&groups));
         if !artifact.sidecar_warning.is_empty() {
-            lines.push(Line::from(format!("sidecar: {}", artifact.sidecar_warning)));
+            lines.push(field("sidecar", artifact.sidecar_warning.clone()));
         }
+        lines.extend(sidecar_yaml_lines(module, artifact));
         lines
     }
 }
 
-fn render_module_detail(frame: &mut Frame<'_>, area: Rect, module: &ModuleView) {
-    let lines = vec![
+/// The raw adoption sidecar, syntax-highlighted as YAML, appended to the
+/// provenance chain when the file exists next to the source.
+fn sidecar_yaml_lines(module: &ModuleView, artifact: &ArtifactView) -> Vec<Line<'static>> {
+    let Some(repo) = module.local_path.as_ref() else {
+        return Vec::new();
+    };
+    let source = if artifact.source_path.is_empty() {
+        artifact.relative_path.as_str()
+    } else {
+        artifact.source_path.as_str()
+    };
+    let sidecar = Path::new(source).with_extension("yaml");
+    let Ok(content) = std::fs::read_to_string(repo.join(&sidecar)) else {
+        return Vec::new();
+    };
+    let mut lines = vec![
+        Line::from(""),
+        Line::from(Span::styled(
+            format!("Sidecar · {}", sidecar.display()),
+            Style::default().add_modifier(Modifier::BOLD),
+        )),
+    ];
+    lines.extend(rich::highlight_code(
+        &sidecar.to_string_lossy(),
+        content.trim_end(),
+    ));
+    lines
+}
+
+fn module_header_lines(module: &ModuleView) -> Vec<Line<'static>> {
+    let mut lines = vec![
         Line::from(Span::styled(
             module.name.clone(),
             Style::default().add_modifier(Modifier::BOLD),
         )),
-        Line::from(format!("version: {}", module.version)),
-        Line::from(format!("source: {}", module.source_uri)),
         Line::from(format!(
             "role: {}",
             if module.is_target { "target" } else { "source" }
         )),
-        Line::from(""),
-        Line::from(module.description.clone()),
-        Line::from(""),
-        Line::from(format!("artifacts: {}", module.artifacts.len())),
     ];
-    frame.render_widget(
-        Paragraph::new(Text::from(lines)).wrap(Wrap { trim: false }),
-        area,
-    );
+    if !module.version.is_empty() {
+        lines.insert(1, Line::from(format!("version: {}", module.version)));
+    }
+    if !module.source_uri.is_empty() {
+        lines.insert(1, Line::from(format!("source: {}", module.source_uri)));
+    }
+    if let Some(local_path) = &module.local_path {
+        lines.push(Line::from(format!("local: {}", local_path.display())));
+    }
+    if let Some(vcs) = &module.vcs {
+        lines.push(module_vcs_line(vcs));
+    }
+    if !module.description.is_empty() {
+        lines.push(Line::from(""));
+        lines.push(Line::from(module.description.clone()));
+    }
+    lines.push(Line::from(""));
+    lines.push(Line::from(format!("artifacts: {}", module.artifacts.len())));
+    if !module.git_log.is_empty() {
+        lines.push(Line::from(""));
+        lines.push(Line::from(Span::styled(
+            "Recent commits (git)",
+            Style::default().add_modifier(Modifier::BOLD),
+        )));
+        for commit in &module.git_log {
+            let sha_short: String = commit.sha.chars().take(7).collect();
+            let date: String = commit.date.chars().take(10).collect();
+            let mut spans = vec![
+                Span::styled(
+                    format!("{sha_short} {date} "),
+                    Style::default().fg(Color::DarkGray),
+                ),
+                Span::raw(commit.message.clone()),
+            ];
+            if !commit.jj_change.is_empty() {
+                spans.push(Span::styled(
+                    format!(" · jj {}", commit.jj_change),
+                    Style::default().fg(Color::DarkGray),
+                ));
+            }
+            lines.push(Line::from(spans));
+        }
+        lines.push(Line::from(""));
+        lines.push(Line::from(Span::styled(
+            "o open gitui · O open jjui",
+            Style::default().fg(Color::DarkGray),
+        )));
+    }
+    lines
 }
 
-fn render_adr_detail(frame: &mut Frame<'_>, area: Rect, adr: &Adr) {
-    let lines = vec![
-        Line::from(Span::styled(
-            format!("{} {}", adr.id, adr.title),
-            Style::default().add_modifier(Modifier::BOLD),
-        )),
-        Line::from(format!("repo: {}", adr.repo)),
-        Line::from(format!("state: {}", adr.state)),
-        Line::from(format!("status: {}", adr.status)),
-        Line::from(format!("path: {}", adr.relative_path)),
-        Line::from(""),
-        Line::from(adr.summary.clone()),
-    ];
-    frame.render_widget(
-        Paragraph::new(Text::from(lines)).wrap(Wrap { trim: false }),
-        area,
-    );
+fn module_vcs_line(vcs: &VcsState) -> Line<'static> {
+    use std::fmt::Write as _;
+    let mut branch = vcs.branch.clone();
+    if vcs.ahead > 0 {
+        let _ = write!(branch, " ↑{}", vcs.ahead);
+    }
+    if vcs.behind > 0 {
+        let _ = write!(branch, " ↓{}", vcs.behind);
+    }
+    if vcs.jj_colocated {
+        branch.push_str(" · jj");
+    }
+    let (state_label, state_style) = match vcs.worktree {
+        WorktreeState::Clean => ("✓ clean", Style::default().fg(Color::Green)),
+        WorktreeState::Modified => ("⚠ uncommitted changes", Style::default().fg(Color::Yellow)),
+        WorktreeState::Untracked => ("● untracked", Style::default().fg(Color::Magenta)),
+    };
+    Line::from(vec![
+        Span::styled(branch, Style::default().fg(Color::Cyan)),
+        Span::raw(" · "),
+        Span::styled(state_label, state_style),
+    ])
 }
 
 fn render_file_body(frame: &mut Frame<'_>, area: Rect, content: &str, scroll: u16) {
@@ -2175,13 +3754,16 @@ fn column_widths_for_rows(rows: &[ListRow]) -> MillerColumnWidths {
     let left =
         usize_to_u16(section_label_width.saturating_add(6)).clamp(LEFT_MIN_WIDTH, LEFT_MAX_WIDTH);
 
-    let row_label_width = rows
+    // Detail text renders only on the selected row, so the column sizes to
+    // the labels; the selected row's detail may clip at the column edge and
+    // is always fully visible in the detail pane.
+    let row_width = rows
         .iter()
         .map(|row| row.label.chars().count())
         .max()
         .unwrap_or_default();
     let middle =
-        usize_to_u16(row_label_width.saturating_add(8)).clamp(MIDDLE_MIN_WIDTH, MIDDLE_MAX_WIDTH);
+        usize_to_u16(row_width.saturating_add(8)).clamp(MIDDLE_MIN_WIDTH, MIDDLE_MAX_WIDTH);
 
     MillerColumnWidths { left, middle }
 }
@@ -2227,21 +3809,9 @@ fn artifact_row(artifact: &ArtifactView, module: &str) -> ListRow {
     } else {
         ""
     };
-    let age = artifact.age_label();
-    let deploy = if artifact.deployed_count() == 0 {
-        "src".to_string()
-    } else {
-        format!("↗{}", artifact.deployed_count())
-    };
     ListRow::item(
         format!("{}{}", artifact.name, warning),
-        format!(
-            "{} · {} · {} · {}",
-            artifact.kind,
-            module,
-            value_or_any(&age),
-            deploy
-        ),
+        module.to_string(),
         ListTarget::Artifact {
             module: module.to_string(),
             kind: artifact.kind.clone(),
@@ -2251,20 +3821,22 @@ fn artifact_row(artifact: &ArtifactView, module: &str) -> ListRow {
     )
 }
 
+/// gitui-style status letters: shape carries the state, color reinforces it.
 fn status_dot(status: &str) -> &'static str {
     match status {
-        "modified" | "stale" | "new" => "●",
+        "modified" => "M",
+        "stale" => "!",
+        "new" => "?",
         _ => "·",
     }
 }
 
 fn status_style(status: &str) -> Style {
     match status {
-        "modified" => Style::default().fg(Color::Red),
-        "stale" => Style::default().fg(Color::Yellow),
-        "new" => Style::default().fg(Color::Blue),
-        "source" => Style::default().fg(Color::DarkGray),
-        _ => Style::default().fg(Color::Green),
+        "modified" => Style::default().fg(Color::Yellow),
+        "stale" => Style::default().fg(Color::Red),
+        "new" => Style::default().fg(Color::Magenta),
+        _ => Style::default().fg(Color::DarkGray),
     }
 }
 
@@ -2272,17 +3844,242 @@ fn value_or_any(value: &str) -> &str {
     if value.is_empty() { "any" } else { value }
 }
 
-fn hint_row() -> String {
-    KEYBINDINGS
-        .iter()
-        .flat_map(|(_, bindings)| bindings.iter())
-        .take(8)
-        .map(|(key, description)| format!("{key} {description}"))
-        .collect::<Vec<_>>()
-        .join("  ·  ")
+/// Row index inside a bordered block for a click at (x, y), `None` when the
+/// click lands on the border itself — borders focus a pane but never select.
+fn bordered_row_at(region: Rect, x: u16, y: u16) -> Option<usize> {
+    let inside_x = x > region.x && x.saturating_add(1) < region.x.saturating_add(region.width);
+    let inside_y = y > region.y && y.saturating_add(1) < region.y.saturating_add(region.height);
+    (inside_x && inside_y).then(|| usize::from(y - region.y - 1))
 }
 
-fn preview_lines_for_width(artifact: &ArtifactView, width: u16) -> Vec<Line<'static>> {
+/// Maps a column inside the tab bar to its tab, mirroring the span layout in
+/// `render_tabs`: one space then the label per tab. The space before a label
+/// snaps to that tab so there are no dead cells between targets.
+fn tab_at_column(column: u16) -> Option<DetailTab> {
+    let mut cursor = 0u16;
+    for (index, tab) in DetailTab::ALL.iter().enumerate() {
+        let label = format!("{} {}", index + 1, tab.label());
+        let width = u16::try_from(label.chars().count()).unwrap_or(u16::MAX);
+        let end = cursor.saturating_add(1).saturating_add(width);
+        if column < end {
+            return Some(*tab);
+        }
+        cursor = end;
+    }
+    None
+}
+
+/// Centered modal listing options, used by the deploy and launch pickers.
+fn render_choice_popup(
+    frame: &mut Frame<'_>,
+    area: Rect,
+    title: &str,
+    footer: &str,
+    labels: &[String],
+    selected: usize,
+    input: Option<&str>,
+) {
+    let height = u16::try_from(labels.len())
+        .unwrap_or(u16::MAX)
+        .saturating_add(if input.is_some() { 5 } else { 4 });
+    let width = area.width.saturating_mul(2) / 3;
+    let popup = Rect {
+        x: area.width.saturating_sub(width) / 2,
+        y: area.height.saturating_sub(height) / 2,
+        width: width.min(area.width),
+        height: height.min(area.height),
+    };
+    frame.render_widget(Clear, popup);
+    let block = Block::default()
+        .title(title.to_string())
+        .title_bottom(Line::from(Span::styled(
+            footer.to_string(),
+            Style::default().fg(Color::DarkGray),
+        )))
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::Cyan));
+    let inner = block.inner(popup);
+    frame.render_widget(block, popup);
+    let viewport = usize::from(inner.height.max(1)).saturating_sub(usize::from(input.is_some()));
+    let offset = (selected + 1).saturating_sub(viewport);
+    let mut items: Vec<ListItem<'_>> = labels
+        .iter()
+        .enumerate()
+        .skip(offset)
+        .take(viewport)
+        .map(|(index, label)| {
+            let style = if index == selected && input.is_none() {
+                selected_style(true)
+            } else {
+                Style::default()
+            };
+            ListItem::new(Line::from(Span::styled(label.clone(), style)))
+        })
+        .collect();
+    if let Some(path) = input {
+        items.push(ListItem::new(Line::from(vec![
+            Span::styled("path: ", Style::default().fg(Color::Magenta)),
+            Span::raw(path.to_string()),
+            Span::styled("▌", Style::default().fg(Color::Cyan)),
+        ])));
+    }
+    frame.render_widget(List::new(items), inner);
+}
+
+fn render_deploy_picker(frame: &mut Frame<'_>, area: Rect, picker: &DeployPicker) {
+    let mut labels: Vec<String> = picker
+        .options
+        .iter()
+        .map(|(label, _)| label.clone())
+        .collect();
+    labels.push("＋ add target path…".to_string());
+    render_choice_popup(
+        frame,
+        area,
+        &format!(" Deploy {} → ", picker.scope_label),
+        " j/k select · Enter deploy (additive) · Esc cancel ",
+        &labels,
+        picker.selected,
+        picker.input.as_deref(),
+    );
+}
+
+fn render_launch_picker(frame: &mut Frame<'_>, area: Rect, picker: &LaunchPicker) {
+    let labels: Vec<String> = picker
+        .options
+        .iter()
+        .map(|(label, _)| label.clone())
+        .collect();
+    render_choice_popup(
+        frame,
+        area,
+        &format!(" Launch in {} → ", picker.module_name),
+        " j/k select · Enter launch · Esc cancel ",
+        &labels,
+        picker.selected,
+        None,
+    );
+}
+
+fn hint_row(focused: ColumnFocus) -> String {
+    if focused == ColumnFocus::Detail {
+        return [
+            "1-6/Tab tabs",
+            "j/k move",
+            "m comment",
+            "[ ] hunks",
+            "Y copy review",
+            "? help",
+        ]
+        .join("  ·  ");
+    }
+    match focused {
+        ColumnFocus::Sections => "j/k sections  ·  l list  ·  1-6 tabs  ·  ? help".to_string(),
+        _ => [
+            "j/k move",
+            "/ filter",
+            "! problems",
+            "Enter open",
+            "D deploy",
+            "L launch",
+            "? help",
+        ]
+        .join("  ·  "),
+    }
+}
+
+/// Keeps the rightmost display columns of `text`, prefixed with an ellipsis.
+/// Returns the string and its display width (ellipsis included).
+fn truncate_left_to_width(text: &str, take: usize) -> (String, usize) {
+    let mut width = 0usize;
+    let mut kept = Vec::new();
+    for character in text.chars().rev() {
+        let character_width = UnicodeWidthChar::width(character).unwrap_or(0);
+        if width + character_width > take {
+            break;
+        }
+        width += character_width;
+        kept.push(character);
+    }
+    kept.reverse();
+    let tail: String = kept.into_iter().collect();
+    (format!("…{tail}"), width + 1)
+}
+
+/// Greedy word-wrap for plain header text, needed because the preview
+/// paragraph does not re-wrap glow output. A single word longer than the
+/// width stays on its own line and clips.
+fn wrap_plain(text: &str, width: usize) -> Vec<Line<'static>> {
+    if width == 0 {
+        return vec![Line::from(text.to_string())];
+    }
+    // Explicit newlines are paragraph structure; wrap each line separately.
+    if text.contains('\n') {
+        return text
+            .lines()
+            .flat_map(|line| wrap_plain(line, width))
+            .collect();
+    }
+    let mut lines = Vec::new();
+    let mut current = String::new();
+    for word in text.split_whitespace() {
+        let candidate = current.chars().count() + 1 + word.chars().count();
+        if !current.is_empty() && candidate > width {
+            lines.push(Line::from(std::mem::take(&mut current)));
+        }
+        if !current.is_empty() {
+            current.push(' ');
+        }
+        current.push_str(word);
+    }
+    if !current.is_empty() {
+        lines.push(Line::from(current));
+    }
+    lines
+}
+
+/// One line of version-control truth for the artifact: branch (with
+/// ahead/behind arrows), worktree state, last commit, and jj change id.
+fn vcs_line(artifact: &ArtifactView) -> Option<Line<'static>> {
+    use std::fmt::Write as _;
+    let vcs = artifact.vcs.as_ref()?;
+    let mut branch = vcs.branch.clone();
+    if vcs.ahead > 0 {
+        let _ = write!(branch, " ↑{}", vcs.ahead);
+    }
+    if vcs.behind > 0 {
+        let _ = write!(branch, " ↓{}", vcs.behind);
+    }
+    let mut spans = vec![
+        Span::styled(branch, Style::default().fg(Color::Cyan)),
+        Span::raw(" · "),
+    ];
+    let (worktree_label, worktree_style) = match vcs.worktree {
+        WorktreeState::Clean => ("✓ committed", Style::default().fg(Color::Green)),
+        WorktreeState::Modified => ("⚠ uncommitted changes", Style::default().fg(Color::Yellow)),
+        WorktreeState::Untracked => ("● untracked", Style::default().fg(Color::Magenta)),
+    };
+    spans.push(Span::styled(worktree_label, worktree_style));
+    if let Some(commit) = artifact.git_log.first() {
+        let sha_short: String = commit.sha.chars().take(7).collect();
+        let date: String = commit.date.chars().take(10).collect();
+        spans.push(Span::styled(
+            format!(" · {sha_short} {date}"),
+            Style::default().fg(Color::DarkGray),
+        ));
+        if !commit.jj_change.is_empty() {
+            spans.push(Span::styled(
+                format!(" · jj {}", commit.jj_change),
+                Style::default().fg(Color::DarkGray),
+            ));
+        }
+    } else if vcs.jj_colocated {
+        spans.push(Span::styled(" · jj", Style::default().fg(Color::DarkGray)));
+    }
+    Some(Line::from(spans))
+}
+
+fn preview_lines_for_width(artifact: &ArtifactView, width: u16) -> (Vec<Line<'static>>, bool) {
     let mut lines = vec![
         Line::from(Span::styled(
             format!(
@@ -2303,15 +4100,23 @@ fn preview_lines_for_width(artifact: &ArtifactView, width: u16) -> Vec<Line<'sta
             artifact.staleness_label()
         )),
     ];
+    if let Some(vcs) = vcs_line(artifact) {
+        lines.push(vcs);
+    }
     if !artifact.broken_refs.is_empty() {
-        lines.push(Line::from(format!(
-            "broken refs: {}",
-            artifact.broken_refs.join(", ")
-        )));
+        lines.extend(wrap_plain(
+            &format!("broken refs: {}", artifact.broken_refs.join(", ")),
+            width as usize,
+        ));
     }
     if !artifact.description.is_empty() {
-        lines.push(Line::from(artifact.description.clone()));
+        lines.extend(wrap_plain(&artifact.description, width as usize));
     }
+    // A rule separates the file's properties from its content.
+    lines.push(Line::from(Span::styled(
+        "─".repeat(usize::from(width)),
+        Style::default().fg(Color::DarkGray),
+    )));
     lines.push(Line::from(""));
     let body = if artifact.content_body.is_empty() {
         artifact.content_preview.as_str()
@@ -2320,39 +4125,416 @@ fn preview_lines_for_width(artifact: &ArtifactView, width: u16) -> Vec<Line<'sta
     };
     if let Some(glow_lines) = rich::render_markdown_with_glow(body, width) {
         lines.extend(glow_lines);
-        return lines;
+        return (lines, true);
     }
     lines.extend(body.lines().map(|line| Line::from(line.to_string())));
+    (lines, false)
+}
+
+/// `--only` prefix for one artifact: skills scope to their directory (so
+/// companions travel with the skill), file kinds scope to their stem across
+/// per-provider extensions.
+fn artifact_only_prefix(kind: &str, relative_path: &str) -> String {
+    if kind == "skills" {
+        let segments: Vec<&str> = relative_path.split('/').take(2).collect();
+        return format!("{}/", segments.join("/"));
+    }
+    relative_path
+        .rsplit_once('.')
+        .map_or(relative_path, |(stem, _)| stem)
+        .to_string()
+}
+
+/// Expands a leading `~` to the home directory.
+fn expand_home(raw: &str) -> PathBuf {
+    if raw == "~"
+        && let Some(home) = dirs::home_dir()
+    {
+        return home;
+    }
+    if let Some(rest) = raw.strip_prefix("~/")
+        && let Some(home) = dirs::home_dir()
+    {
+        return home.join(rest);
+    }
+    PathBuf::from(raw)
+}
+
+/// The module name disambiguates artifacts that share a relative path across
+/// modules (every module has a `skills/...` tree).
+fn detail_cache_key(tab: DetailTab, module: &str, path: &str) -> String {
+    format!("{tab:?}:{module}:{path}")
+}
+
+/// Whether unprocessed terminal input is queued. Errors (no terminal, as in
+/// tests and snapshot mode) count as no pending input.
+fn input_pending() -> bool {
+    crossterm::event::poll(std::time::Duration::ZERO).unwrap_or(false)
+}
+
+/// Uncommitted changes to the artifact's source file, colored like a pager,
+/// with a separator rule before each hunk header.
+fn diff_lines(
+    module: Option<&ModuleView>,
+    artifact: &ArtifactView,
+    width: u16,
+) -> Vec<Line<'static>> {
+    let header = Line::from(Span::styled(
+        "Diff · uncommitted source changes",
+        Style::default().add_modifier(Modifier::BOLD),
+    ));
+    let Some(repo) = module.and_then(|module| module.local_path.as_ref()) else {
+        return vec![header, Line::from("no local repo for this module")];
+    };
+    let path = if artifact.source_path.is_empty() {
+        artifact.relative_path.as_str()
+    } else {
+        artifact.source_path.as_str()
+    };
+    if artifact
+        .vcs
+        .as_ref()
+        .is_some_and(|vcs| vcs.worktree == WorktreeState::Untracked)
+    {
+        // A new file has no diff against HEAD; show the whole body as added
+        // so the reviewer can still inspect it here.
+        let mut lines = vec![
+            header,
+            Line::from(vec![
+                Span::styled("● ", Style::default().fg(Color::Magenta)),
+                Span::raw("untracked file — whole body is new"),
+            ]),
+            Line::default(),
+        ];
+        match std::fs::read_to_string(repo.join(path)) {
+            Ok(body) => lines.extend(body.lines().enumerate().map(|(index, line)| {
+                Line::from(vec![
+                    Span::styled(
+                        format!("{:>4} {:>4} ", "", index + 1),
+                        Style::default().fg(Color::DarkGray),
+                    ),
+                    Span::styled(format!("+{line}"), Style::default().fg(Color::Green)),
+                ])
+            })),
+            Err(error) => lines.push(Line::from(format!("could not read {path}: {error}"))),
+        }
+        return lines;
+    }
+    let output = std::process::Command::new("git")
+        .args(["diff", "HEAD", "--", path])
+        .current_dir(repo)
+        .output();
+    let Ok(output) = output else {
+        return vec![header, Line::from("git diff failed to run")];
+    };
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return vec![
+            header,
+            Line::from(format!("git diff failed: {}", stderr.trim())),
+        ];
+    }
+    let diff = String::from_utf8_lossy(&output.stdout);
+    if diff.trim().is_empty() {
+        return vec![
+            header,
+            Line::from(vec![
+                Span::styled("✓ ", Style::default().fg(Color::Green)),
+                Span::raw("source file matches HEAD — no uncommitted changes"),
+            ]),
+        ];
+    }
+    let separator = "─".repeat(usize::from(width.max(8)).saturating_sub(2));
+    let mut lines = vec![header, Line::default()];
+    let mut old_line = 0usize;
+    let mut new_line = 0usize;
+    for raw in diff.lines() {
+        if raw.starts_with("@@") {
+            if let Some((old_start, new_start)) = parse_hunk_header(raw) {
+                old_line = old_start;
+                new_line = new_start;
+            }
+            lines.push(Line::from(Span::styled(
+                separator.clone(),
+                Style::default().fg(Color::DarkGray),
+            )));
+            lines.push(diff_line_colored(raw));
+            continue;
+        }
+        if raw.starts_with("+++")
+            || raw.starts_with("---")
+            || raw.starts_with("diff ")
+            || raw.starts_with("index ")
+            || raw.starts_with('\\')
+        {
+            lines.push(diff_line_colored(raw));
+            continue;
+        }
+        lines.push(numbered_diff_row(raw, &mut old_line, &mut new_line));
+    }
     lines
 }
 
-fn diff_lines(artifact: &ArtifactView) -> Vec<Line<'static>> {
+/// One diff content row with its old/new number gutter, advancing the
+/// counters by the row's origin.
+fn numbered_diff_row(raw: &str, old_line: &mut usize, new_line: &mut usize) -> Line<'static> {
+    let gutter = match raw.chars().next() {
+        Some('+') => {
+            let gutter = format!("{:>4} {:>4} ", "", new_line);
+            *new_line += 1;
+            gutter
+        }
+        Some('-') => {
+            let gutter = format!("{:>4} {:>4} ", old_line, "");
+            *old_line += 1;
+            gutter
+        }
+        _ => {
+            let gutter = format!("{old_line:>4} {new_line:>4} ");
+            *old_line += 1;
+            *new_line += 1;
+            gutter
+        }
+    };
+    let mut spans = vec![Span::styled(gutter, Style::default().fg(Color::DarkGray))];
+    spans.extend(diff_line_colored(raw).spans);
+    Line::from(spans)
+}
+
+/// Parses `@@ -35,7 +36,8 @@ …` into the starting old and new line numbers.
+fn parse_hunk_header(raw: &str) -> Option<(usize, usize)> {
+    let mut fields = raw.split_whitespace();
+    let _ = fields.next()?;
+    let old_start = fields
+        .next()?
+        .trim_start_matches('-')
+        .split(',')
+        .next()?
+        .parse()
+        .ok()?;
+    let new_start = fields
+        .next()?
+        .trim_start_matches('+')
+        .split(',')
+        .next()?
+        .parse()
+        .ok()?;
+    Some((old_start, new_start))
+}
+
+/// Source line (new file) per rendered diff row: parsed from the number
+/// gutter each row carries, with wrap continuations inheriting their line.
+fn diff_line_map(lines: &[Line<'_>]) -> Vec<Option<usize>> {
+    let mut map = Vec::with_capacity(lines.len());
+    let mut last: Option<usize> = None;
+    for line in lines {
+        let first = line.spans.first().map_or("", |span| span.content.as_ref());
+        let value = if first.trim_start().starts_with('↪') {
+            last
+        } else {
+            parse_gutter_new_line(first)
+        };
+        map.push(value);
+        last = value;
+    }
+    map
+}
+
+#[cfg(test)]
+pub(super) fn diff_line_map_for_test(lines: &[Line<'_>]) -> Vec<Option<usize>> {
+    diff_line_map(lines)
+}
+
+fn parse_gutter_new_line(gutter: &str) -> Option<usize> {
+    let columns: Vec<char> = gutter.chars().collect();
+    if columns.len() < 10 {
+        return None;
+    }
+    columns[5..9].iter().collect::<String>().trim().parse().ok()
+}
+
+/// Browser links per rendered row: a row containing a commit sha links to
+/// the repo's commit page. Wrap continuations inherit no link. Only https
+/// sources are linkable.
+fn commit_links(lines: &[Line<'_>], source_uri: &str) -> Vec<Option<String>> {
+    let web = source_uri.trim_end_matches(".git");
+    if !web.starts_with("https://") {
+        return vec![None; lines.len()];
+    }
+    lines
+        .iter()
+        .map(|line| {
+            let text: String = line
+                .spans
+                .iter()
+                .map(|span| span.content.as_ref())
+                .collect();
+            find_commit_sha(&text).map(|sha| format!("{web}/commit/{sha}"))
+        })
+        .collect()
+}
+
+/// First token that looks like a git sha: 7-40 hex chars including a digit.
+fn find_commit_sha(text: &str) -> Option<&str> {
+    text.split(|character: char| !character.is_ascii_hexdigit())
+        .find(|token| {
+            (7..=40).contains(&token.len())
+                && token.chars().any(|character| character.is_ascii_digit())
+        })
+}
+
+/// Recent jj changes for the repository detail, beside the git log.
+fn jj_log_lines(module: &ModuleView) -> Vec<Line<'static>> {
+    let Some(repo) = module.local_path.as_ref() else {
+        return Vec::new();
+    };
+    if !repo.join(".jj").is_dir() {
+        return Vec::new();
+    }
+    let output = std::process::Command::new("jj")
+        .args([
+            "--ignore-working-copy",
+            "log",
+            "-n",
+            "8",
+            "--no-graph",
+            "-T",
+            "change_id.short(8) ++ \" \" ++ if(local_bookmarks, local_bookmarks.join(\",\") ++ \" \", \"\") ++ description.first_line() ++ \"\\n\"",
+        ])
+        .current_dir(repo)
+        .output();
+    let Ok(output) = output else {
+        return Vec::new();
+    };
+    if !output.status.success() {
+        return Vec::new();
+    }
     let mut lines = vec![
+        Line::from(""),
         Line::from(Span::styled(
-            "Diff",
+            "Recent changes (jj)",
             Style::default().add_modifier(Modifier::BOLD),
         )),
-        Line::from("vs deployed and source-at-deploy are computed by the dashboard route today"),
-        Line::from(
-            "TUI keeps this tab lazy and off the scan path; target reads remain a follow-up seam",
-        ),
-        Line::from(""),
     ];
-    lines.extend(
-        artifact
-            .raw_source
-            .lines()
-            .take(30)
-            .map(|line| Line::from(format!("  {line}"))),
-    );
+    for row in String::from_utf8_lossy(&output.stdout).lines() {
+        let (change, rest) = row.split_at(row.len().min(8));
+        lines.push(Line::from(vec![
+            Span::styled(change.to_string(), Style::default().fg(Color::Magenta)),
+            Span::raw(rest.to_string()),
+        ]));
+    }
     lines
 }
 
-fn frontmatter_lines(artifact: &ArtifactView) -> Vec<Line<'static>> {
+/// Opens a URL with the platform opener, detached from the TUI.
+fn open_in_browser(url: &str) -> bool {
+    let opener = if cfg!(target_os = "macos") {
+        "open"
+    } else {
+        "xdg-open"
+    };
+    std::process::Command::new(opener)
+        .arg(url)
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .is_ok()
+}
+
+/// The Deployments block of the provenance view: per-target verification
+/// badges with per-harness rows.
+fn deployment_lines(groups: &[commands::view::DeployGroup]) -> Vec<Line<'static>> {
+    let mut lines = vec![Line::from(Span::styled(
+        "Deployments",
+        Style::default().add_modifier(Modifier::BOLD),
+    ))];
+    if groups.is_empty() {
+        lines.push(Line::from(Span::styled(
+            "not deployed anywhere — D deploys it to a target",
+            Style::default().fg(Color::DarkGray),
+        )));
+    }
+    for group in groups {
+        let all_verified = group.verified == group.total;
+        lines.push(Line::from(vec![
+            Span::styled(
+                if all_verified { "✓ " } else { "✗ " },
+                Style::default().fg(if all_verified {
+                    Color::Green
+                } else {
+                    Color::Red
+                }),
+            ),
+            Span::styled(
+                group.target.clone(),
+                Style::default().add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(
+                format!("  {}/{} verified", group.verified, group.total),
+                Style::default().fg(Color::DarkGray),
+            ),
+        ]));
+        for harness in &group.harnesses {
+            let (badge, style) = if harness.verified {
+                ("✓", Style::default().fg(Color::Green))
+            } else {
+                ("✗ DRIFT", Style::default().fg(Color::Red))
+            };
+            lines.push(Line::from(vec![
+                Span::raw("    "),
+                Span::styled(
+                    format!("{:<12}", harness.harness),
+                    Style::default().fg(Color::Cyan),
+                ),
+                Span::styled(format!("{badge:<8}"), style),
+                Span::styled(
+                    harness.deployed_path.clone(),
+                    Style::default().fg(Color::DarkGray),
+                ),
+            ]));
+        }
+    }
+    lines
+}
+
+/// Row offsets of hunk headers within rendered diff lines.
+fn hunk_offsets(lines: &[Line<'_>]) -> Vec<usize> {
+    lines
+        .iter()
+        .enumerate()
+        .filter(|(_, line)| {
+            line.spans
+                .first()
+                .is_some_and(|span| span.content.starts_with("@@"))
+        })
+        .map(|(index, _)| index)
+        .collect()
+}
+
+fn diff_line_colored(line: &str) -> Line<'static> {
+    let style = if line.starts_with("+++") || line.starts_with("---") {
+        Style::default()
+            .fg(Color::DarkGray)
+            .add_modifier(Modifier::BOLD)
+    } else if line.starts_with('+') {
+        Style::default().fg(Color::Green)
+    } else if line.starts_with('-') {
+        Style::default().fg(Color::Red)
+    } else if line.starts_with("@@") {
+        Style::default().fg(Color::Cyan)
+    } else if line.starts_with("diff ") || line.starts_with("index ") {
+        Style::default().fg(Color::DarkGray)
+    } else {
+        Style::default()
+    };
+    Line::from(Span::styled(line.to_string(), style))
+}
+
+fn frontmatter_lines(artifact: &ArtifactView, width: u16) -> Vec<Line<'static>> {
     if artifact.metadata.is_empty() {
         return vec![Line::from("no frontmatter metadata")];
     }
-    artifact
+    let lines = artifact
         .metadata
         .iter()
         .map(|(key, value)| {
@@ -2361,12 +4543,20 @@ fn frontmatter_lines(artifact: &ArtifactView) -> Vec<Line<'static>> {
                 Span::raw(value.clone()),
             ])
         })
-        .collect()
+        .collect();
+    // Values wrap within the value column, never back to column zero.
+    expand_gutter_wrapped(lines, 18, usize::from(width))
 }
 
 fn history_lines(artifact: &ArtifactView) -> Vec<Line<'static>> {
     if artifact.git_log.is_empty() {
-        return vec![Line::from("no git history")];
+        return vec![
+            Line::from("no git history for this file"),
+            Line::from(Span::styled(
+                "o opens gitui on the repository",
+                Style::default().fg(Color::DarkGray),
+            )),
+        ];
     }
     let mut lines = Vec::new();
     for commit in &artifact.git_log {
@@ -2394,33 +4584,6 @@ fn history_lines(artifact: &ArtifactView) -> Vec<Line<'static>> {
     }
     lines
 }
-
-fn companion_lines(artifact: &ArtifactView) -> Vec<Line<'static>> {
-    if artifact.companions.is_empty() {
-        return vec![Line::from("no companions")];
-    }
-    let mut lines = Vec::new();
-    for companion in &artifact.companions {
-        lines.push(Line::from(Span::styled(
-            companion.name.clone(),
-            Style::default().add_modifier(Modifier::BOLD),
-        )));
-        lines.push(Line::from(format!("path: {}", companion.relative_path)));
-        if !companion.description.is_empty() {
-            lines.push(Line::from(companion.description.clone()));
-        }
-        lines.push(Line::from(""));
-        lines.extend(
-            companion
-                .content_body
-                .lines()
-                .map(|line| Line::from(line.to_string())),
-        );
-        lines.push(Line::from(""));
-    }
-    lines
-}
-
 fn copy_to_pbcopy(text: &str) -> bool {
     let Ok(mut child) = Command::new("pbcopy")
         .stdin(Stdio::piped())

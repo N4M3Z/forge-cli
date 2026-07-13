@@ -45,7 +45,29 @@ struct Cli {
 enum Command {
     /// Launch the terminal dashboard
     #[cfg(feature = "tui")]
-    Tui,
+    Tui {
+        /// Render one frame to stdout as text (headless layout inspection).
+        #[arg(long)]
+        snapshot: bool,
+        /// Snapshot width in columns.
+        #[arg(long, default_value = "120")]
+        width: u16,
+        /// Snapshot height in rows.
+        #[arg(long, default_value = "40")]
+        height: u16,
+        /// Section number (1-based) to display in the snapshot.
+        #[arg(long)]
+        section: Option<usize>,
+        /// Detail tab: preview|code|diff|provenance|frontmatter|history|companions.
+        #[arg(long)]
+        tab: Option<String>,
+        /// Drill right N times (0 = sections focus, 1 = list, 2 = detail).
+        #[arg(long, default_value = "0")]
+        drill: u8,
+        /// Move the list selection down N rows before drilling into detail.
+        #[arg(long, default_value = "0")]
+        row: usize,
+    },
 
     /// Initialize a new forge module with required files and schemas
     Init {
@@ -109,6 +131,11 @@ enum Command {
         #[arg(long)]
         allow_stale: bool,
 
+        /// Deploy only files under this module-relative prefix
+        /// (e.g. `skills/Name/` or `agents/Name.`). Implies --no-prune.
+        #[arg(long, value_name = "PREFIX")]
+        only: Option<String>,
+
         /// Override each provider's default model when selecting
         /// `provider/<model>/` qualifier variants (exact model ID from
         /// config/models.yaml; ignored for providers that lack it).
@@ -163,6 +190,11 @@ enum Command {
         /// Show what would be pruned without moving files.
         #[arg(long)]
         dry_run: bool,
+
+        /// Deploy only files under this module-relative prefix
+        /// (e.g. `skills/Name/` or `agents/Name.`). Implies --no-prune.
+        #[arg(long, value_name = "PREFIX")]
+        only: Option<String>,
     },
 
     /// Copy source files directly to a target directory (no assembly, no transforms)
@@ -375,7 +407,21 @@ pub fn run() -> i32 {
 
     let (result, verb) = match command {
         #[cfg(feature = "tui")]
-        Command::Tui => return crate::tui::run(),
+        Command::Tui {
+            snapshot,
+            width,
+            height,
+            section,
+            tab,
+            drill,
+            row,
+        } => {
+            return if snapshot {
+                crate::tui::run_snapshot(width, height, section, tab.as_deref(), drill, row)
+            } else {
+                crate::tui::run()
+            };
+        }
         Command::Init { target } => (init::execute(&target), "initialized"),
         Command::Install {
             source,
@@ -386,6 +432,7 @@ pub fn run() -> i32 {
             no_prune,
             dry_run,
             allow_stale,
+            only,
             model,
         } => (
             install::execute(
@@ -396,6 +443,7 @@ pub fn run() -> i32 {
                 !no_prune,
                 interactive,
                 dry_run,
+                only.as_deref(),
                 model.as_deref(),
                 allow_stale,
             ),
@@ -413,6 +461,7 @@ pub fn run() -> i32 {
             interactive,
             no_prune,
             dry_run,
+            only,
         } => (
             deploy::execute(
                 &source,
@@ -422,6 +471,7 @@ pub fn run() -> i32 {
                 !no_prune,
                 interactive,
                 dry_run,
+                only.as_deref(),
             ),
             "deployed",
         ),
@@ -458,7 +508,16 @@ pub fn run() -> i32 {
             ));
         }
         Command::Clean { source, target } => (
-            deploy::execute(&source, target.as_deref(), &[], false, true, false, false),
+            deploy::execute(
+                &source,
+                target.as_deref(),
+                &[],
+                false,
+                true,
+                false,
+                false,
+                None,
+            ),
             "cleaned",
         ),
         Command::Config => return exit_code(ontology::show(args.json)),

@@ -508,6 +508,9 @@ mod tests {
             source_uri: format!("https://example.com/{name}"),
             is_target: false,
             artifacts,
+            local_path: None,
+            vcs: None,
+            git_log: Vec::new(),
         }
     }
 

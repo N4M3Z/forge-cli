@@ -136,6 +136,9 @@ pub(super) fn scan_source_module(root: &Path) -> Option<ModuleView> {
         source_uri,
         is_target: true,
         artifacts,
+        local_path: None,
+        vcs: None,
+        git_log: Vec::new(),
     })
 }
 
@@ -230,6 +233,7 @@ fn build_source_artifact(
         kind: kind.to_string(),
         module: String::new(),
         relative_path: relative_path.to_string(),
+        source_path: relative_path.to_string(),
         description,
         content_preview,
         content_body,
@@ -244,6 +248,7 @@ fn build_source_artifact(
         module_tint: 0,
         companions: Vec::new(),
         variants: Vec::new(),
+        vcs: None,
     }
 }
 

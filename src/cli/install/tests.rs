@@ -20,6 +20,7 @@ fn execute_errors_on_missing_module() {
         false,
         false,
         None,
+        None,
         false,
     );
     assert!(result.is_err());
@@ -36,6 +37,7 @@ fn execute_errors_on_directory_without_module_yaml() {
         false,
         false,
         false,
+        None,
         None,
         false,
     );
@@ -71,6 +73,7 @@ fn execute_succeeds_on_empty_module() {
         false,
         false,
         None,
+        None,
         false,
     );
     assert!(result.is_ok());
@@ -90,6 +93,7 @@ fn execute_unknown_provider_lists_available_choices() {
         false,
         false,
         false,
+        None,
         None,
         false,
     );
@@ -126,6 +130,7 @@ fn execute_provider_filter_skips_unrequested_providers() {
         false,
         false,
         false,
+        None,
         None,
         false,
     )

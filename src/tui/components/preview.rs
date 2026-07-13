@@ -2,57 +2,91 @@ use ratatui::{
     Frame,
     layout::Rect,
     style::{Color, Modifier, Style},
-    text::{Line, Span},
+    text::{Line, Span, Text},
     widgets::{Block, Borders, Paragraph, Wrap},
 };
 
 use commands::view::ArtifactView;
 
-/// Approximate the number of rows the body occupies when word-wrapped to
-/// `width`, so the scroll offset can be clamped to a reachable bottom. Counts
-/// each source line as at least one row plus a row per `width` characters
-/// beyond the first; wide glyphs are treated as one column (close enough to
-/// keep the last line reachable without pulling in a unicode-width dependency).
-fn wrapped_line_count(body: &str, width: u16) -> u16 {
+use super::super::app::DetailTab;
+
+/// Display rows the lines occupy when word-wrapped to `width`. Counts each
+/// line as at least one row plus one per full width beyond it; wide glyphs
+/// count as one column, close enough to keep the last line reachable.
+pub(in super::super) fn wrapped_rows(lines: &[Line<'_>], width: u16) -> usize {
     if width == 0 {
-        return u16::try_from(body.lines().count()).unwrap_or(u16::MAX);
+        return lines.len();
     }
     let width = usize::from(width);
-    let mut rows: usize = 0;
-    for line in body.lines() {
-        let chars = line.chars().count().max(1);
-        rows = rows.saturating_add(chars.div_ceil(width));
-    }
-    u16::try_from(rows).unwrap_or(u16::MAX)
+    lines
+        .iter()
+        .map(|line| line.width().max(1).div_ceil(width))
+        .sum()
 }
 
-/// Full-window scrollable view of a single artifact's body. Opened from the
-/// artifacts pane with Enter, so a skill's full content is readable instead of
-/// clipped into a quarter-pane detail column.
+/// Rendered lines for one (tab, width) combination, rebuilt only when either
+/// changes so scrolling a large file stays cheap.
+#[derive(Debug, Clone)]
+struct PreviewPane {
+    tab: DetailTab,
+    width: u16,
+    lines: Vec<Line<'static>>,
+    windowed: bool,
+}
+
+/// Full-window scrollable view of the selected artifact. Opened from the
+/// detail pane with Enter; shows the same rich tabs as the pane (digits
+/// switch), so zooming never loses highlighting or layout.
 #[derive(Debug, Clone)]
 pub struct ArtifactPreview {
-    title: String,
-    body: String,
+    artifact: ArtifactView,
     scroll: u16,
+    pane: Option<PreviewPane>,
 }
 
 impl ArtifactPreview {
     #[must_use]
     pub fn from_artifact(artifact: &ArtifactView) -> Self {
-        let body = if artifact.content_body.is_empty() {
-            artifact.content_preview.clone()
-        } else {
-            artifact.content_body.clone()
-        };
-        let title = format!(
-            " {}  ·  {}  ·  {} ",
-            artifact.name, artifact.kind, artifact.relative_path
-        );
         Self {
-            title,
-            body,
+            artifact: artifact.clone(),
             scroll: 0,
+            pane: None,
         }
+    }
+
+    #[must_use]
+    pub fn artifact(&self) -> &ArtifactView {
+        &self.artifact
+    }
+
+    #[must_use]
+    pub fn scroll(&self) -> u16 {
+        self.scroll
+    }
+
+    #[must_use]
+    pub fn needs_rebuild(&self, tab: DetailTab, width: u16) -> bool {
+        self.pane
+            .as_ref()
+            .is_none_or(|pane| pane.tab != tab || pane.width != width)
+    }
+
+    pub fn set_lines(
+        &mut self,
+        tab: DetailTab,
+        width: u16,
+        lines: Vec<Line<'static>>,
+        windowed: bool,
+    ) {
+        if self.pane.as_ref().is_some_and(|pane| pane.tab != tab) {
+            self.scroll = 0;
+        }
+        self.pane = Some(PreviewPane {
+            tab,
+            width,
+            lines,
+            windowed,
+        });
     }
 
     pub fn scroll_down(&mut self, amount: u16) {
@@ -71,38 +105,66 @@ impl ArtifactPreview {
         self.scroll = u16::MAX;
     }
 
-    /// Render takes `&mut self` so the scroll offset can be clamped against the
-    /// real wrapped line count at the current width — the only place the true
-    /// content height is known.
     pub fn render(&mut self, frame: &mut Frame<'_>, area: Rect) {
+        let tab_label = self
+            .pane
+            .as_ref()
+            .map_or("Preview", |pane| pane.tab.label());
+        let title = format!(
+            " {} · {} · {} ",
+            self.artifact.name, tab_label, self.artifact.relative_path
+        );
         let block = Block::default()
-            .title(self.title.as_str())
+            .title(title)
             .title_bottom(Line::from(Span::styled(
-                " j/k · ␣/b page · g/G ends · Esc close ",
+                " 1-6 tabs · j/k · ␣/b page · g/G ends · Esc close ",
                 Style::default().fg(Color::DarkGray),
             )))
             .borders(Borders::ALL)
             .border_style(Style::default().fg(Color::Cyan));
+        let inner = block.inner(area);
+        let viewport = usize::from(inner.height.max(1));
 
-        let inner_width = area.width.saturating_sub(2);
-        let inner_height = area.height.saturating_sub(2);
-
-        let total = wrapped_line_count(&self.body, inner_width);
-        let max_scroll = total.saturating_sub(inner_height);
+        let Some(pane) = &self.pane else {
+            frame.render_widget(Paragraph::new("building preview...").block(block), area);
+            return;
+        };
+        // Wrapped content occupies more display rows than logical lines;
+        // clamp against the wrapped estimate or the tail becomes unreachable.
+        let total = if pane.windowed {
+            pane.lines.len()
+        } else {
+            wrapped_rows(&pane.lines, inner.width)
+        };
+        let max_scroll = u16::try_from(total.saturating_sub(viewport)).unwrap_or(u16::MAX);
         if self.scroll > max_scroll {
             self.scroll = max_scroll;
         }
+        let position = Line::from(Span::styled(
+            format!(" {}/{} ", self.scroll.saturating_add(1), total.max(1)),
+            Style::default().fg(Color::Gray).add_modifier(Modifier::DIM),
+        ));
 
-        let paragraph = Paragraph::new(self.body.as_str()).wrap(Wrap { trim: false });
-
-        frame.render_widget(
-            paragraph
-                .block(block.title_top(Line::from(Span::styled(
-                    format!(" {}/{} ", self.scroll.saturating_add(1), total.max(1)),
-                    Style::default().fg(Color::Gray).add_modifier(Modifier::DIM),
-                ))))
-                .scroll((self.scroll, 0)),
-            area,
-        );
+        if pane.windowed {
+            let window: Vec<Line<'static>> = pane
+                .lines
+                .iter()
+                .skip(usize::from(self.scroll))
+                .take(viewport)
+                .cloned()
+                .collect();
+            frame.render_widget(
+                Paragraph::new(Text::from(window)).block(block.title_top(position)),
+                area,
+            );
+        } else {
+            frame.render_widget(
+                Paragraph::new(Text::from(pane.lines.clone()))
+                    .wrap(Wrap { trim: false })
+                    .scroll((self.scroll, 0))
+                    .block(block.title_top(position)),
+                area,
+            );
+        }
     }
 }

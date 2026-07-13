@@ -126,7 +126,10 @@ fn compare_provider(
 
     // This module's deployed files (per the target manifest + provenance) that
     // are no longer built — stale deployments that should be pruned.
-    for (key, entry) in load_deployed_manifest(deployed_base) {
+    for (key, entry) in load_deployed_manifest(deployed_base).unwrap_or_else(|error| {
+        eprintln!("warning: {error}; treating manifest as empty for drift");
+        std::collections::HashMap::new()
+    }) {
         if build_files.contains_key(&key) || !is_content_key(&key) {
             continue;
         }
